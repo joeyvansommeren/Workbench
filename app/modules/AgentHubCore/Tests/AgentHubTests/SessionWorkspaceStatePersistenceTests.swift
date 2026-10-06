@@ -14,6 +14,7 @@ struct SessionWorkspaceStatePersistenceTests {
       selectedRepositoryPaths: ["/tmp/project-a", "/tmp/project-b"],
       selectedFolderPaths: ["/tmp"],
       monitoredSessionIds: ["session-1", "session-2"],
+      archivedSessionIds: ["session-archived"],
       ownedWorktreePaths: ["/tmp/project-a/worktrees/feature"],
       expansionState: [
         "repo:/tmp/project-a": true,

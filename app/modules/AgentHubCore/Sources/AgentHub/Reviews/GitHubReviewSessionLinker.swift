@@ -8,10 +8,67 @@ import Foundation
 
 struct GitHubReviewSessionLaunch: Equatable, Sendable {
   let pullRequestID: String
+  let pullRequestURL: String
   let provider: SessionProviderKind
-  let pendingID: UUID
+  let pendingID: UUID?
+  let sessionID: String?
   let projectPath: String
   let launchedAt: Date
+
+  init(
+    pullRequestID: String,
+    pullRequestURL: String,
+    provider: SessionProviderKind,
+    pendingID: UUID?,
+    sessionID: String? = nil,
+    projectPath: String,
+    launchedAt: Date
+  ) {
+    self.pullRequestID = pullRequestID
+    self.pullRequestURL = pullRequestURL
+    self.provider = provider
+    self.pendingID = pendingID
+    self.sessionID = sessionID
+    self.projectPath = projectPath
+    self.launchedAt = launchedAt
+  }
+
+  init?(_ association: GitHubReviewSessionAssociation) {
+    guard let provider = association.providerKind else { return nil }
+    self.init(
+      pullRequestID: association.pullRequestID,
+      pullRequestURL: association.pullRequestURL,
+      provider: provider,
+      pendingID: association.pendingUUID,
+      sessionID: association.sessionID,
+      projectPath: association.projectPath,
+      launchedAt: association.createdAt
+    )
+  }
+
+  var association: GitHubReviewSessionAssociation {
+    GitHubReviewSessionAssociation(
+      pullRequestID: pullRequestID,
+      pullRequestURL: pullRequestURL,
+      provider: provider,
+      pendingID: pendingID,
+      sessionID: sessionID,
+      projectPath: projectPath,
+      createdAt: launchedAt
+    )
+  }
+
+  func resolving(to sessionID: String) -> GitHubReviewSessionLaunch {
+    GitHubReviewSessionLaunch(
+      pullRequestID: pullRequestID,
+      pullRequestURL: pullRequestURL,
+      provider: provider,
+      pendingID: pendingID,
+      sessionID: sessionID,
+      projectPath: projectPath,
+      launchedAt: launchedAt
+    )
+  }
 }
 
 struct GitHubReviewSessionInventory {
@@ -57,16 +114,26 @@ enum GitHubReviewSessionLinker {
         $0.pullRequestID == pullRequest.id && $0.provider == inventory.provider
       }
       for launch in providerLaunches {
-        if let sessionID = inventory.resolvedPendingSessionIDs[launch.pendingID],
+        if let sessionID = launch.sessionID,
           let session = inventory.sessions.first(where: { $0.id == sessionID })
         {
           insert(
             link(for: session, inventory: inventory),
             into: &candidates
           )
-        } else if let pending = inventory.pendingSessions.first(where: {
-          $0.id == launch.pendingID
-        }) {
+        } else if let pendingID = launch.pendingID,
+          let sessionID = inventory.resolvedPendingSessionIDs[pendingID],
+          let session = inventory.sessions.first(where: { $0.id == sessionID })
+        {
+          insert(
+            link(for: session, inventory: inventory),
+            into: &candidates
+          )
+        } else if let pendingID = launch.pendingID,
+          let pending = inventory.pendingSessions.first(where: {
+            $0.id == pendingID
+          })
+        {
           let session = pending.placeholderSession
           insert(
             GitHubReviewSessionLink(
@@ -77,7 +144,7 @@ enum GitHubReviewSessionLinker {
                 pendingId: pending.id
               ),
               isPending: true,
-              displayName: "Starting review",
+              displayName: pending.worktree.name,
               status: nil
             ),
             into: &candidates
@@ -151,6 +218,7 @@ enum GitHubReviewSessionLinker {
         return message.localizedCaseInsensitiveContains(
           "Review this pull request independently"
         )
+          || message.localizedCaseInsensitiveContains("independent code review")
           || message.localizedCaseInsensitiveContains("read-only review")
       }
   }

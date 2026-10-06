@@ -1,6 +1,62 @@
 import AgentHubGitHub
 import SwiftUI
 
+struct SessionSidebarPresentation: Equatable {
+  let title: String
+  let context: String
+  let linkedPullRequest: GitHubPullRequestURLReference?
+
+  init(
+    session: CLISession,
+    customName: String?,
+    linkedPullRequests: [GitHubPullRequestURLReference]
+  ) {
+    let cleanedCustomName = Self.cleaned(customName)
+    let branch = Self.cleaned(session.branchName)
+    let meaningfulBranch = branch.flatMap { Self.isDefaultBranch($0) ? nil : $0 }
+    let pullRequest = linkedPullRequests.last
+    linkedPullRequest = pullRequest
+
+    if let cleanedCustomName {
+      title = cleanedCustomName
+    } else if let pullRequest {
+      title = "PR #\(pullRequest.number)"
+    } else if let meaningfulBranch {
+      title = meaningfulBranch
+    } else if let slug = Self.cleaned(session.slug) {
+      title = slug
+    } else if !session.projectName.isEmpty {
+      title = "\(session.projectName) · \(session.shortId)"
+    } else {
+      title = session.shortId
+    }
+
+    var contextParts: [String] = []
+    if let pullRequest {
+      contextParts.append("Reviewing PR #\(pullRequest.number)")
+      contextParts.append("\(pullRequest.owner)/\(pullRequest.repository)")
+    } else if !session.projectName.isEmpty {
+      contextParts.append(session.projectName)
+    }
+    if let displayBranch = pullRequest == nil ? branch : meaningfulBranch,
+      displayBranch.localizedCaseInsensitiveCompare(title) != .orderedSame
+    {
+      contextParts.append(displayBranch)
+    }
+    context = contextParts.joined(separator: " · ")
+  }
+
+  private static func cleaned(_ value: String?) -> String? {
+    let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return cleaned.isEmpty ? nil : cleaned
+  }
+
+  private static func isDefaultBranch(_ branch: String) -> Bool {
+    branch.caseInsensitiveCompare("main") == .orderedSame
+      || branch.caseInsensitiveCompare("master") == .orderedSame
+  }
+}
+
 // MARK: - CollapsibleSessionRow
 
 struct CollapsibleSessionRow: View {
@@ -18,7 +74,7 @@ struct CollapsibleSessionRow: View {
   let onArchive: (() -> Void)?
   let onSelect: () -> Void
 
-  private static let statusLabelMaxWidth: CGFloat = 96
+  private static let statusLabelMaxWidth: CGFloat = 124
 
   @State private var isHovered = false
   @State private var showArchiveConfirm = false
@@ -30,19 +86,28 @@ struct CollapsibleSessionRow: View {
 
   // MARK: - Computed
 
-  private var displayName: String {
-    customName ?? session.slug ?? session.shortId
+  private var presentation: SessionSidebarPresentation {
+    SessionSidebarPresentation(
+      session: session,
+      customName: customName,
+      linkedPullRequests: linkedPullRequests
+    )
   }
 
   private var statusColor: Color {
+    if attention != nil { return .orange }
     guard let sessionStatus else { return .secondary }
     switch sessionStatus {
     case .thinking: return .blue
     case .executingTool: return .orange
     case .waitingForUser: return .green
-    case .awaitingApproval: return .yellow
+    case .awaitingApproval: return .orange
     case .idle: return .secondary
     }
+  }
+
+  private var attention: SidebarSessionAttention? {
+    SidebarSessionAttention(status: sessionStatus)
   }
 
   private var isActiveStatus: Bool {
@@ -69,7 +134,8 @@ struct CollapsibleSessionRow: View {
     case .thinking: return "working"
     case .executingTool(let name): return name.lowercased()
     case .waitingForUser: return "ready"
-    case .awaitingApproval(let tool): return tool.lowercased()
+    case .awaitingApproval(let tool):
+      return SessionInteractiveInputTool.matches(tool) ? "Input needed" : "Approval needed"
     case .idle: return "idle"
     }
   }
@@ -98,30 +164,54 @@ struct CollapsibleSessionRow: View {
 
   var body: some View {
     HStack(spacing: 8) {
-      // Status dot
-      Circle()
-        .fill(statusColor)
-        .frame(width: 6, height: 6)
-        .scaleEffect(shouldPulse ? pulseScale : 1.0)
-        .animation(.easeInOut(duration: 0.35), value: statusColor)
+      statusIndicator
 
       // Content
       VStack(alignment: .leading, spacing: 2) {
-        // Row 1: name + provider + status + time
-        HStack(spacing: 6) {
-          Text(displayName)
-            .font(.secondarySmall)
-            .foregroundColor(.secondary.opacity(0.7))
+        // Row 1: the human work item, not the repeated launch prompt.
+        HStack(spacing: 4) {
+          Text(presentation.title)
+            .font(.secondaryDefault)
+            .foregroundColor(.primary)
             .lineLimit(1)
             .layoutPriority(1)
+
+          Spacer(minLength: 4)
+
+          actionsView
+            .fixedSize(horizontal: true, vertical: false)
+            .opacity(showActions ? 1 : 0)
+            .animation(.easeInOut(duration: 0.25), value: showActions)
+        }
+
+        // Row 2: repository, pull request and branch context, followed by live state.
+        HStack(spacing: 6) {
+          if !presentation.context.isEmpty {
+            if presentation.linkedPullRequest != nil {
+              Label(presentation.context, systemImage: "arrow.triangle.pull")
+                .font(.secondarySmall)
+                .foregroundColor(.blue.opacity(0.9))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+                .help(presentation.context)
+            } else {
+              Text(presentation.context)
+                .font(.secondarySmall)
+                .foregroundColor(.secondary.opacity(0.8))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            }
+          }
+
+          Spacer(minLength: 4)
 
           Text(providerKind.rawValue)
             .font(.secondaryCaption)
             .foregroundColor(isPrimary ? .white : .brandPrimary(for: providerKind).opacity(0.8))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-
-          Spacer(minLength: 4)
 
           statusLabel
             .lineLimit(1)
@@ -136,26 +226,12 @@ struct CollapsibleSessionRow: View {
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
         }
-
-        // Row 2: message + actions
-        HStack(spacing: 0) {
-          if let message = session.firstMessage, !message.isEmpty {
-            Text(message)
-              .font(.secondaryDefault)
-              .foregroundColor(.primary)
-              .lineLimit(1)
-              .truncationMode(.tail)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-
-          Spacer(minLength: 4)
-
-          actionsView
-            .fixedSize(horizontal: true, vertical: false)
-            .opacity(showActions ? 1 : 0)
-            .animation(.easeInOut(duration: 0.25), value: showActions)
-        }
         .frame(maxWidth: .infinity, alignment: .leading)
+
+        SessionWorkflowAssociationBadge(
+          session: session,
+          providerKind: providerKind
+        )
 
         if let pullRequest = sessionGitHubQuickAccessViewModel.currentBranchPR {
           GitHubSessionRowStatusLine(
@@ -179,6 +255,13 @@ struct CollapsibleSessionRow: View {
         .fill(rowBackground)
         .animation(.easeInOut(duration: 0.3), value: isPending)
     )
+    .overlay {
+      RoundedRectangle(cornerRadius: 6)
+        .stroke(
+          attention == nil ? Color.clear : Color.orange.opacity(colorScheme == .dark ? 0.42 : 0.32),
+          lineWidth: 1
+        )
+    }
     .onHover { hovering in
       withAnimation(.easeInOut(duration: 0.12)) {
         isHovered = hovering
@@ -204,11 +287,24 @@ struct CollapsibleSessionRow: View {
         await sessionGitHubQuickAccessViewModel.notifySessionActivity(at: newValue)
       }
     }
+    .sessionManagementActions(
+      session: session,
+      providerKind: providerKind,
+      customName: customName,
+      isPending: isPending
+    )
   }
 
   @ViewBuilder
   private var statusLabel: some View {
-    if let sessionStatus {
+    if let attention {
+      Label(attention.displayName, systemImage: attention.systemImage)
+        .font(.secondaryCaption)
+        .foregroundColor(statusColor)
+        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        .id("attention-\(attention.rawValue)")
+        .accessibilityLabel(attention.displayName)
+    } else if let sessionStatus {
       Text(statusDisplayText(sessionStatus))
         .font(.secondaryCaption)
         .foregroundColor(statusColor)
@@ -225,12 +321,37 @@ struct CollapsibleSessionRow: View {
 
   // MARK: - Subviews
 
+  @ViewBuilder
+  private var statusIndicator: some View {
+    if let attention {
+      Image(systemName: attention.systemImage)
+        .font(.system(size: 9, weight: .semibold))
+        .foregroundColor(statusColor)
+        .frame(width: 10, height: 10)
+        .accessibilityHidden(true)
+    } else {
+      Circle()
+        .fill(statusColor)
+        .frame(width: 6, height: 6)
+        .scaleEffect(shouldPulse ? pulseScale : 1.0)
+        .animation(.easeInOut(duration: 0.35), value: statusColor)
+        .accessibilityHidden(true)
+    }
+  }
+
   private var rowBackground: Color {
     if isPrimary && isHovered {
       return Color.brandPrimary(for: providerKind).opacity(colorScheme == .dark ? 0.28 : 0.85)
     }
     if isPrimary {
       return Color.brandPrimary(for: providerKind).opacity(colorScheme == .dark ? 0.2 : 0.75)
+    }
+    if attention != nil {
+      return Color.orange.opacity(
+        isHovered
+          ? (colorScheme == .dark ? 0.16 : 0.12)
+          : (colorScheme == .dark ? 0.10 : 0.07)
+      )
     }
     if isHovered {
       return Color.brandPrimary(for: providerKind).opacity(colorScheme == .dark ? 0.12 : 0.35)
@@ -304,7 +425,7 @@ struct CollapsibleSessionRow: View {
 
     withAnimation(
       .easeInOut(duration: 1.0)
-      .repeatForever(autoreverses: true)
+        .repeatForever(autoreverses: true)
     ) {
       pulseScale = 1.4
     }
@@ -390,7 +511,8 @@ private struct GitHubSessionRowStatusLine: View {
   private var primaryText: String {
     switch pullRequest.stateKind {
     case .open:
-      return pullRequest.isDraft ? "Draft PR #\(pullRequest.number)" : "Open PR #\(pullRequest.number)"
+      return pullRequest.isDraft
+        ? "Draft PR #\(pullRequest.number)" : "Open PR #\(pullRequest.number)"
     case .closed:
       return "Closed PR #\(pullRequest.number)"
     case .merged:
@@ -494,7 +616,8 @@ private struct GitHubSessionRowStatusLine: View {
     let prText: String
     switch pullRequest.stateKind {
     case .open:
-      prText = pullRequest.isDraft
+      prText =
+        pullRequest.isDraft
         ? "Draft PR #\(pullRequest.number)"
         : "Open PR #\(pullRequest.number)"
     case .closed:
@@ -514,7 +637,8 @@ private struct GitHubSessionRowStatusLine: View {
     }
 
     if observationState.isUnavailable {
-      let availability = lastRefreshedAt == nil
+      let availability =
+        lastRefreshedAt == nil
         ? "GitHub status is unavailable."
         : "GitHub status is unavailable; showing the last known result."
       return "\(availability) \(currentGitHubHelpText)"
@@ -525,7 +649,8 @@ private struct GitHubSessionRowStatusLine: View {
 
   private var currentGitHubHelpText: String {
     if !blockers.isEmpty {
-      let descriptions = blockers
+      let descriptions =
+        blockers
         .sorted { $0.rawValue < $1.rawValue }
         .map(\.displayName)
         .joined(separator: ", ")
@@ -540,9 +665,11 @@ private struct GitHubSessionRowStatusLine: View {
     case .success:
       return "CI passing: \(summary.passed) of \(summary.total) checks passed."
     case .failure:
-      return "CI failing: \(summary.failed) failed, \(summary.passed) passed, \(summary.pending) pending."
+      return
+        "CI failing: \(summary.failed) failed, \(summary.passed) passed, \(summary.pending) pending."
     case .pending:
-      return "CI running: \(summary.pending) pending, \(summary.passed) passed, \(summary.failed) failed."
+      return
+        "CI running: \(summary.pending) pending, \(summary.passed) passed, \(summary.failed) failed."
     case .none:
       if summary.skipped > 0 {
         return "CI checks are skipped or neutral: \(summary.skipped) of \(summary.total)."
@@ -629,7 +756,7 @@ private struct GitHubSessionRowStatusLine: View {
             colorScheme: .dark,
             isPinned: idx == 0,
             onPin: {},
-            onArchive: state.1 ? nil : {},            onSelect: {}
+            onArchive: state.1 ? nil : {}, onSelect: {}
           )
         }
       }
@@ -651,7 +778,7 @@ private struct GitHubSessionRowStatusLine: View {
             colorScheme: .dark,
             isPinned: false,
             onPin: {},
-            onArchive: {},            onSelect: {}
+            onArchive: {}, onSelect: {}
           )
         }
       }
@@ -672,7 +799,7 @@ private struct GitHubSessionRowStatusLine: View {
           colorScheme: .light,
           isPinned: false,
           onPin: {},
-          onArchive: {},          onSelect: {}
+          onArchive: {}, onSelect: {}
         )
         .environment(\.colorScheme, .light)
 
@@ -687,7 +814,7 @@ private struct GitHubSessionRowStatusLine: View {
           colorScheme: .light,
           isPinned: false,
           onPin: {},
-          onArchive: {},          onSelect: {}
+          onArchive: {}, onSelect: {}
         )
         .environment(\.colorScheme, .light)
 
@@ -702,7 +829,7 @@ private struct GitHubSessionRowStatusLine: View {
           colorScheme: .light,
           isPinned: false,
           onPin: {},
-          onArchive: {},          onSelect: {}
+          onArchive: {}, onSelect: {}
         )
         .environment(\.colorScheme, .light)
       }

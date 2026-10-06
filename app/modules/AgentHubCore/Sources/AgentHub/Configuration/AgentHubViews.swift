@@ -25,16 +25,10 @@ private struct RemoveTitleToolbarModifier: ViewModifier {
 
 /// The application-level workspace for structured ticket workflows and raw sessions.
 public struct AgentHubOperationsView: View {
-  private enum Section: String, CaseIterable, Identifiable {
-    case workflows = "Workflows"
-    case reviews = "Reviews"
-    case sessions = "Sessions"
-
-    var id: Self { self }
-  }
-
   @Environment(\.agentHub) private var agentHub
-  @State private var section = Section.workflows
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.runtimeTheme) private var runtimeTheme
+  @State private var section = AgentHubWorkspaceSection.workflows
 
   public init() {}
 
@@ -42,13 +36,14 @@ public struct AgentHubOperationsView: View {
     VStack(spacing: 0) {
       HStack {
         Picker("Workspace", selection: $section) {
-          ForEach(Section.allCases) { section in
+          ForEach(AgentHubWorkspaceSection.allCases) { section in
             Text(section.rawValue).tag(section)
           }
         }
         .pickerStyle(.segmented)
         .labelsHidden()
         .frame(width: 320)
+        .tint(Color.brandPrimary(from: runtimeTheme))
         .accessibilityLabel("AgentHub workspace")
 
         Spacer()
@@ -64,6 +59,9 @@ public struct AgentHubOperationsView: View {
       }
       .padding(.horizontal, DesignTokens.Spacing.md)
       .frame(height: AgentHubLayout.topBarHeight)
+      .background(
+        Color.themedPanelBackground(for: colorScheme, theme: runtimeTheme)
+      )
 
       Divider()
 
@@ -77,7 +75,8 @@ public struct AgentHubOperationsView: View {
                 agentHub.globalSessionSelectionRouter.select(
                   providerKind: assignment.provider,
                   sessionId: assignment.session.id,
-                  projectPath: assignment.session.projectPath
+                  projectPath: assignment.session.projectPath,
+                  session: assignment.session
                 )
                 section = .sessions
               },
@@ -88,12 +87,17 @@ public struct AgentHubOperationsView: View {
                   : agentHub.codexSessionsViewModel
                 sessionsViewModel.stopMonitoring(session: assignment.session)
               },
-              onStartSession: { workflowID, provider in
+              onStartSession: { workflowID, provider, initialPrompt in
                 startSession(
                   in: workflowID,
                   provider: provider,
+                  initialPrompt: initialPrompt,
                   agentHub: agentHub
                 )
+              },
+              onCompareSessions: { request in
+                agentHub.openWorkflowSessionComparison(request)
+                section = .sessions
               }
             )
           } else {
@@ -108,10 +112,11 @@ public struct AgentHubOperationsView: View {
               viewModel: agentHub.gitHubReviewsViewModel,
               claudeSessionsViewModel: agentHub.claudeSessionsViewModel,
               codexSessionsViewModel: agentHub.codexSessionsViewModel,
-              onReview: { pullRequest, provider in
-                startReview(
+              onReview: { pullRequest, provider, template in
+                await startReview(
                   pullRequest,
                   provider: provider,
+                  template: template,
                   agentHub: agentHub
                 )
               },
@@ -130,13 +135,60 @@ public struct AgentHubOperationsView: View {
         }
       }
     }
-    .frame(minWidth: 1200, minHeight: 750)
+    .frame(
+      minWidth: 1200,
+      maxWidth: .infinity,
+      minHeight: 750,
+      maxHeight: .infinity,
+      alignment: .topLeading
+    )
+    .background(
+      Color.adaptiveBackground(for: colorScheme, theme: runtimeTheme)
+        .ignoresSafeArea()
+    )
+    .onChange(
+      of: agentHub?.claudeSessionsViewModel.resolvedPendingSessionHistory ?? [:]
+    ) { _, resolutions in
+      guard let agentHub else { return }
+      Task {
+        await agentHub.gitHubReviewsViewModel.resolveReviewLaunches(
+          resolutions,
+          provider: .claude
+        )
+        applyReviewSessionTitles(provider: .claude, agentHub: agentHub)
+      }
+    }
+    .onChange(
+      of: agentHub?.codexSessionsViewModel.resolvedPendingSessionHistory ?? [:]
+    ) { _, resolutions in
+      guard let agentHub else { return }
+      Task {
+        await agentHub.gitHubReviewsViewModel.resolveReviewLaunches(
+          resolutions,
+          provider: .codex
+        )
+        applyReviewSessionTitles(provider: .codex, agentHub: agentHub)
+      }
+    }
+    .task {
+      guard let agentHub else { return }
+      await agentHub.gitHubReviewsViewModel.loadSessionAssociations()
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: AgentHubAppCommand.selectWorkspaceNotification)
+    ) { notification in
+      guard let requestedSection = AgentHubAppCommand.workspaceSection(from: notification) else {
+        return
+      }
+      section = requestedSection
+    }
     .modifier(RemoveTitleToolbarModifier())
   }
 
   private func startSession(
     in workflowID: String,
     provider: SessionProviderKind,
+    initialPrompt: String?,
     agentHub: AgentHubProvider
   ) {
     guard
@@ -168,9 +220,10 @@ public struct AgentHubOperationsView: View {
       )
 
     sessionsViewModel.addRepository(at: normalizedPath)
+    let trimmedPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
     sessionsViewModel.startNewSessionInHub(
       launchTarget,
-      initialPrompt: "Work on \(workflow.name)."
+      initialPrompt: trimmedPrompt?.isEmpty == false ? trimmedPrompt : "Work on \(workflow.name)."
     )
     if let pendingSessionID = sessionsViewModel.lastCreatedPendingId {
       agentHub.workflowDashboardViewModel.associateManualSessionLaunch(
@@ -185,8 +238,9 @@ public struct AgentHubOperationsView: View {
   private func startReview(
     _ pullRequest: GitHubProjectPullRequest,
     provider: SessionProviderKind,
+    template: GitHubPromptTemplate,
     agentHub: AgentHubProvider
-  ) {
+  ) async {
     guard let project = agentHub.gitHubReviewsViewModel.selectedProject,
       let view = agentHub.gitHubReviewsViewModel.selectedView
     else { return }
@@ -213,15 +267,19 @@ public struct AgentHubOperationsView: View {
       : agentHub.codexSessionsViewModel
     let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(repositoryPath)
     let target = WorktreeBranch(
-      name: pullRequest.repositoryName,
+      name: pullRequest.title,
       path: normalizedPath,
       isWorktree: false,
       isExpanded: true
     )
-    let prompt = GitHubProjectReviewPromptBuilder.prompt(
-      pullRequest: pullRequest,
-      project: project,
-      view: view
+    let prompt = GitHubPromptLibrary.shared.renderedPrompt(
+      template: template,
+      context: GitHubPromptContext(
+        pullRequest: pullRequest,
+        project: project,
+        view: view,
+        provider: provider
+      )
     )
 
     sessionsViewModel.addRepository(at: normalizedPath)
@@ -232,17 +290,36 @@ public struct AgentHubOperationsView: View {
       )
     else {
       agentHub.gitHubReviewsViewModel.presentLaunchError(
-        "Could not start the \(provider.rawValue) review session."
+        "Could not start the \(provider.rawValue) pull request session."
       )
       return
     }
-    agentHub.gitHubReviewsViewModel.registerReviewLaunch(
+    await agentHub.gitHubReviewsViewModel.registerReviewLaunch(
       for: pullRequest,
       provider: provider,
       pendingID: pendingID,
       projectPath: normalizedPath
     )
-    section = .sessions
+    await agentHub.gitHubReviewsViewModel.resolveReviewLaunches(
+      sessionsViewModel.resolvedPendingSessionHistory,
+      provider: provider
+    )
+    applyReviewSessionTitles(provider: provider, agentHub: agentHub)
+  }
+
+  private func applyReviewSessionTitles(
+    provider: SessionProviderKind,
+    agentHub: AgentHubProvider
+  ) {
+    let sessionsViewModel =
+      provider == .claude
+      ? agentHub.claudeSessionsViewModel
+      : agentHub.codexSessionsViewModel
+    for (sessionID, title) in agentHub.gitHubReviewsViewModel.linkedSessionTitles(
+      provider: provider
+    ) {
+      sessionsViewModel.setCustomName(title, forSessionId: sessionID)
+    }
   }
 
   private func openReviewSession(
@@ -260,7 +337,8 @@ public struct AgentHubOperationsView: View {
       providerKind: link.provider,
       sessionId: link.session.id,
       projectPath: link.session.projectPath,
-      itemId: link.itemID
+      itemId: link.itemID,
+      session: link.isPending ? nil : link.session
     )
     section = .sessions
   }

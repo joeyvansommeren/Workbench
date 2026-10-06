@@ -5,7 +5,7 @@
 
 import Foundation
 
-public struct GitHubProjectView: Identifiable, Equatable, Sendable {
+public struct GitHubProjectView: Codable, Identifiable, Equatable, Sendable {
   public let id: String
   public let number: Int
   public let name: String
@@ -21,7 +21,7 @@ public struct GitHubProjectView: Identifiable, Equatable, Sendable {
   }
 }
 
-public struct GitHubReviewProject: Identifiable, Equatable, Sendable {
+public struct GitHubReviewProject: Codable, Identifiable, Equatable, Sendable {
   public let id: String
   public let ownerLogin: String
   public let ownerType: String
@@ -53,7 +53,7 @@ public struct GitHubReviewProject: Identifiable, Equatable, Sendable {
   }
 }
 
-public struct GitHubProjectPullRequest: Identifiable, Equatable, Sendable {
+public struct GitHubProjectPullRequest: Codable, Identifiable, Equatable, Sendable {
   public let id: String
   public let number: Int
   public let title: String
@@ -65,6 +65,7 @@ public struct GitHubProjectPullRequest: Identifiable, Equatable, Sendable {
   public let isDraft: Bool
   public let state: String
   public let projectStatus: String?
+  public let projectPriority: String?
 
   public init(
     id: String,
@@ -77,7 +78,8 @@ public struct GitHubProjectPullRequest: Identifiable, Equatable, Sendable {
     updatedAt: Date?,
     isDraft: Bool,
     state: String,
-    projectStatus: String?
+    projectStatus: String?,
+    projectPriority: String? = nil
   ) {
     self.id = id
     self.number = number
@@ -90,5 +92,6 @@ public struct GitHubProjectPullRequest: Identifiable, Equatable, Sendable {
     self.isDraft = isDraft
     self.state = state
     self.projectStatus = projectStatus
+    self.projectPriority = projectPriority
   }
 }

@@ -18,7 +18,12 @@ enum SidePanelContent: Equatable {
   case plan(sessionId: String, session: CLISession, planState: PlanState)
   case webPreview(sessionId: String, session: CLISession, projectPath: String, mode: WebPreviewMode)
   case mermaid(sessionId: String, session: CLISession)
-  case gitHub(sessionId: String, session: CLISession, projectPath: String)
+  case gitHub(
+    sessionId: String,
+    session: CLISession,
+    projectPath: String,
+    linkedPullRequests: [GitHubPullRequestURLReference]
+  )
   case edits(sessionId: String, session: CLISession)
   case mcpApp(sessionId: String, session: CLISession, projectPath: String)
   case simulator(sessionId: String, session: CLISession, projectPath: String)
@@ -33,8 +38,8 @@ enum SidePanelContent: Equatable {
       return id1 == id2 && p1 == p2 && m1 == m2
     case (.mermaid(let id1, _), .mermaid(let id2, _)):
       return id1 == id2
-    case (.gitHub(let id1, _, let p1), .gitHub(let id2, _, let p2)):
-      return id1 == id2 && p1 == p2
+    case (.gitHub(let id1, _, let p1, let links1), .gitHub(let id2, _, let p2, let links2)):
+      return id1 == id2 && p1 == p2 && links1 == links2
     case (.edits(let id1, _), .edits(let id2, _)):
       return id1 == id2
     case (.mcpApp(let id1, _, let p1), .mcpApp(let id2, _, let p2)):
@@ -48,7 +53,7 @@ enum SidePanelContent: Equatable {
   func replacingPendingSession(with session: CLISession) -> SidePanelContent? {
     switch self {
     case .webPreview(let sessionId, _, let projectPath, let mode)
-      where sessionId.hasPrefix("pending-") && session.projectPath == projectPath:
+    where sessionId.hasPrefix("pending-") && session.projectPath == projectPath:
       return .webPreview(
         sessionId: session.id,
         session: session,
@@ -56,7 +61,7 @@ enum SidePanelContent: Equatable {
         mode: mode
       )
     case .simulator(let sessionId, _, let projectPath)
-      where sessionId.hasPrefix("pending-") && session.projectPath == projectPath:
+    where sessionId.hasPrefix("pending-") && session.projectPath == projectPath:
       return .simulator(
         sessionId: session.id,
         session: session,
@@ -80,10 +85,10 @@ private struct GitHubPopOutItem: Identifiable {
   let id = UUID()
   let session: CLISession
   let projectPath: String
+  let linkedPullRequests: [GitHubPullRequestURLReference]
   let viewModel: GitHubViewModel
   let onSendToSession: ((String, CLISession) -> Void)?
 }
-
 
 // MARK: - SessionFileSheetItem
 
@@ -97,8 +102,11 @@ private struct SessionFileSheetItem: Identifiable {
 // MARK: - ProviderMonitoringItem
 
 enum ProviderMonitoringItem: Identifiable {
-  case pending(provider: SessionProviderKind, viewModel: CLISessionsViewModel, pending: PendingHubSession)
-  case monitored(provider: SessionProviderKind, viewModel: CLISessionsViewModel, session: CLISession, state: SessionMonitorState?)
+  case pending(
+    provider: SessionProviderKind, viewModel: CLISessionsViewModel, pending: PendingHubSession)
+  case monitored(
+    provider: SessionProviderKind, viewModel: CLISessionsViewModel, session: CLISession,
+    state: SessionMonitorState?)
 
   var id: String {
     switch self {
@@ -164,6 +172,12 @@ private struct HubAuxiliaryShellTarget {
   let displayName: String
 }
 
+private struct ActiveWorkflowComparison {
+  let request: WorkflowSessionComparisonRequest
+  let implementation: ProviderMonitoringItem
+  let review: ProviderMonitoringItem
+}
+
 // MARK: - MultiProviderMonitoringPanelView
 
 public struct MultiProviderMonitoringPanelView: View {
@@ -181,12 +195,14 @@ public struct MultiProviderMonitoringPanelView: View {
   @State private var sidePanelExpansion = EmbeddedSidePanelExpansionState<SidePanelPayload>()
   @State private var autoOpenedSidePanelKeys: Set<MonitoringAutoOpenSidePanelKey> = []
   @State private var autoOpenBaselineDate: Date?
-  @State private var observedAutoOpenKeysBySessionID: [String: Set<MonitoringAutoOpenSidePanelKey>] = [:]
+  @State private var observedAutoOpenKeysBySessionID:
+    [String: Set<MonitoringAutoOpenSidePanelKey>] = [:]
   @State private var editorStates: [String: MonitoringEditorState] = [:]
   @State private var availableDetailWidth: CGFloat = 0
   @State private var showsEmbeddedSidePanelResizeOverlay = false
   @State private var embeddedSidePanelResizeOverlayGeneration = 0
   @Binding var primarySessionId: String?
+  @Binding var workflowComparison: WorkflowSessionComparisonRequest?
   @Binding var selectedModuleLandingPath: String?
   @AppStorage(AgentHubDefaults.worktreeDisplayMode)
   private var worktreeDisplayModeRawValue: String = WorktreeDisplayMode.parent.rawValue
@@ -207,7 +223,8 @@ public struct MultiProviderMonitoringPanelView: View {
   private let auxiliaryShellMinMainContentHeight: CGFloat = 260
 
   private var allowedEmbeddedSidePanelWidth: CGFloat {
-    let availablePanelWidth = availableDetailWidth - embeddedPrimaryContentMinWidth - embeddedSidePanelHandleWidth
+    let availablePanelWidth =
+      availableDetailWidth - embeddedPrimaryContentMinWidth - embeddedSidePanelHandleWidth
     return min(
       embeddedSidePanelMaxWidth,
       max(embeddedSidePanelMinWidth, availablePanelWidth)
@@ -218,7 +235,9 @@ public struct MultiProviderMonitoringPanelView: View {
     max(embeddedSidePanelMinWidth, availableDetailWidth)
   }
 
-  private func wantsEmbeddedSidePanelPresentation(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>) -> Bool {
+  private func wantsEmbeddedSidePanelPresentation(
+    snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>
+  ) -> Bool {
     activeModuleLandingPath(snapshot: snapshot) == nil
       && sidePanelPresentation.shellPayload != nil
       && !snapshot.visibleItems.isEmpty
@@ -232,6 +251,7 @@ public struct MultiProviderMonitoringPanelView: View {
     claudeViewModel: CLISessionsViewModel,
     codexViewModel: CLISessionsViewModel,
     primarySessionId: Binding<String?>,
+    workflowComparison: Binding<WorkflowSessionComparisonRequest?> = .constant(nil),
     selectedModuleLandingPath: Binding<String?> = .constant(nil),
     onEmbeddedSidePanelVisibilityChange: @escaping (Bool) -> Void = { _ in },
     onAddFolder: @escaping () -> Void,
@@ -242,6 +262,7 @@ public struct MultiProviderMonitoringPanelView: View {
     self.claudeViewModel = claudeViewModel
     self.codexViewModel = codexViewModel
     self._primarySessionId = primarySessionId
+    self._workflowComparison = workflowComparison
     self._selectedModuleLandingPath = selectedModuleLandingPath
     self.onEmbeddedSidePanelVisibilityChange = onEmbeddedSidePanelVisibilityChange
     self.onAddFolder = onAddFolder
@@ -330,7 +351,8 @@ public struct MultiProviderMonitoringPanelView: View {
     .onReceive(NotificationCenter.default.publisher(for: .toggleMonitoringContentMode)) { _ in
       togglePrimarySessionContentMode()
     }
-    .floatingPanel(isPresented: $showQuickFilePicker, defaultSize: CGSize(width: 680, height: 640)) {
+    .floatingPanel(isPresented: $showQuickFilePicker, defaultSize: CGSize(width: 680, height: 640))
+    {
       if let primaryItem = snapshot.effectivePrimaryItem {
         let projectPath = defaultEditorProjectPath(for: primaryItem)
         QuickFilePickerView(
@@ -357,6 +379,7 @@ public struct MultiProviderMonitoringPanelView: View {
       GitHubPanelView(
         projectPath: item.projectPath,
         branchName: item.session.branchName,
+        linkedPullRequests: item.linkedPullRequests,
         onDismiss: { gitHubPopOutItem = nil },
         isEmbedded: false,
         session: item.session,
@@ -387,9 +410,10 @@ public struct MultiProviderMonitoringPanelView: View {
       guard let currentSidePanelPayload = sidePanelPresentation.currentPayload else { return }
       let currentSnapshot = makeItemSnapshot()
       if let newId,
-         let item = currentSnapshot.allItems.first(where: { $0.id == newId }),
-         case .monitored(_, _, let session, _) = item,
-         let reboundContent = currentSidePanelPayload.content.replacingPendingSession(with: session) {
+        let item = currentSnapshot.allItems.first(where: { $0.id == newId }),
+        case .monitored(_, _, let session, _) = item,
+        let reboundContent = currentSidePanelPayload.content.replacingPendingSession(with: session)
+      {
         openEmbeddedSidePanel(
           SidePanelPayload(
             itemID: item.id,
@@ -425,7 +449,8 @@ public struct MultiProviderMonitoringPanelView: View {
   }
 
   private var embeddedSidePanelContentAnimation: Animation {
-    accessibilityReduceMotion ? .easeOut(duration: 0.08) : .timingCurve(0.22, 1, 0.36, 1, duration: 0.26)
+    accessibilityReduceMotion
+      ? .easeOut(duration: 0.08) : .timingCurve(0.22, 1, 0.36, 1, duration: 0.26)
   }
 
   private var embeddedSidePanelCloseShellDelay: Duration {
@@ -443,7 +468,8 @@ public struct MultiProviderMonitoringPanelView: View {
   }
 
   private var auxiliaryShellToggleAnimation: Animation {
-    accessibilityReduceMotion ? .easeInOut(duration: 0.12) : .spring(response: 0.28, dampingFraction: 0.9)
+    accessibilityReduceMotion
+      ? .easeInOut(duration: 0.12) : .spring(response: 0.28, dampingFraction: 0.9)
   }
 
   private var auxiliaryShellDockTransition: AnyTransition {
@@ -457,7 +483,9 @@ public struct MultiProviderMonitoringPanelView: View {
   }
 
   @ViewBuilder
-  private func mainContentBody(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>) -> some View {
+  private func mainContentBody(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>)
+    -> some View
+  {
     if let modulePath = activeModuleLandingPath(snapshot: snapshot) {
       ModuleLandingView(
         modulePath: modulePath,
@@ -514,28 +542,256 @@ public struct MultiProviderMonitoringPanelView: View {
   // MARK: - Monitored Sessions List
 
   @ViewBuilder
-  private func monitoredSessionsList(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>) -> some View {
-    singleModeContent(snapshot: snapshot)
-      .background(
-        GeometryReader { geometry in
-          Color.clear
-            .onAppear { availableDetailWidth = geometry.size.width }
-            .onChange(of: geometry.size.width) { _, newWidth in
-              availableDetailWidth = newWidth
-            }
+  private func monitoredSessionsList(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>)
+    -> some View
+  {
+    Group {
+      if let comparison = activeWorkflowComparison(snapshot: snapshot) {
+        workflowComparisonContent(
+          request: comparison.request,
+          implementation: comparison.implementation,
+          review: comparison.review
+        )
+      } else {
+        singleModeContent(snapshot: snapshot)
+      }
+    }
+    .background(
+      GeometryReader { geometry in
+        Color.clear
+          .onAppear { availableDetailWidth = geometry.size.width }
+          .onChange(of: geometry.size.width) { _, newWidth in
+            availableDetailWidth = newWidth
+          }
+      }
+    )
+  }
+
+  private func activeWorkflowComparison(
+    snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>
+  ) -> ActiveWorkflowComparison? {
+    guard let request = workflowComparison,
+      let implementation = snapshot.allItems.first(where: {
+        $0.id == request.implementation.itemID
+      }),
+      let review = snapshot.allItems.first(where: { $0.id == request.review.itemID })
+    else {
+      return nil
+    }
+    return ActiveWorkflowComparison(
+      request: request,
+      implementation: implementation,
+      review: review
+    )
+  }
+
+  private func workflowComparisonContent(
+    request: WorkflowSessionComparisonRequest,
+    implementation: ProviderMonitoringItem,
+    review: ProviderMonitoringItem
+  ) -> some View {
+    VStack(spacing: 0) {
+      HStack(spacing: DesignTokens.Spacing.md) {
+        Label(request.title, systemImage: "rectangle.split.2x1")
+          .font(.primaryDefault)
+          .lineLimit(1)
+        Text("Implementation and review")
+          .font(.secondaryCaption)
+          .foregroundStyle(.secondary)
+        Spacer()
+        Button("Close side by side", systemImage: "xmark") {
+          workflowComparison = nil
         }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+      }
+      .padding(.horizontal, DesignTokens.Spacing.md)
+      .frame(height: AgentHubLayout.topBarHeight)
+
+      Divider()
+
+      HSplitView {
+        workflowComparisonPane(
+          title: "Implementation",
+          symbol: "hammer",
+          item: implementation
+        )
+        workflowComparisonPane(
+          title: "Review",
+          symbol: "doc.text.magnifyingglass",
+          item: review
+        )
+      }
+    }
+  }
+
+  private func workflowComparisonPane(
+    title: String,
+    symbol: String,
+    item: ProviderMonitoringItem
+  ) -> some View {
+    VStack(spacing: 0) {
+      HStack(spacing: DesignTokens.Spacing.sm) {
+        Label(title, systemImage: symbol)
+          .font(.secondarySmall)
+        Text(item.providerKind.rawValue)
+          .font(.secondaryCaption)
+          .foregroundStyle(.secondary)
+        Text(comparisonDisplayName(for: item))
+          .font(.jetBrainsMono(size: 10))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+        Spacer()
+      }
+      .padding(.horizontal, DesignTokens.Spacing.md)
+      .frame(height: 36)
+
+      Divider()
+
+      singleModeCardContainer(for: item.id, viewModel: item.viewModel) {
+        workflowComparisonCard(for: item)
+      }
+    }
+    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private func comparisonDisplayName(for item: ProviderMonitoringItem) -> String {
+    switch item {
+    case .pending(_, _, let pending):
+      return pending.worktree.name
+    case .monitored(_, let viewModel, let session, _):
+      return viewModel.displayName(for: session)
+    }
+  }
+
+  @ViewBuilder
+  private func workflowComparisonCard(for item: ProviderMonitoringItem) -> some View {
+    switch item {
+    case .pending:
+      ContentUnavailableView("Session is starting", systemImage: "hourglass")
+    case .monitored(_, let viewModel, let session, let state):
+      let planState = state.flatMap { PlanState.from(activities: $0.recentActivities) }
+      let initialPrompt = viewModel.pendingPrompt(for: session.id)
+
+      MonitoringCardView(
+        session: session,
+        state: state,
+        planState: planState,
+        cliConfiguration: viewModel.cliConfiguration(for: item.providerKind),
+        providerKind: item.providerKind,
+        initialPrompt: initialPrompt,
+        terminalKey: session.id,
+        viewModel: viewModel,
+        contentMode: editorContentModeBinding(for: item),
+        selectedEditorFilePath: selectedEditorFilePathBinding(for: item),
+        editorProjectPath: editorState(for: item).projectPath,
+        editorNavigationRequest: editorState(for: item).navigationRequest,
+        onStopMonitoring: {
+          viewModel.stopMonitoring(session: session)
+        },
+        onConnect: {
+          _ = viewModel.connectToSession(session)
+        },
+        onCopySessionId: {
+          viewModel.copySessionId(session)
+        },
+        onOpenSessionFile: {
+          openSessionFile(for: session, viewModel: viewModel)
+        },
+        onRefreshTerminal: {
+          viewModel.refreshTerminal(
+            forKey: session.id,
+            sessionId: session.id,
+            projectPath: session.projectPath
+          )
+        },
+        onInlineRequestSubmit: { prompt, sess in
+          viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
+        },
+        onShowDiff: { session, projectPath in
+          toggleSidePanel(
+            .diff(sessionId: session.id, session: session, projectPath: projectPath),
+            forItemID: item.id
+          )
+        },
+        onShowPlan: { session, planState in
+          toggleSidePanel(
+            .plan(sessionId: session.id, session: session, planState: planState),
+            forItemID: item.id
+          )
+        },
+        onShowWebPreview: { session, projectPath, mode in
+          presentWebPreviewInSidePanel(
+            forItemID: item.id,
+            session: session,
+            projectPath: projectPath,
+            mode: mode
+          )
+        },
+        onShowMermaid: { session in
+          toggleSidePanel(
+            .mermaid(sessionId: session.id, session: session),
+            forItemID: item.id
+          )
+        },
+        onShowGitHub: { session, projectPath, linkedPullRequests in
+          toggleSidePanel(
+            .gitHub(
+              sessionId: session.id,
+              session: session,
+              projectPath: projectPath,
+              linkedPullRequests: linkedPullRequests
+            ),
+            forItemID: item.id
+          )
+        },
+        onShowPendingChanges: { session, _ in
+          toggleSidePanel(
+            .edits(sessionId: session.id, session: session),
+            forItemID: item.id
+          )
+        },
+        onShowMCPApp: { session, projectPath in
+          toggleSidePanel(
+            .mcpApp(sessionId: session.id, session: session, projectPath: projectPath),
+            forItemID: item.id
+          )
+        },
+        onShowSimulatorPreview: { session, projectPath in
+          toggleSidePanel(
+            .simulator(sessionId: session.id, session: session, projectPath: projectPath),
+            forItemID: item.id
+          )
+        },
+        onFork: onRequestForkSession,
+        onPromptConsumed: {
+          viewModel.clearPendingPrompt(for: session.id)
+        },
+        onTerminalInteraction: {
+          setPrimarySessionIfNeeded(item.id)
+        },
+        onRequestShowEditor: {
+          setContentMode(.editor, for: item)
+        },
+        isPrimarySession: item.id == primarySessionId,
+        showPrimaryIndicator: false
       )
+      .id("comparison-\(item.id)")
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
   }
 
   // MARK: - Single Mode Content
 
   @ViewBuilder
-  private func singleModeContent(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>) -> some View {
+  private func singleModeContent(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>)
+    -> some View
+  {
     if let item = snapshot.visibleItems.first {
       switch item {
       case .pending(_, let viewModel, let pending):
         let pendingId = "pending-\(pending.id.uuidString)"
-        singleModeCardContainer(viewModel: viewModel) {
+        singleModeCardContainer(for: item.id, viewModel: viewModel) {
           MonitoringCardView(
             session: pending.placeholderSession,
             state: nil,
@@ -553,10 +809,10 @@ public struct MultiProviderMonitoringPanelView: View {
             permissionModePlan: pending.permissionModePlan,
             worktreeName: pending.worktreeName,
             onStopMonitoring: { viewModel.cancelPendingSession(pending) },
-            onConnect: { },
-            onCopySessionId: { },
-            onOpenSessionFile: { },
-            onRefreshTerminal: { },
+            onConnect: {},
+            onCopySessionId: {},
+            onOpenSessionFile: {},
+            onRefreshTerminal: {},
             onShowDiff: { session, projectPath in
               toggleSidePanel(
                 .diff(sessionId: session.id, session: session, projectPath: projectPath),
@@ -570,7 +826,8 @@ public struct MultiProviderMonitoringPanelView: View {
               )
             },
             onShowWebPreview: { session, projectPath, mode in
-              presentWebPreviewInSidePanel(forItemID: item.id, session: session, projectPath: projectPath, mode: mode)
+              presentWebPreviewInSidePanel(
+                forItemID: item.id, session: session, projectPath: projectPath, mode: mode)
             },
             onShowMermaid: { session in
               toggleSidePanel(
@@ -578,9 +835,14 @@ public struct MultiProviderMonitoringPanelView: View {
                 forItemID: item.id
               )
             },
-            onShowGitHub: { session, projectPath in
+            onShowGitHub: { session, projectPath, linkedPullRequests in
               toggleSidePanel(
-                .gitHub(sessionId: session.id, session: session, projectPath: projectPath),
+                .gitHub(
+                  sessionId: session.id,
+                  session: session,
+                  projectPath: projectPath,
+                  linkedPullRequests: linkedPullRequests
+                ),
                 forItemID: item.id
               )
             },
@@ -615,7 +877,7 @@ public struct MultiProviderMonitoringPanelView: View {
         let planState = state.flatMap { PlanState.from(activities: $0.recentActivities) }
         let initialPrompt = viewModel.pendingPrompt(for: session.id)
 
-        singleModeCardContainer(viewModel: viewModel) {
+        singleModeCardContainer(for: item.id, viewModel: viewModel) {
           MonitoringCardView(
             session: session,
             state: state,
@@ -664,7 +926,8 @@ public struct MultiProviderMonitoringPanelView: View {
               )
             },
             onShowWebPreview: { session, projectPath, mode in
-              presentWebPreviewInSidePanel(forItemID: item.id, session: session, projectPath: projectPath, mode: mode)
+              presentWebPreviewInSidePanel(
+                forItemID: item.id, session: session, projectPath: projectPath, mode: mode)
             },
             onShowMermaid: { session in
               toggleSidePanel(
@@ -672,9 +935,14 @@ public struct MultiProviderMonitoringPanelView: View {
                 forItemID: item.id
               )
             },
-            onShowGitHub: { session, projectPath in
+            onShowGitHub: { session, projectPath, linkedPullRequests in
               toggleSidePanel(
-                .gitHub(sessionId: session.id, session: session, projectPath: projectPath),
+                .gitHub(
+                  sessionId: session.id,
+                  session: session,
+                  projectPath: projectPath,
+                  linkedPullRequests: linkedPullRequests
+                ),
                 forItemID: item.id
               )
             },
@@ -714,13 +982,18 @@ public struct MultiProviderMonitoringPanelView: View {
 
   @ViewBuilder
   private func singleModeCardContainer<Content: View>(
+    for itemID: String,
     viewModel: CLISessionsViewModel,
     @ViewBuilder content: () -> Content
   ) -> some View {
     HStack(spacing: 0) {
-      let isSidePanelExpanded = sidePanelPresentation.shellPayload.map {
-        sidePanelExpansion.isExpanded(for: $0)
-      } ?? false
+      let shellPayload = sidePanelPresentation.shellPayload.flatMap {
+        $0.itemID == itemID ? $0 : nil
+      }
+      let isSidePanelExpanded =
+        shellPayload.map {
+          sidePanelExpansion.isExpanded(for: $0)
+        } ?? false
 
       content()
         .frame(width: isSidePanelExpanded ? 0 : nil)
@@ -739,7 +1012,7 @@ public struct MultiProviderMonitoringPanelView: View {
         .accessibilityHidden(isSidePanelExpanded)
         .clipped()
 
-      if let shellPayload = sidePanelPresentation.shellPayload {
+      if let shellPayload {
         let isExpanded = sidePanelExpansion.isExpanded(for: shellPayload)
 
         ResizablePanelContainer(
@@ -753,7 +1026,8 @@ public struct MultiProviderMonitoringPanelView: View {
         ) {
           ZStack {
             if let mountedPayload = sidePanelPresentation.mountedPayload,
-               mountedPayload == shellPayload {
+              mountedPayload == shellPayload
+            {
               sidePanelView(for: mountedPayload, viewModel: viewModel)
                 .transition(embeddedSidePanelContentTransition)
             } else {
@@ -792,7 +1066,9 @@ public struct MultiProviderMonitoringPanelView: View {
     }
   }
 
-  private func presentWebPreviewInSidePanel(forItemID itemID: String, session: CLISession, projectPath: String, mode: WebPreviewMode) {
+  private func presentWebPreviewInSidePanel(
+    forItemID itemID: String, session: CLISession, projectPath: String, mode: WebPreviewMode
+  ) {
     toggleSidePanel(
       .webPreview(sessionId: session.id, session: session, projectPath: projectPath, mode: mode),
       forItemID: itemID
@@ -839,7 +1115,8 @@ public struct MultiProviderMonitoringPanelView: View {
   private func openAutoSidePanelIfNeeded(
     candidate: MonitoringAutoOpenSidePanelCandidate? = nil
   ) {
-    guard let candidate = candidate ?? autoOpenSidePanelCandidate(snapshot: makeItemSnapshot()) else {
+    guard let candidate = candidate ?? autoOpenSidePanelCandidate(snapshot: makeItemSnapshot())
+    else {
       return
     }
 
@@ -859,7 +1136,7 @@ public struct MultiProviderMonitoringPanelView: View {
     // agent's first edit produced an .edits candidate that swapped out the
     // .simulator panel mid-loop.
     if let current = sidePanelPresentation.currentPayload,
-       !Self.isAutoOpenableContent(current.content)
+      !Self.isAutoOpenableContent(current.content)
     {
       return
     }
@@ -908,9 +1185,10 @@ public struct MultiProviderMonitoringPanelView: View {
 
   private func pruneAutoOpenedSidePanelKeys() {
     let activeSessionIDs = Set(allItems.map(\.sessionId))
-    autoOpenedSidePanelKeys = Set(autoOpenedSidePanelKeys.filter {
-      activeSessionIDs.contains($0.sessionID)
-    })
+    autoOpenedSidePanelKeys = Set(
+      autoOpenedSidePanelKeys.filter {
+        activeSessionIDs.contains($0.sessionID)
+      })
     observedAutoOpenKeysBySessionID = observedAutoOpenKeysBySessionID.filter { sessionID, _ in
       activeSessionIDs.contains(sessionID)
     }
@@ -984,7 +1262,9 @@ public struct MultiProviderMonitoringPanelView: View {
   }
 
   @ViewBuilder
-  private func sidePanelView(for payload: SidePanelPayload, viewModel: CLISessionsViewModel) -> some View {
+  private func sidePanelView(for payload: SidePanelPayload, viewModel: CLISessionsViewModel)
+    -> some View
+  {
     switch payload.content {
     case .diff(_, let session, let projectPath):
       GitDiffView(
@@ -1050,7 +1330,7 @@ public struct MultiProviderMonitoringPanelView: View {
         onDismiss: closeEmbeddedSidePanel,
         isEmbedded: true
       )
-    case .gitHub(_, let session, let projectPath):
+    case .gitHub(_, let session, let projectPath, let linkedPullRequests):
       let gitHubViewModel = GitHubViewModel(
         service: viewModel.agentHubProvider?.gitHubService ?? GitHubCLIService(),
         observationService: viewModel.agentHubProvider?.gitHubPRObservationService
@@ -1058,18 +1338,24 @@ public struct MultiProviderMonitoringPanelView: View {
       GitHubPanelView(
         projectPath: projectPath,
         branchName: session.branchName,
+        linkedPullRequests: linkedPullRequests,
         onDismiss: closeEmbeddedSidePanel,
         isEmbedded: true,
         session: session,
         viewModel: gitHubViewModel,
-        onSendToSession: { prompt, sess in viewModel.showTerminalWithPrompt(for: sess, prompt: prompt) },
+        onSendToSession: { prompt, sess in
+          viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
+        },
         onPopOut: { panelViewModel in
           closeEmbeddedSidePanel()
           gitHubPopOutItem = GitHubPopOutItem(
             session: session,
             projectPath: projectPath,
+            linkedPullRequests: linkedPullRequests,
             viewModel: panelViewModel,
-            onSendToSession: { prompt, sess in viewModel.showTerminalWithPrompt(for: sess, prompt: prompt) }
+            onSendToSession: { prompt, sess in
+              viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
+            }
           )
         }
       )
@@ -1147,10 +1433,12 @@ public struct MultiProviderMonitoringPanelView: View {
 
   private var monitoredItems: [ProviderMonitoringItem] {
     let claudeItems = claudeViewModel.monitoredSessions.map {
-      ProviderMonitoringItem.monitored(provider: .claude, viewModel: claudeViewModel, session: $0.session, state: $0.state)
+      ProviderMonitoringItem.monitored(
+        provider: .claude, viewModel: claudeViewModel, session: $0.session, state: $0.state)
     }
     let codexItems = codexViewModel.monitoredSessions.map {
-      ProviderMonitoringItem.monitored(provider: .codex, viewModel: codexViewModel, session: $0.session, state: $0.state)
+      ProviderMonitoringItem.monitored(
+        provider: .codex, viewModel: codexViewModel, session: $0.session, state: $0.state)
     }
     return claudeItems + codexItems
   }
@@ -1163,7 +1451,9 @@ public struct MultiProviderMonitoringPanelView: View {
     auxiliaryShellTarget(snapshot: makeItemSnapshot())
   }
 
-  private func auxiliaryShellTarget(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>) -> HubAuxiliaryShellTarget? {
+  private func auxiliaryShellTarget(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>)
+    -> HubAuxiliaryShellTarget?
+  {
     guard activeModuleLandingPath(snapshot: snapshot) == nil else { return nil }
     guard let item = snapshot.effectivePrimaryItem else { return nil }
 
@@ -1220,8 +1510,9 @@ public struct MultiProviderMonitoringPanelView: View {
 
   private func openSessionFile(for session: CLISession, viewModel: CLISessionsViewModel) {
     guard let fileURL = viewModel.sessionFileURL(for: session),
-          let data = FileManager.default.contents(atPath: fileURL.path),
-          let content = String(data: data, encoding: .utf8) else {
+      let data = FileManager.default.contents(atPath: fileURL.path),
+      let content = String(data: data, encoding: .utf8)
+    else {
       return
     }
 
@@ -1243,8 +1534,9 @@ public struct MultiProviderMonitoringPanelView: View {
       viewModel.pendingFileOpen = nil
     }
 
-    guard let session = viewModel.allSessions.first(where: { $0.id == pending.sessionId })
-      ?? viewModel.monitoredSessions.first(where: { $0.session.id == pending.sessionId })?.session
+    guard
+      let session = viewModel.allSessions.first(where: { $0.id == pending.sessionId })
+        ?? viewModel.monitoredSessions.first(where: { $0.session.id == pending.sessionId })?.session
     else {
       Self.logFileOpen(
         "abort pendingFileOpen provider=\(providerKind.rawValue) missing session=\(pending.sessionId) file=\"\(pending.filePath)\""
@@ -1261,7 +1553,11 @@ public struct MultiProviderMonitoringPanelView: View {
       "consume pendingFileOpen provider=\(providerKind.rawValue) session=\(session.id) file=\"\(pending.filePath)\" sessionProject=\"\(session.projectPath)\" editorProject=\"\(editorProjectPath)\""
     )
 
-    guard let item = allItems.first(where: { $0.providerKind == providerKind && $0.sessionId == pending.sessionId }) else {
+    guard
+      let item = allItems.first(where: {
+        $0.providerKind == providerKind && $0.sessionId == pending.sessionId
+      })
+    else {
       Self.logFileOpen(
         "abort pendingFileOpen provider=\(providerKind.rawValue) missing itemId for session=\(pending.sessionId)"
       )
@@ -1281,7 +1577,9 @@ public struct MultiProviderMonitoringPanelView: View {
     print("[AH-OPEN][AgentHub] \(message())")
   }
 
-  private func ensurePrimarySelection(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>? = nil) {
+  private func ensurePrimarySelection(
+    snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>? = nil
+  ) {
     guard selectedModuleLandingPath == nil else {
       primarySessionId = nil
       return
@@ -1305,10 +1603,13 @@ public struct MultiProviderMonitoringPanelView: View {
     primarySessionId = sessionId
   }
 
-  private func ensureLiveMonitoringForPrimaryItem(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>? = nil) {
+  private func ensureLiveMonitoringForPrimaryItem(
+    snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>? = nil
+  ) {
     guard selectedModuleLandingPath == nil else { return }
     let snapshot = snapshot ?? makeItemSnapshot()
-    guard case .monitored(.codex, let viewModel, let session, _) = snapshot.effectivePrimaryItem else {
+    guard case .monitored(.codex, let viewModel, let session, _) = snapshot.effectivePrimaryItem
+    else {
       return
     }
 
@@ -1339,7 +1640,8 @@ public struct MultiProviderMonitoringPanelView: View {
     for target: HubAuxiliaryShellTarget,
     availableHeight: CGFloat
   ) -> some View {
-    let maxHeight = max(auxiliaryShellMinHeight, availableHeight - auxiliaryShellMinMainContentHeight)
+    let maxHeight = max(
+      auxiliaryShellMinHeight, availableHeight - auxiliaryShellMinMainContentHeight)
     let resolvedHeight = max(auxiliaryShellMinHeight, min(auxiliaryShellDefaultHeight, maxHeight))
 
     Group {
@@ -1385,7 +1687,8 @@ public struct MultiProviderMonitoringPanelView: View {
       state.projectPath = defaultProjectPath
     }
     if let selectedFilePath = state.selectedFilePath,
-       !Self.isPath(selectedFilePath, within: state.projectPath) {
+      !Self.isPath(selectedFilePath, within: state.projectPath)
+    {
       state.selectedFilePath = nil
       state.navigationRequest = nil
     }
@@ -1403,10 +1706,13 @@ public struct MultiProviderMonitoringPanelView: View {
   private static func isPath(_ path: String, within rootPath: String) -> Bool {
     let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(path)
     let normalizedRootPath = WorktreeModuleResolver.normalizedDirectoryPath(rootPath)
-    return normalizedPath == normalizedRootPath || normalizedPath.hasPrefix(normalizedRootPath + "/")
+    return normalizedPath == normalizedRootPath
+      || normalizedPath.hasPrefix(normalizedRootPath + "/")
   }
 
-  private func editorContentModeBinding(for item: ProviderMonitoringItem) -> Binding<MonitoringCardContentMode> {
+  private func editorContentModeBinding(for item: ProviderMonitoringItem) -> Binding<
+    MonitoringCardContentMode
+  > {
     Binding(
       get: { editorState(for: item).contentMode },
       set: { newValue in
@@ -1438,7 +1744,9 @@ public struct MultiProviderMonitoringPanelView: View {
     )
   }
 
-  private func setContentMode(_ contentMode: MonitoringCardContentMode, for item: ProviderMonitoringItem) {
+  private func setContentMode(
+    _ contentMode: MonitoringCardContentMode, for item: ProviderMonitoringItem
+  ) {
     setPrimarySessionIfNeeded(item.id)
     editorStates = MonitoringEditorStateStore.setContentMode(
       contentMode,
@@ -1462,7 +1770,9 @@ public struct MultiProviderMonitoringPanelView: View {
     setContentMode(nextMode, for: item)
   }
 
-  private func availableContentModes(for item: ProviderMonitoringItem) -> [MonitoringCardContentMode] {
+  private func availableContentModes(for item: ProviderMonitoringItem)
+    -> [MonitoringCardContentMode]
+  {
     MonitoringEditorStateStore.availableContentModes(
       diffDisplayMode: diffDisplayMode,
       diffAvailabilityStatus: item.viewModel.diffAvailabilityStatus(for: item.projectPath)
@@ -1507,7 +1817,9 @@ public struct MultiProviderMonitoringPanelView: View {
     router.markConsumed(request)
   }
 
-  private func handleCIFailureAction(_ request: GitHubCIFailureActionRequest, item: ProviderMonitoringItem) {
+  private func handleCIFailureAction(
+    _ request: GitHubCIFailureActionRequest, item: ProviderMonitoringItem
+  ) {
     guard case .monitored(_, let viewModel, let session, _) = item else { return }
     switch request.action {
     case .openGitHubPanel:
@@ -1521,7 +1833,12 @@ public struct MultiProviderMonitoringPanelView: View {
     let payload = SidePanelPayload(
       itemID: item.id,
       providerKind: item.providerKind,
-      content: .gitHub(sessionId: session.id, session: session, projectPath: item.projectPath)
+      content: .gitHub(
+        sessionId: session.id,
+        session: session,
+        projectPath: item.projectPath,
+        linkedPullRequests: []
+      )
     )
     performWithoutAnimation {
       if primarySessionId != item.id {
@@ -1597,7 +1914,9 @@ public struct MultiProviderMonitoringPanelView: View {
     }
   }
 
-  private func activeModuleLandingPath(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>) -> String? {
+  private func activeModuleLandingPath(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>)
+    -> String?
+  {
     ModuleLandingSelection.activeModulePath(
       selectedPath: selectedModuleLandingPath,
       repositories: allSelectedRepositories,
@@ -1685,13 +2004,16 @@ private func filterJSONLContent(_ content: String) -> String {
     if trimmed.isEmpty { continue }
 
     guard let data = trimmed.data(using: .utf8) else { continue }
-    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      continue
+    }
     guard let type = json["type"] as? String else { continue }
 
     // Codex format: event_msg with payload.type user_message/agent_message
     if type == "event_msg" {
       guard let payload = json["payload"] as? [String: Any],
-            let eventType = payload["type"] as? String else { continue }
+        let eventType = payload["type"] as? String
+      else { continue }
 
       if eventType == "user_message" || eventType == "agent_message" {
         let role = eventType == "user_message" ? "user" : "assistant"
@@ -1773,7 +2095,8 @@ private func filterJSONLContent(_ content: String) -> String {
   }
 
   if result.isEmpty {
-    return "[No conversation content found - this session may only contain file history snapshots or tool results]"
+    return
+      "[No conversation content found - this session may only contain file history snapshots or tool results]"
   }
 
   return result.joined(separator: "\n\n")
@@ -1829,8 +2152,10 @@ private struct MonitoringSessionFileSheetView: View {
         overflowMode: $overflowMode
       )
     }
-    .frame(minWidth: 900, idealWidth: 1100, maxWidth: .infinity,
-           minHeight: 700, idealHeight: 900, maxHeight: .infinity)
+    .frame(
+      minWidth: 900, idealWidth: 1100, maxWidth: .infinity,
+      minHeight: 700, idealHeight: 900, maxHeight: .infinity
+    )
     .onKeyPress(.escape) {
       onDismiss()
       return .handled

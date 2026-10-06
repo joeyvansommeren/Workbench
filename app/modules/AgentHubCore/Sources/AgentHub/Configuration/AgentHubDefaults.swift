@@ -34,6 +34,15 @@ public enum AgentHubDefaults {
   /// Type: Int (default: 0)
   public static let approvalTimeout = "\(keyPrefix)sessions.approvalTimeout"
 
+  /// Selected grouping in the combined Sessions sidebar
+  /// Type: String (default: "Repo")
+  public static let sessionsSidebarGroupMode = "\(keyPrefix)sessions.sidebarGroupMode"
+
+  /// Active implementation/review comparison, retained until explicitly closed
+  /// Type: Data (JSON-encoded WorkflowSessionComparisonRequest)
+  public static let activeWorkflowSessionComparison =
+    "\(keyPrefix)sessions.activeWorkflowComparison"
+
   // MARK: - Notification Settings
 
   /// Whether notification sounds are enabled

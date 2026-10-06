@@ -5,12 +5,12 @@
 //  Created by James Rochabrun on 1/11/26.
 //
 
-import SwiftUI
 import AgentHubCore
 import AgentHubGlobalSessionPanel
-import Ghostty
-import UserNotifications
 import CoreText
+import Ghostty
+import SwiftUI
+import UserNotifications
 
 // MARK: - App Delegate
 
@@ -53,13 +53,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     let otfFonts = [
       "Geist-Regular", "Geist-Medium", "Geist-SemiBold", "Geist-Bold",
       "GeistMono-Regular", "GeistMono-Medium", "GeistMono-SemiBold", "GeistMono-Bold",
-      "SourceCodePro-Regular"
+      "SourceCodePro-Regular",
     ]
     let ttfFonts = [
       "JetBrainsMono-Regular", "JetBrainsMono-Medium",
       "JetBrainsMono-SemiBold", "JetBrainsMono-Bold",
       "FiraCode-Regular",
-      "CascadiaMono-Regular"
+      "CascadiaMono-Regular",
     ]
     for name in otfFonts {
       if let url = Bundle.main.url(forResource: name, withExtension: "otf") {
@@ -145,6 +145,30 @@ struct AgentHubApp: App {
     .commands {
       CommandGroup(after: .appInfo) {
         CheckForUpdatesView(updateController: appDelegate.updateController)
+      }
+
+      CommandMenu("Navigate") {
+        Button("Workflows") {
+          AgentHubAppCommand.selectWorkspace(.workflows)
+        }
+        .keyboardShortcut("1", modifiers: .command)
+
+        Button("Reviews") {
+          AgentHubAppCommand.selectWorkspace(.reviews)
+        }
+        .keyboardShortcut("2", modifiers: .command)
+
+        Button("Sessions") {
+          AgentHubAppCommand.selectWorkspace(.sessions)
+        }
+        .keyboardShortcut("3", modifiers: .command)
+
+        Divider()
+
+        Button("Archive Current Session") {
+          AgentHubAppCommand.archiveCurrentSession()
+        }
+        .keyboardShortcut("a", modifiers: [.command, .option])
       }
     }
 

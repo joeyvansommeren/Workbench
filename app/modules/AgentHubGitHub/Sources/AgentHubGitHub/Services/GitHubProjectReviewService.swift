@@ -27,6 +27,11 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
     let merged: Bool?
   }
 
+  struct ProjectFieldValues: Equatable, Sendable {
+    let status: String?
+    let priority: String?
+  }
+
   private struct SearchPullRequest: Decodable {
     struct Repository: Decodable {
       let name: String
@@ -107,17 +112,17 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
     var pullRequests = try Self.decodeSearchPullRequests(json)
       .filter { !$0.isDraft }
 
-    guard !plan.statusPredicates.isEmpty, !pullRequests.isEmpty else {
-      return pullRequests
-    }
+    guard !pullRequests.isEmpty else { return [] }
 
-    let statuses = try await projectStatuses(
+    let projectFields = try await projectFieldValues(
       pullRequestIDs: pullRequests.map(\.id),
       projectID: project.id
     )
     pullRequests = pullRequests.compactMap { pullRequest in
-      let status = statuses[pullRequest.id] ?? nil
-      guard Self.matches(status: status, predicates: plan.statusPredicates) else { return nil }
+      let fields = projectFields[pullRequest.id]
+      guard Self.matches(status: fields?.status, predicates: plan.statusPredicates) else {
+        return nil
+      }
       return GitHubProjectPullRequest(
         id: pullRequest.id,
         number: pullRequest.number,
@@ -129,17 +134,18 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
         updatedAt: pullRequest.updatedAt,
         isDraft: pullRequest.isDraft,
         state: pullRequest.state,
-        projectStatus: status
+        projectStatus: fields?.status,
+        projectPriority: fields?.priority
       )
     }
     return pullRequests
   }
 
-  private func projectStatuses(
+  private func projectFieldValues(
     pullRequestIDs: [String],
     projectID: String
-  ) async throws -> [String: String?] {
-    var result: [String: String?] = [:]
+  ) async throws -> [String: ProjectFieldValues] {
+    var result: [String: ProjectFieldValues] = [:]
     for batchStart in stride(from: 0, to: pullRequestIDs.count, by: 50) {
       let batchEnd = min(batchStart + 50, pullRequestIDs.count)
       let batch = Array(pullRequestIDs[batchStart..<batchEnd])
@@ -151,7 +157,10 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
               projectItems(first: 100) {
                 nodes {
                   project { id }
-                  fieldValueByName(name: "Status") {
+                  status: fieldValueByName(name: "Status") {
+                    ... on ProjectV2ItemFieldSingleSelectValue { name }
+                  }
+                  priority: fieldValueByName(name: "Priority") {
                     ... on ProjectV2ItemFieldSingleSelectValue { name }
                   }
                 }
@@ -165,9 +174,9 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
         arguments += ["-F", "ids[]=\(id)"]
       }
       let json = try await cli.runAuthenticatedCommand(arguments, timeout: 45)
-      let decoded = try Self.decodeProjectStatuses(json, projectID: projectID)
-      for (id, status) in decoded {
-        result[id] = status
+      let decoded = try Self.decodeProjectFieldValues(json, projectID: projectID)
+      for (id, values) in decoded {
+        result[id] = values
       }
     }
     return result
@@ -282,7 +291,8 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
           updatedAt: pullRequest.updatedAt,
           isDraft: pullRequest.isDraft,
           state: pullRequest.state,
-          projectStatus: nil
+          projectStatus: nil,
+          projectPriority: nil
         )
       }
     } catch {
@@ -290,10 +300,10 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
     }
   }
 
-  static func decodeProjectStatuses(
+  static func decodeProjectFieldValues(
     _ json: String,
     projectID: String
-  ) throws -> [String: String?] {
+  ) throws -> [String: ProjectFieldValues] {
     guard let data = json.data(using: .utf8),
       let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
       let dataObject = root["data"] as? [String: Any],
@@ -302,10 +312,10 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
       throw GitHubCLIError.parseError("Invalid project status response")
     }
 
-    var statuses: [String: String?] = [:]
+    var fieldValues: [String: ProjectFieldValues] = [:]
     for case let node as [String: Any] in nodes {
       guard let id = node["id"] as? String else { continue }
-      var matchingStatus: String?
+      var matchingValues: ProjectFieldValues?
       if let projectItems = node["projectItems"] as? [String: Any],
         let itemNodes = projectItems["nodes"] as? [[String: Any]]
       {
@@ -313,15 +323,17 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
           guard let project = item["project"] as? [String: Any],
             project["id"] as? String == projectID
           else { continue }
-          if let value = item["fieldValueByName"] as? [String: Any] {
-            matchingStatus = value["name"] as? String
-          }
+          let status = (item["status"] as? [String: Any])?["name"] as? String
+          let priority = (item["priority"] as? [String: Any])?["name"] as? String
+          matchingValues = ProjectFieldValues(status: status, priority: priority)
           break
         }
       }
-      statuses[id] = matchingStatus
+      if let matchingValues {
+        fieldValues[id] = matchingValues
+      }
     }
-    return statuses
+    return fieldValues
   }
 
   private static func parseProjectConnection(

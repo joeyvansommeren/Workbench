@@ -110,6 +110,55 @@ struct AgentWorkspaceSessionCoordinatorTests {
     #expect(store.getWorkspaceStateSync(for: .claude).monitoredSessionIds == [session.id])
   }
 
+  @Test("Archived sessions stay closed when a workspace link is restored")
+  func archivedSessionIgnoresWorkspaceRestore() async throws {
+    let store = try SessionMetadataStore(path: temporaryCoordinatorDatabasePath())
+    let session = workspaceSession(provider: .claude)
+    let monitor = WorkspaceCoordinatorMonitorSpy(sessionsByID: [session.id: session])
+    let viewModel = makeCoordinatorViewModel(
+      provider: .claude,
+      monitor: monitor,
+      watcher: WorkspaceCoordinatorWatcherSpy(),
+      store: store
+    )
+    let coordinator = AgentWorkspaceSessionCoordinator(
+      claudeViewModel: viewModel,
+      codexViewModel: makeCoordinatorViewModel(
+        provider: .codex,
+        monitor: WorkspaceCoordinatorMonitorSpy(),
+        watcher: WorkspaceCoordinatorWatcherSpy(),
+        store: store
+      )
+    )
+    let reference = AgentWorkspaceSessionReference(
+      provider: .claude,
+      sessionId: session.id,
+      projectPath: session.projectPath
+    )
+
+    viewModel.startMonitoring(session: session)
+    viewModel.stopMonitoring(session: session)
+
+    await waitForCoordinatorCondition {
+      let state = store.getWorkspaceStateSync(for: .claude)
+      return state.monitoredSessionIds.isEmpty
+        && state.archivedSessionIds == [session.id]
+    }
+
+    await coordinator.restorePersistedSessions([reference])
+
+    #expect(!viewModel.isMonitoring(sessionId: session.id))
+    #expect(viewModel.archivedSessionIds == [session.id])
+    #expect(await monitor.loadedSessionRequests().isEmpty)
+
+    viewModel.startMonitoring(session: session)
+    await waitForCoordinatorCondition {
+      let state = store.getWorkspaceStateSync(for: .claude)
+      return state.monitoredSessionIds == [session.id]
+        && state.archivedSessionIds.isEmpty
+    }
+  }
+
   @Test("Persisted workspace references are visible while session files are loading")
   func persistedReferenceIsVisibleDuringTargetedLoad() async throws {
     let store = try SessionMetadataStore(path: temporaryCoordinatorDatabasePath())
@@ -297,7 +346,9 @@ private actor WorkspaceCoordinatorMonitorSpy: SessionMonitorServiceProtocol {
 }
 
 private actor WorkspaceCoordinatorWatcherSpy: SessionFileWatcherProtocol {
-  nonisolated(unsafe) private let subject = PassthroughSubject<SessionFileWatcher.StateUpdate, Never>()
+  nonisolated(unsafe) private let subject = PassthroughSubject<
+    SessionFileWatcher.StateUpdate, Never
+  >()
 
   nonisolated var statePublisher: AnyPublisher<SessionFileWatcher.StateUpdate, Never> {
     subject.eraseToAnyPublisher()

@@ -84,8 +84,8 @@ struct GitHubProjectReviewServiceTests {
     #expect(projects[0].views.first?.filter?.contains("Code Review") == true)
   }
 
-  @Test("Decodes the selected project's status for a PR")
-  func decodesProjectStatus() throws {
+  @Test("Decodes the selected project's status and priority for a PR")
+  func decodesProjectFields() throws {
     let json = #"""
       {
         "data": {
@@ -96,11 +96,13 @@ struct GitHubProjectReviewServiceTests {
                 "nodes": [
                   {
                     "project": { "id": "other-project" },
-                    "fieldValueByName": { "name": "Done" }
+                    "status": { "name": "Done" },
+                    "priority": null
                   },
                   {
                     "project": { "id": "project-3" },
-                    "fieldValueByName": { "name": "Code Review 🔎" }
+                    "status": { "name": "Code Review 🔎" },
+                    "priority": { "name": "Urgent ‼️" }
                   }
                 ]
               }
@@ -110,11 +112,12 @@ struct GitHubProjectReviewServiceTests {
       }
       """#
 
-    let statuses = try GitHubProjectReviewService.decodeProjectStatuses(
+    let values = try GitHubProjectReviewService.decodeProjectFieldValues(
       json,
       projectID: "project-3"
     )
 
-    #expect(statuses["pr-1"] == "Code Review 🔎")
+    #expect(values["pr-1"]?.status == "Code Review 🔎")
+    #expect(values["pr-1"]?.priority == "Urgent ‼️")
   }
 }

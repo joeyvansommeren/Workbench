@@ -34,11 +34,14 @@ public struct EmbeddedTerminalLaunch {
 
 public enum EmbeddedTerminalLaunchError: LocalizedError, Equatable {
   case executableNotFound(String)
+  case mcpConfigurationWriteFailed(String)
 
   public var errorDescription: String? {
     switch self {
     case .executableNotFound(let command):
       return "Could not find '\(command)' command."
+    case .mcpConfigurationWriteFailed(let message):
+      return "Could not prepare Claude MCP configuration: \(message)"
     }
   }
 }
@@ -86,6 +89,7 @@ public enum EmbeddedTerminalLaunchBuilder {
     agentHubCLIPath: String? = nil,
     installAgentHubWorktreeSkill: () -> Void,
     removeLegacyAgentHubSessionNamingSkill: () -> Void = {},
+    claudeMCPConfigDirectory: URL? = nil,
     xcodeBuildMCPEnabled: Bool = XcodeBuildMCPPreflight.isEnabled(),
     xcodeBuildMCPToolingAvailable: () -> Bool = { XcodeBuildMCPPreflight.nodeToolingAvailable() },
     notifyXcodeBuildMCPToolingMissing: () -> Void = { Task { @MainActor in XcodeBuildMCPNodeNotice.notifyOnce() } }
@@ -147,7 +151,7 @@ public enum EmbeddedTerminalLaunchBuilder {
     // agents verify through the same live app surface the user is watching.
     // Tied to the bootstrap: guidance without the tools misleads agents.
     let appendSystemPrompt = xcodeBuildMCPBootstrap == nil ? nil : SimulatorAgentGuidance.systemPrompt
-    let args = cliConfiguration.argumentsForSession(
+    var args = cliConfiguration.argumentsForSession(
       sessionId: sessionId,
       prompt: initialPrompt,
       agentHubMCPServerPath: resolvedAgentHubCLIPath,
@@ -172,6 +176,16 @@ public enum EmbeddedTerminalLaunchBuilder {
       xcodeBuildMCPBootstrap: xcodeBuildMCPBootstrap,
       appendSystemPrompt: appendSystemPrompt
     )
+    if cliConfiguration.mode == .claude {
+      do {
+        args = try ClaudeMCPConfigurationMaterializer.materialize(
+          arguments: args,
+          directory: claudeMCPConfigDirectory
+        )
+      } catch {
+        return .failure(.mcpConfigurationWriteFailed(error.localizedDescription))
+      }
+    }
     let joinedArgs = args
       .map { "'\(shellEscape($0))'" }
       .joined(separator: " ")

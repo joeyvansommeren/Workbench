@@ -268,6 +268,20 @@ public final class AgentHubProvider {
   /// Routes global-panel session selections into the main sessions UI.
   public private(set) lazy var globalSessionSelectionRouter: GlobalSessionSelectionRouter = .init()
 
+  public func openWorkflowSessionComparison(_ request: WorkflowSessionComparisonRequest) {
+    for target in [request.implementation, request.review] {
+      let viewModel =
+        target.providerKind == .claude ? claudeSessionsViewModel : codexSessionsViewModel
+      if !viewModel.isMonitoring(sessionId: target.session.id) {
+        viewModel.startMonitoring(session: target.session)
+      }
+      if target.providerKind == .codex {
+        viewModel.ensureLiveMonitoring(sessionId: target.session.id)
+      }
+    }
+    globalSessionSelectionRouter.compare(request)
+  }
+
   /// Coordinates the opt-in global hotkey and floating sessions panel.
   public private(set) lazy var globalSessionControlPanelCoordinator:
     GlobalSessionControlPanelCoordinator = .init(provider: self)
@@ -315,7 +329,8 @@ public final class AgentHubProvider {
 
   /// Project-driven queue of pull requests that are ready for independent review.
   public private(set) lazy var gitHubReviewsViewModel: GitHubReviewsViewModel = .init(
-    service: gitHubProjectReviewService
+    service: gitHubProjectReviewService,
+    sessionStore: metadataStore
   )
 
   /// Bridges provider-neutral workspaces to Claude and Codex monitoring.

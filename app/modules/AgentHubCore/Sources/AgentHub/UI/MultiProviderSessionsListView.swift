@@ -130,6 +130,34 @@ private struct StartSessionSheetContext: Identifiable {
   let launchViewModel: MultiSessionLaunchViewModel
 }
 
+struct WorkflowComparisonPresentationState: Equatable {
+  private(set) var retainedComparison: WorkflowSessionComparisonRequest?
+  private(set) var presentedComparison: WorkflowSessionComparisonRequest?
+
+  mutating func retainAndPresent(_ comparison: WorkflowSessionComparisonRequest) {
+    retainedComparison = comparison
+    presentedComparison = comparison
+  }
+
+  @discardableResult
+  mutating func presentRetainedComparison() -> WorkflowSessionComparisonRequest? {
+    presentedComparison = retainedComparison
+    return presentedComparison
+  }
+
+  mutating func showStandaloneContent() {
+    presentedComparison = nil
+  }
+
+  @discardableResult
+  mutating func close() -> WorkflowSessionComparisonRequest? {
+    let comparison = retainedComparison
+    retainedComparison = nil
+    presentedComparison = nil
+    return comparison
+  }
+}
+
 public struct MultiProviderSessionsListView: View {
   @Bindable var claudeViewModel: CLISessionsViewModel
   @Bindable var codexViewModel: CLISessionsViewModel
@@ -141,12 +169,15 @@ public struct MultiProviderSessionsListView: View {
   @State private var isBrowseExpanded: Bool = false
   @State private var multiLaunchViewModel: MultiSessionLaunchViewModel?
   @State private var primarySessionId: String?
+  @State private var workflowComparisonState = WorkflowComparisonPresentationState()
   @State private var showCommandPalette = false
   @State private var collapsedProjectGroups: Set<String> = []
   @State private var collapsedFolderGroups: Set<String> = []
   @State private var expandedWorkspaceSessionGroups: Set<String> = []
-  @State private var sidebarGroupMode: SidebarGroupMode = .repo
+  @AppStorage(AgentHubDefaults.sessionsSidebarGroupMode)
+  private var sidebarGroupMode: SidebarGroupMode = .repo
   @State private var collapsedStatusGroups: Set<StatusGroupCategory> = []
+  @State private var isAttentionSectionCollapsed: Bool = false
   @State private var isPinnedSectionCollapsed: Bool = false
   /// Manual drag order for the pinned section, `itemId -> position`. Seeded
   /// synchronously from SQLite on first render so the user's arrangement is
@@ -160,6 +191,7 @@ public struct MultiProviderSessionsListView: View {
   @State private var startSessionSheetContext: StartSessionSheetContext?
   @State private var gitHubSheetItem: GitHubSheetItem?
   @State private var archiveConfirmation: ArchiveConfirmation?
+  @State private var archiveShortcutTarget: SelectedSessionItem?
   @State private var removeConfirmation: RemoveConfirmation?
   @State private var worktreeModuleDeleteConfirmation: WorktreeModuleDeleteConfirmation?
   @State private var selectedModuleLandingPath: String?
@@ -214,6 +246,10 @@ public struct MultiProviderSessionsListView: View {
   }
 
   public var body: some View {
+    presentedContent
+  }
+
+  private var navigationContent: some View {
     GeometryReader { proxy in
       let sidebarMax = max(280, proxy.size.width * 0.20)
       ZStack {
@@ -241,15 +277,19 @@ public struct MultiProviderSessionsListView: View {
         multiLaunchViewModel = makeLaunchViewModel()
       }
       loadPinnedSessionOrderIfNeeded()
+      consumeGlobalSessionSelectionIfNeeded()
+      consumeGlobalWorkflowComparisonIfNeeded()
       ensurePrimarySelection()
       scheduleInitialGitHubStateRefreshIfNeeded()
-      consumeGlobalSessionSelectionIfNeeded()
     }
     .task {
       await workspaceViewModel.load()
     }
     .onChange(of: agentHub?.globalSessionSelectionRouter.selectionRequest?.id) { _, _ in
       consumeGlobalSessionSelectionIfNeeded()
+    }
+    .onChange(of: agentHub?.globalSessionSelectionRouter.comparisonRequest?.id) { _, _ in
+      consumeGlobalWorkflowComparisonIfNeeded()
     }
     .onChange(of: claudeViewModel.resolvedPendingSessions) { _, newResolutions in
       handleResolvedSessions(newResolutions, provider: .claude, viewModel: claudeViewModel)
@@ -259,18 +299,23 @@ public struct MultiProviderSessionsListView: View {
     }
     .onChange(of: claudeViewModel.lastCreatedPendingId) { _, newId in
       guard let newId else { return }
+      workflowComparisonState.showStandaloneContent()
       selectedWorkspaceID = nil
       primarySessionId = Self.pendingItemID(.claude, newId)
       claudeViewModel.lastCreatedPendingId = nil
     }
     .onChange(of: codexViewModel.lastCreatedPendingId) { _, newId in
       guard let newId else { return }
+      workflowComparisonState.showStandaloneContent()
       selectedWorkspaceID = nil
       primarySessionId = Self.pendingItemID(.codex, newId)
       codexViewModel.lastCreatedPendingId = nil
     }
     .onChange(of: selectedSessionItemIDs) { _, _ in
-      // Build once and share: each of these used to re-derive the full list.
+      consumeGlobalSessionSelectionIfNeeded()
+      consumeGlobalWorkflowComparisonIfNeeded()
+      // Selection requests can activate a previously unmonitored session. Build
+      // this snapshot afterwards so fallback selection cannot use the stale list.
       let items = selectedSessionItems
       syncModuleLandingSelection(items: items)
       ensurePrimarySelection(items: items)
@@ -292,164 +337,196 @@ public struct MultiProviderSessionsListView: View {
       selectedModuleLandingPath = nil
       ensurePrimarySelection()
     }
-    .sheet(item: $sessionFileSheetItem) { item in
-      SessionFileSheetView(
-        session: item.session,
-        fileName: item.fileName,
-        content: item.content,
-        onDismiss: { sessionFileSheetItem = nil }
+    .onReceive(
+      NotificationCenter.default.publisher(
+        for: AgentHubAppCommand.archiveCurrentSessionNotification
       )
+    ) { _ in
+      requestArchiveCurrentSession()
     }
-    .alert(
-      "Failed to Delete Worktree",
-      isPresented: Binding(
-        get: {
-          claudeViewModel.worktreeDeletionError != nil
-            || codexViewModel.worktreeDeletionError != nil
-        },
-        set: {
-          if !$0 {
+  }
+
+  private var presentedContent: some View {
+    navigationContent
+      .sheet(item: $sessionFileSheetItem) { item in
+        SessionFileSheetView(
+          session: item.session,
+          fileName: item.fileName,
+          content: item.content,
+          onDismiss: { sessionFileSheetItem = nil }
+        )
+      }
+      .alert(
+        "Failed to Delete Worktree",
+        isPresented: Binding(
+          get: {
+            claudeViewModel.worktreeDeletionError != nil
+              || codexViewModel.worktreeDeletionError != nil
+          },
+          set: {
+            if !$0 {
+              claudeViewModel.clearWorktreeDeletionError()
+              codexViewModel.clearWorktreeDeletionError()
+            }
+          }
+        )
+      ) {
+        let error = claudeViewModel.worktreeDeletionError ?? codexViewModel.worktreeDeletionError
+        if let error, error.isOrphaned, let parentRepoPath = error.parentRepoPath {
+          Button("Prune & Delete") {
+            let isClaudeError = claudeViewModel.worktreeDeletionError != nil
+            if isClaudeError {
+              codexViewModel.clearWorktreeDeletionError()
+              claudeViewModel.forceDeleteOrphanedWorktree(
+                error.worktree, parentRepoPath: parentRepoPath)
+            } else {
+              claudeViewModel.clearWorktreeDeletionError()
+              codexViewModel.forceDeleteOrphanedWorktree(
+                error.worktree, parentRepoPath: parentRepoPath)
+            }
+          }
+          Button("Cancel", role: .cancel) {
+            claudeViewModel.clearWorktreeDeletionError()
+            codexViewModel.clearWorktreeDeletionError()
+          }
+        } else if let error {
+          Button("Force Delete", role: .destructive) {
+            let isClaudeError = claudeViewModel.worktreeDeletionError != nil
+            if isClaudeError {
+              codexViewModel.clearWorktreeDeletionError()
+              claudeViewModel.forceDeleteWorktree(error.worktree)
+            } else {
+              claudeViewModel.clearWorktreeDeletionError()
+              codexViewModel.forceDeleteWorktree(error.worktree)
+            }
+          }
+          Button("Cancel", role: .cancel) {
             claudeViewModel.clearWorktreeDeletionError()
             codexViewModel.clearWorktreeDeletionError()
           }
         }
-      )
-    ) {
-      let error = claudeViewModel.worktreeDeletionError ?? codexViewModel.worktreeDeletionError
-      if let error, error.isOrphaned, let parentRepoPath = error.parentRepoPath {
-        Button("Prune & Delete") {
-          let isClaudeError = claudeViewModel.worktreeDeletionError != nil
-          if isClaudeError {
-            codexViewModel.clearWorktreeDeletionError()
-            claudeViewModel.forceDeleteOrphanedWorktree(
-              error.worktree, parentRepoPath: parentRepoPath)
+      } message: {
+        let error = claudeViewModel.worktreeDeletionError ?? codexViewModel.worktreeDeletionError
+        if let error {
+          if error.isOrphaned, let parentRepoPath = error.parentRepoPath {
+            Text(
+              "The worktree at:\n\(error.worktree.path)\n\nhas no parent repo. You can prune and delete it from:\n\(parentRepoPath)"
+            )
           } else {
-            claudeViewModel.clearWorktreeDeletionError()
-            codexViewModel.forceDeleteOrphanedWorktree(
-              error.worktree, parentRepoPath: parentRepoPath)
+            Text(
+              "\(error.message)\n\n\"Force Delete\" will remove the worktree even if it contains untracked files."
+            )
           }
-        }
-        Button("Cancel", role: .cancel) {
-          claudeViewModel.clearWorktreeDeletionError()
-          codexViewModel.clearWorktreeDeletionError()
-        }
-      } else if let error {
-        Button("Force Delete", role: .destructive) {
-          let isClaudeError = claudeViewModel.worktreeDeletionError != nil
-          if isClaudeError {
-            codexViewModel.clearWorktreeDeletionError()
-            claudeViewModel.forceDeleteWorktree(error.worktree)
-          } else {
-            claudeViewModel.clearWorktreeDeletionError()
-            codexViewModel.forceDeleteWorktree(error.worktree)
-          }
-        }
-        Button("Cancel", role: .cancel) {
-          claudeViewModel.clearWorktreeDeletionError()
-          codexViewModel.clearWorktreeDeletionError()
         }
       }
-    } message: {
-      let error = claudeViewModel.worktreeDeletionError ?? codexViewModel.worktreeDeletionError
-      if let error {
-        if error.isOrphaned, let parentRepoPath = error.parentRepoPath {
+      .alert(
+        "Delete Worktree?",
+        isPresented: Binding(
+          get: { worktreeModuleDeleteConfirmation != nil },
+          set: { if !$0 { worktreeModuleDeleteConfirmation = nil } }
+        ),
+        presenting: worktreeModuleDeleteConfirmation
+      ) { confirmation in
+        Button("Cancel", role: .cancel) {
+          worktreeModuleDeleteConfirmation = nil
+        }
+        Button("Delete", role: .destructive) {
+          deleteWorktreeModule(confirmation)
+        }
+      } message: { confirmation in
+        if confirmation.sessionCount > 0 {
+          let threadLabel = confirmation.sessionCount == 1 ? "thread" : "threads"
           Text(
-            "The worktree at:\n\(error.worktree.path)\n\nhas no parent repo. You can prune and delete it from:\n\(parentRepoPath)"
+            "This will archive \(confirmation.sessionCount) \(threadLabel) "
+              + "and delete \(confirmation.displayName) at:\n"
+              + "\(confirmation.worktree.path)\n\n"
+              + "This cannot be undone."
           )
         } else {
           Text(
-            "\(error.message)\n\n\"Force Delete\" will remove the worktree even if it contains untracked files."
-          )
-        }
-      }
-    }
-    .alert(
-      "Delete Worktree?",
-      isPresented: Binding(
-        get: { worktreeModuleDeleteConfirmation != nil },
-        set: { if !$0 { worktreeModuleDeleteConfirmation = nil } }
-      ),
-      presenting: worktreeModuleDeleteConfirmation
-    ) { confirmation in
-      Button("Cancel", role: .cancel) {
-        worktreeModuleDeleteConfirmation = nil
-      }
-      Button("Delete", role: .destructive) {
-        deleteWorktreeModule(confirmation)
-      }
-    } message: { confirmation in
-      if confirmation.sessionCount > 0 {
-        let threadLabel = confirmation.sessionCount == 1 ? "thread" : "threads"
-        Text(
-          "This will archive \(confirmation.sessionCount) \(threadLabel) "
-            + "and delete \(confirmation.displayName) at:\n"
-            + "\(confirmation.worktree.path)\n\n"
-            + "This cannot be undone."
-        )
-      } else {
-        Text(
-          """
-          Delete \(confirmation.displayName) at:
-          \(confirmation.worktree.path)
+            """
+            Delete \(confirmation.displayName) at:
+            \(confirmation.worktree.path)
 
-          This cannot be undone.
-          """
+            This cannot be undone.
+            """
+          )
+        }
+      }
+      .sheet(item: $createWorktreeContext) { context in
+        CreateWorktreeSheet(
+          repositoryPath: context.repository.path,
+          repositoryName: context.repository.name,
+          onDismiss: { createWorktreeContext = nil },
+          onCreate: { branchName, directoryName, baseBranch in
+            beginSidePanelWorktree(
+              context: context,
+              branchName: branchName,
+              directoryName: directoryName,
+              baseBranch: baseBranch
+            )
+          }
         )
       }
-    }
-    .sheet(item: $createWorktreeContext) { context in
-      CreateWorktreeSheet(
-        repositoryPath: context.repository.path,
-        repositoryName: context.repository.name,
-        onDismiss: { createWorktreeContext = nil },
-        onCreate: { branchName, directoryName, baseBranch in
-          beginSidePanelWorktree(
-            context: context,
-            branchName: branchName,
-            directoryName: directoryName,
-            baseBranch: baseBranch
-          )
-        }
-      )
-    }
-    .sheet(item: $gitHubSheetItem) { item in
-      let provider = claudeViewModel.agentHubProvider ?? codexViewModel.agentHubProvider
-      GitHubPanelView(
-        projectPath: item.projectPath,
-        onDismiss: { gitHubSheetItem = nil },
-        isEmbedded: false,
-        viewModel: GitHubViewModel(
-          service: provider?.gitHubService ?? GitHubCLIService(),
-          observationService: provider?.gitHubPRObservationService
+      .sheet(item: $gitHubSheetItem) { item in
+        let provider = claudeViewModel.agentHubProvider ?? codexViewModel.agentHubProvider
+        GitHubPanelView(
+          projectPath: item.projectPath,
+          onDismiss: { gitHubSheetItem = nil },
+          isEmbedded: false,
+          viewModel: GitHubViewModel(
+            service: provider?.gitHubService ?? GitHubCLIService(),
+            observationService: provider?.gitHubPRObservationService
+          ),
+          onSendToSession: { prompt, session in
+            claudeViewModel.showTerminalWithPrompt(for: session, prompt: prompt)
+          },
+          onStartNewSession: { inputText, provider in
+            launchGitHubReviewSession(
+              projectPath: item.projectPath,
+              inputText: inputText,
+              providerKind: provider
+            )
+          }
+        )
+      }
+      .sheet(item: $startSessionSheetContext) { context in
+        StartSessionSheet(
+          launchViewModel: context.launchViewModel,
+          intelligenceViewModel: intelligenceViewModel,
+          onDismiss: { startSessionSheetContext = nil }
+        )
+      }
+      .alert(
+        "Archive current session?",
+        isPresented: Binding(
+          get: { archiveShortcutTarget != nil },
+          set: { if !$0 { archiveShortcutTarget = nil } }
         ),
-        onSendToSession: { prompt, session in
-          claudeViewModel.showTerminalWithPrompt(for: session, prompt: prompt)
-        },
-        onStartNewSession: { inputText, provider in
-          launchGitHubReviewSession(
-            projectPath: item.projectPath,
-            inputText: inputText,
-            providerKind: provider
-          )
+        presenting: archiveShortcutTarget
+      ) { item in
+        Button("Cancel", role: .cancel) {
+          archiveShortcutTarget = nil
         }
+        Button("Archive", role: .destructive) {
+          archiveSession(item)
+          archiveShortcutTarget = nil
+        }
+      } message: { item in
+        let name = selectedSessionCustomName(for: item) ?? item.session.slug ?? item.session.shortId
+        Text(
+          "This closes the \(item.providerKind.rawValue) session “\(name)” and moves it out of your active sessions."
+        )
+      }
+      .modifier(ArchiveConfirmationAlert(confirmation: $archiveConfirmation))
+      .modifier(RemoveConfirmationAlert(confirmation: $removeConfirmation))
+      .modifier(
+        AgentWorkspaceCloseConfirmationModifier(
+          workspaceID: $workspacePendingCloseID,
+          onConfirm: closePendingWorkspace
+        )
       )
-    }
-    .sheet(item: $startSessionSheetContext) { context in
-      StartSessionSheet(
-        launchViewModel: context.launchViewModel,
-        intelligenceViewModel: intelligenceViewModel,
-        onDismiss: { startSessionSheetContext = nil }
-      )
-    }
-    .modifier(ArchiveConfirmationAlert(confirmation: $archiveConfirmation))
-    .modifier(RemoveConfirmationAlert(confirmation: $removeConfirmation))
-    .modifier(
-      AgentWorkspaceCloseConfirmationModifier(
-        workspaceID: $workspacePendingCloseID,
-        onConfirm: closePendingWorkspace
-      )
-    )
-    .modifier(AgentWorkspaceErrorAlertModifier(viewModel: workspaceViewModel))
+      .modifier(AgentWorkspaceErrorAlertModifier(viewModel: workspaceViewModel))
   }
 
   // MARK: - UI Helpers
@@ -484,6 +561,7 @@ public struct MultiProviderSessionsListView: View {
             claudeViewModel: claudeViewModel,
             codexViewModel: codexViewModel,
             primarySessionId: $primarySessionId,
+            workflowComparison: workflowComparisonBinding,
             selectedModuleLandingPath: $selectedModuleLandingPath,
             onEmbeddedSidePanelVisibilityChange: handleEmbeddedSidePanelVisibilityChange,
             onAddFolder: { showAddRepositoryPicker() },
@@ -542,6 +620,22 @@ public struct MultiProviderSessionsListView: View {
 
       Button("") { navigateSessionHistory(direction: .forward) }
         .keyboardShortcut("]", modifiers: .command)
+        .hidden()
+
+      Button("") { navigateSessionHistory(direction: .backward) }
+        .keyboardShortcut(.tab, modifiers: [.control, .shift])
+        .hidden()
+
+      Button("") { navigateSessionHistory(direction: .forward) }
+        .keyboardShortcut(.tab, modifiers: .control)
+        .hidden()
+
+      Button("") { navigateSessionHistory(direction: .backward) }
+        .keyboardShortcut("[", modifiers: [.command, .shift])
+        .hidden()
+
+      Button("") { navigateSessionHistory(direction: .forward) }
+        .keyboardShortcut("]", modifiers: [.command, .shift])
         .hidden()
 
       Button("") { terminalFontSize = min(terminalFontSize + 1, 24) }
@@ -908,30 +1002,36 @@ public struct MultiProviderSessionsListView: View {
 
   private var selectedSessionItems: [SelectedSessionItem] {
     var results: [SelectedSessionItem] = []
+    let claudeReviewReferences =
+      agentHub?.gitHubReviewsViewModel.linkedPullRequestReferencesByItemID(provider: .claude) ?? [:]
+    let codexReviewReferences =
+      agentHub?.gitHubReviewsViewModel.linkedPullRequestReferencesByItemID(provider: .codex) ?? [:]
 
     for pending in claudeViewModel.pendingHubSessions {
+      let itemID = Self.pendingItemID(.claude, pending.id)
       results.append(
         SelectedSessionItem(
-          id: Self.pendingItemID(.claude, pending.id),
+          id: itemID,
           session: pending.placeholderSession,
           providerKind: .claude,
           timestamp: pending.startedAt,
           isPending: true,
           sessionStatus: nil,
-          linkedPullRequests: []
+          linkedPullRequests: claudeReviewReferences[itemID] ?? []
         ))
     }
 
     for pending in codexViewModel.pendingHubSessions {
+      let itemID = Self.pendingItemID(.codex, pending.id)
       results.append(
         SelectedSessionItem(
-          id: Self.pendingItemID(.codex, pending.id),
+          id: itemID,
           session: pending.placeholderSession,
           providerKind: .codex,
           timestamp: pending.startedAt,
           isPending: true,
           sessionStatus: nil,
-          linkedPullRequests: []
+          linkedPullRequests: codexReviewReferences[itemID] ?? []
         ))
     }
 
@@ -939,32 +1039,48 @@ public struct MultiProviderSessionsListView: View {
     // than `monitorStates`, so a publish that only moves token counts or the
     // activity feed no longer rebuilds this list or re-creates every row.
     for session in claudeViewModel.monitoredCLISessions {
+      let itemID = Self.monitoredItemID(.claude, session.id)
       results.append(
         SelectedSessionItem(
-          id: Self.monitoredItemID(.claude, session.id),
+          id: itemID,
           session: session,
           providerKind: .claude,
           timestamp: session.lastActivityAt,
           isPending: false,
           sessionStatus: claudeViewModel.sessionStatus(for: session.id),
-          linkedPullRequests: claudeViewModel.pullRequestReferences(for: session.id)
+          linkedPullRequests: mergedPullRequestReferences(
+            claudeViewModel.pullRequestReferences(for: session.id),
+            claudeReviewReferences[itemID] ?? []
+          )
         ))
     }
 
     for session in codexViewModel.monitoredCLISessions {
+      let itemID = Self.monitoredItemID(.codex, session.id)
       results.append(
         SelectedSessionItem(
-          id: Self.monitoredItemID(.codex, session.id),
+          id: itemID,
           session: session,
           providerKind: .codex,
           timestamp: session.lastActivityAt,
           isPending: false,
           sessionStatus: codexViewModel.sessionStatus(for: session.id),
-          linkedPullRequests: codexViewModel.pullRequestReferences(for: session.id)
+          linkedPullRequests: mergedPullRequestReferences(
+            codexViewModel.pullRequestReferences(for: session.id),
+            codexReviewReferences[itemID] ?? []
+          )
         ))
     }
 
     return results.sorted { $0.timestamp > $1.timestamp }
+  }
+
+  private func mergedPullRequestReferences(
+    _ detected: [GitHubPullRequestURLReference],
+    _ associated: [GitHubPullRequestURLReference]
+  ) -> [GitHubPullRequestURLReference] {
+    var seen: Set<GitHubPullRequestURLReference> = []
+    return (detected + associated).filter { seen.insert($0).inserted }
   }
 
   private func selectedSessionCustomName(for item: SelectedSessionItem) -> String? {
@@ -1330,13 +1446,25 @@ public struct MultiProviderSessionsListView: View {
   }
 
   private var navigableSessionItems: [SelectedSessionItem] {
-    SidebarSessionOrdering.flattenedItems(
-      from: selectedSessionItems.filter { !isWorkspaceOwned($0) },
+    let allItems = selectedSessionItems.filter { !isWorkspaceOwned($0) }
+    let comparison = sidebarWorkflowComparison(from: allItems)
+    let comparisonNavigationItems =
+      comparison.map {
+        [$0.items.implementation]
+      } ?? []
+    let comparisonIDs =
+      comparison.map {
+        Set([$0.items.implementation.id, $0.items.review.id])
+      } ?? []
+    let regularItems = allItems.filter { !comparisonIDs.contains($0.id) }
+    let orderedRegularItems = SidebarSessionOrdering.flattenedItems(
+      from: regularItems,
       repositories: Array(orderedTrackedRepos),
       groupMode: sidebarGroupMode,
       worktreeDisplayMode: worktreeDisplayMode,
       collapsedProjectGroups: collapsedProjectGroups,
       collapsedStatusGroups: collapsedStatusGroups,
+      isAttentionSectionCollapsed: isAttentionSectionCollapsed,
       isPinnedSectionCollapsed: isPinnedSectionCollapsed,
       isPinned: isPinned,
       projectPath: { $0.session.projectPath },
@@ -1345,6 +1473,7 @@ public struct MultiProviderSessionsListView: View {
       id: { $0.id },
       manualOrder: { pinnedSessionOrder[$0.id] }
     )
+    return comparisonNavigationItems + orderedRegularItems
   }
 
   @ViewBuilder
@@ -1354,7 +1483,21 @@ public struct MultiProviderSessionsListView: View {
     // `workspaceRows` did so once per repository group — turning one render into
     // O(groups) full rebuilds of the session list.
     let allItems = selectedSessionItems
-    let workspaceOwnedItems = workspaceOwnedItemsByWorkspaceID(from: allItems)
+    let comparison = sidebarWorkflowComparison(from: allItems)
+    let comparisonItemIDs =
+      comparison.map {
+        Set([$0.items.implementation.id, $0.items.review.id])
+      } ?? []
+    let regularItems = allItems.filter { !comparisonItemIDs.contains($0.id) }
+    let attentionItems = SidebarSessionOrdering.attentionItems(
+      from: regularItems,
+      status: { $0.sessionStatus },
+      timestamp: { $0.timestamp },
+      id: { $0.id }
+    )
+    let attentionItemIDs = Set(attentionItems.map(\.id))
+    let ordinaryItems = regularItems.filter { !attentionItemIDs.contains($0.id) }
+    let workspaceOwnedItems = workspaceOwnedItemsByWorkspaceID(from: ordinaryItems)
 
     return VStack(alignment: .leading, spacing: 0) {
       SessionsSectionHeader(
@@ -1369,6 +1512,28 @@ public struct MultiProviderSessionsListView: View {
         }
       )
 
+      if let comparison {
+        workflowComparisonSidebarSection(comparison)
+          .transition(.opacity.combined(with: .move(edge: .top)))
+      }
+
+      if !attentionItems.isEmpty {
+        AttentionSectionHeader(
+          count: attentionItems.count,
+          isExpanded: !isAttentionSectionCollapsed,
+          onToggle: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+              isAttentionSectionCollapsed.toggle()
+            }
+          }
+        )
+        .transition(.opacity)
+
+        if !isAttentionSectionCollapsed {
+          sessionRows(for: attentionItems)
+        }
+      }
+
       let pendingModules = pendingModulePaths
       if !pendingModules.isEmpty {
         ForEach(pendingModules, id: \.self) { path in
@@ -1381,7 +1546,7 @@ public struct MultiProviderSessionsListView: View {
       }
 
       // Pinned sessions section
-      let pinned = pinnedSessionItems(from: allItems)
+      let pinned = pinnedSessionItems(from: ordinaryItems)
       if !pinned.isEmpty {
         PinnedSectionHeader(
           count: pinned.count,
@@ -1408,7 +1573,7 @@ public struct MultiProviderSessionsListView: View {
 
       switch sidebarGroupMode {
       case .repo:
-        let sections = groupedSelectedSessionSections(from: allItems)
+        let sections = groupedSelectedSessionSections(from: ordinaryItems)
         if !sections.isEmpty {
           ForEach(sections) { section in
             let isFolderExpanded = !collapsedFolderGroups.contains(section.id)
@@ -1537,7 +1702,7 @@ public struct MultiProviderSessionsListView: View {
             workspaceRows(for: workspaceViewModel.workspaces, ownedItems: workspaceOwnedItems)
           }
         }
-        let grouped = statusGroupedSessions(from: allItems)
+        let grouped = statusGroupedSessions(from: ordinaryItems)
         ForEach(StatusGroupCategory.allCases) { category in
           let items = (grouped[category] ?? []).filter { !isWorkspaceOwned($0) }
           if !items.isEmpty {
@@ -1566,6 +1731,96 @@ public struct MultiProviderSessionsListView: View {
       }
     }
     .padding(.bottom, 8)
+  }
+
+  private struct SidebarWorkflowComparison {
+    let request: WorkflowSessionComparisonRequest
+    let items: SidebarSessionComparison<SelectedSessionItem>
+  }
+
+  private func sidebarWorkflowComparison(
+    from items: [SelectedSessionItem]
+  ) -> SidebarWorkflowComparison? {
+    guard let request = workflowComparisonState.retainedComparison,
+      let comparisonItems = SidebarSessionOrdering.comparisonItems(
+        from: items,
+        implementationID: request.implementation.itemID,
+        reviewID: request.review.itemID,
+        id: { $0.id }
+      )
+    else { return nil }
+
+    return SidebarWorkflowComparison(request: request, items: comparisonItems)
+  }
+
+  private func workflowComparisonSidebarSection(
+    _ comparison: SidebarWorkflowComparison
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack(spacing: 6) {
+        Image(systemName: "rectangle.split.2x1")
+          .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("SIDE BY SIDE")
+            .font(.geist(size: 9, weight: .semibold))
+            .foregroundStyle(.secondary)
+          Text(comparison.request.title)
+            .font(.secondaryCaption)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 4)
+        if workflowComparisonState.presentedComparison == nil {
+          Button("Open") {
+            reopenWorkflowComparison()
+          }
+          .buttonStyle(.borderless)
+          .controlSize(.small)
+          .help("Open side by side")
+        }
+        Button {
+          closeWorkflowComparison()
+        } label: {
+          Image(systemName: "xmark")
+        }
+        .buttonStyle(.plain)
+        .help("Close side by side")
+      }
+
+      workflowComparisonSidebarRow(
+        role: "Implementation",
+        item: comparison.items.implementation
+      )
+      workflowComparisonSidebarRow(
+        role: "Review",
+        item: comparison.items.review
+      )
+    }
+    .padding(10)
+    .background(Color.surfaceOverlay)
+    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
+        .stroke(Color.borderSubtle, lineWidth: 1)
+    }
+    .padding(.top, 8)
+  }
+
+  private func workflowComparisonSidebarRow(
+    role: String,
+    item: SelectedSessionItem
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Text(role.uppercased())
+        .font(.geist(size: 8, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .padding(.leading, 4)
+
+      sessionRow(
+        for: item,
+        isPrimaryOverride: workflowComparisonState.presentedComparison != nil,
+        onSelectOverride: reopenWorkflowComparison
+      )
+    }
   }
 
   // MARK: - Per-Provider Content
@@ -1600,6 +1855,7 @@ public struct MultiProviderSessionsListView: View {
   /// expand their group so the scroll target exists.
   private func resolvedScrollTargetID(for itemID: String) -> String {
     guard let item = selectedSessionItems.first(where: { $0.id == itemID }),
+      !SidebarSessionOrdering.requiresAttention(item.sessionStatus),
       !item.isPending,
       let workspaceID = workspaceViewModel.workspaceID(
         owningSession: item.session.id,
@@ -1637,6 +1893,7 @@ public struct MultiProviderSessionsListView: View {
               }
             },
           onSelect: {
+            workflowComparisonState.showStandaloneContent()
             selectedModuleLandingPath = nil
             primarySessionId = nil
             selectedWorkspaceID = workspace.id
@@ -1666,7 +1923,7 @@ public struct MultiProviderSessionsListView: View {
   /// which could attach a second PTY to the same session.
   @ViewBuilder
   private func workspaceSessionRows(for items: [SelectedSessionItem]) -> some View {
-    VStack(spacing: 2) {
+    VStack(spacing: 6) {
       ForEach(items) { item in
         CollapsibleSessionRow(
           session: item.session,
@@ -1682,6 +1939,7 @@ public struct MultiProviderSessionsListView: View {
           onPin: nil,
           onArchive: nil,
           onSelect: {
+            workflowComparisonState.showStandaloneContent()
             selectedModuleLandingPath = nil
             primarySessionId = nil
             let workspaceID = workspaceViewModel.focusWorkspaceSession(
@@ -1704,7 +1962,7 @@ public struct MultiProviderSessionsListView: View {
 
   @ViewBuilder
   private func sessionRows(for items: [SelectedSessionItem]) -> some View {
-    VStack(spacing: 2) {
+    VStack(spacing: 6) {
       ForEach(items) { item in
         sessionRow(for: item)
           .transition(.opacity)
@@ -1718,13 +1976,17 @@ public struct MultiProviderSessionsListView: View {
   /// One sidebar session row. Shared by the plain stacked sections and by the
   /// reorderable pinned list, so a row looks and behaves the same either way.
   @ViewBuilder
-  private func sessionRow(for item: SelectedSessionItem) -> some View {
+  private func sessionRow(
+    for item: SelectedSessionItem,
+    isPrimaryOverride: Bool? = nil,
+    onSelectOverride: (() -> Void)? = nil
+  ) -> some View {
     CollapsibleSessionRow(
       session: item.session,
       providerKind: item.providerKind,
       timestamp: item.timestamp,
       isPending: item.isPending,
-      isPrimary: item.id == primarySessionId,
+      isPrimary: isPrimaryOverride ?? (item.id == primarySessionId),
       customName: selectedSessionCustomName(for: item),
       sessionStatus: item.sessionStatus,
       linkedPullRequests: item.linkedPullRequests,
@@ -1744,18 +2006,38 @@ public struct MultiProviderSessionsListView: View {
         ? nil
         : {
           withAnimation(.easeInOut(duration: 0.25)) {
-            switch item.providerKind {
-            case .claude: claudeViewModel.stopMonitoring(session: item.session)
-            case .codex: codexViewModel.stopMonitoring(session: item.session)
-            }
+            archiveSession(item)
           }
         },
       onSelect: {
-        selectedWorkspaceID = nil
-        selectedModuleLandingPath = nil
-        primarySessionId = item.id
+        if let onSelectOverride {
+          onSelectOverride()
+        } else {
+          selectStandaloneSession(item)
+        }
       }
     )
+    .padding(.vertical, 1)
+  }
+
+  private func selectStandaloneSession(_ item: SelectedSessionItem) {
+    workflowComparisonState.showStandaloneContent()
+    selectedModuleLandingPath = nil
+
+    if !item.isPending,
+      let workspaceID = workspaceViewModel.focusWorkspaceSession(
+        provider: item.providerKind,
+        sessionId: item.session.id,
+        isDark: colorScheme == .dark
+      )
+    {
+      primarySessionId = nil
+      selectedWorkspaceID = workspaceID
+      setAuxiliaryShellVisible(false)
+    } else {
+      selectedWorkspaceID = nil
+      primarySessionId = item.id
+    }
   }
 
   @ViewBuilder
@@ -2019,7 +2301,6 @@ public struct MultiProviderSessionsListView: View {
   }
 
   private func addRepository(at path: String) {
-    sidebarGroupMode = .repo
     trackPendingModule(path)
     claudeViewModel.addFolder(at: path)
     codexViewModel.addFolder(at: path)
@@ -2045,6 +2326,7 @@ public struct MultiProviderSessionsListView: View {
   private func handleSearchSelection(
     _ result: SessionSearchResult, for viewModel: CLISessionsViewModel
   ) {
+    workflowComparisonState.showStandaloneContent()
     viewModel.selectSearchResult(result)
     let otherViewModel = viewModel.providerKind == .claude ? codexViewModel : claudeViewModel
     if !otherViewModel.selectedRepositories.contains(where: { $0.path == result.projectPath }) {
@@ -2235,6 +2517,10 @@ public struct MultiProviderSessionsListView: View {
     // Workspace-owned sessions never auto-select as the primary standalone
     // card; their PTY lives inside the workspace surface.
     let items = (prebuiltItems ?? selectedSessionItems).filter { !isWorkspaceOwned($0) }
+    if agentHub?.globalSessionSelectionRouter.selectionRequest != nil {
+      primarySessionId = nil
+      return
+    }
     guard !items.isEmpty else {
       primarySessionId = nil
       return
@@ -2252,12 +2538,24 @@ public struct MultiProviderSessionsListView: View {
       return
     }
 
+    let viewModel = request.providerKind == .claude ? claudeViewModel : codexViewModel
+    if let session = request.session,
+      session.id == request.sessionId,
+      !viewModel.isMonitoring(sessionId: session.id)
+    {
+      viewModel.startMonitoring(session: session)
+    }
+    if request.providerKind == .codex {
+      viewModel.ensureLiveMonitoring(sessionId: request.sessionId)
+    }
+
     guard let item = selectedSessionItems.first(where: { $0.id == request.itemId }) else {
       return
     }
 
     selectedModuleLandingPath = nil
     selectedProviderRaw = request.providerKind.rawValue
+    workflowComparisonState.showStandaloneContent()
     if !item.isPending,
       let workspaceID = workspaceViewModel.focusWorkspaceSession(
         provider: item.providerKind,
@@ -2277,7 +2575,78 @@ public struct MultiProviderSessionsListView: View {
     router.markConsumed(request)
   }
 
+  private func consumeGlobalWorkflowComparisonIfNeeded() {
+    guard let router = agentHub?.globalSessionSelectionRouter,
+      let request = router.comparisonRequest ?? router.activeComparison
+    else {
+      return
+    }
+
+    if workflowComparisonState.retainedComparison?.id == request.id {
+      if router.comparisonRequest?.id == request.id {
+        workflowComparisonState.retainAndPresent(request)
+        selectedWorkspaceID = nil
+        selectedModuleLandingPath = nil
+        primarySessionId = request.implementation.itemID
+        scrollToSessionId = request.implementation.itemID
+        router.markConsumed(request)
+      }
+      return
+    }
+
+    for target in [request.implementation, request.review] {
+      let viewModel = target.providerKind == .claude ? claudeViewModel : codexViewModel
+      if !viewModel.isMonitoring(sessionId: target.session.id) {
+        viewModel.startMonitoring(session: target.session)
+      }
+      if target.providerKind == .codex {
+        viewModel.ensureLiveMonitoring(sessionId: target.session.id)
+      }
+    }
+
+    let availableIDs = Set(selectedSessionItems.map(\.id))
+    guard availableIDs.contains(request.implementation.itemID),
+      availableIDs.contains(request.review.itemID)
+    else {
+      return
+    }
+
+    selectedWorkspaceID = nil
+    selectedModuleLandingPath = nil
+    workflowComparisonState.retainAndPresent(request)
+    primarySessionId = request.implementation.itemID
+    scrollToSessionId = request.implementation.itemID
+    router.markConsumed(request)
+  }
+
+  private var workflowComparisonBinding: Binding<WorkflowSessionComparisonRequest?> {
+    Binding(
+      get: { workflowComparisonState.presentedComparison },
+      set: { comparison in
+        if let comparison {
+          workflowComparisonState.retainAndPresent(comparison)
+        } else {
+          closeWorkflowComparison()
+        }
+      }
+    )
+  }
+
+  private func closeWorkflowComparison() {
+    let comparison = workflowComparisonState.close()
+    agentHub?.globalSessionSelectionRouter.closeComparison(comparison)
+  }
+
+  private func reopenWorkflowComparison() {
+    guard let comparison = workflowComparisonState.presentRetainedComparison() else { return }
+    selectedWorkspaceID = nil
+    selectedModuleLandingPath = nil
+    primarySessionId = comparison.implementation.itemID
+    scrollToSessionId = comparison.implementation.itemID
+  }
+
   private func selectEmptyModule(_ path: String) {
+    workflowComparisonState.showStandaloneContent()
     selectedWorkspaceID = nil
     selectedModuleLandingPath = path
     primarySessionId = nil
@@ -2393,22 +2762,7 @@ public struct MultiProviderSessionsListView: View {
 
     case .switchToSession(let id, _, _, _):
       if let item = selectedSessionItems.first(where: { $0.id == id }) {
-        selectedModuleLandingPath = nil
-        if !item.isPending,
-          let workspaceID = workspaceViewModel.focusWorkspaceSession(
-            provider: item.providerKind,
-            sessionId: item.session.id,
-            isDark: colorScheme == .dark
-          )
-        {
-          // Workspace-owned sessions open inside their workspace pane.
-          primarySessionId = nil
-          selectedWorkspaceID = workspaceID
-          setAuxiliaryShellVisible(false)
-        } else {
-          selectedWorkspaceID = nil
-          primarySessionId = item.id
-        }
+        selectStandaloneSession(item)
         scrollToSessionId = item.id
       }
 
@@ -2423,6 +2777,15 @@ public struct MultiProviderSessionsListView: View {
 
     case .toggleTerminalEditor:
       NotificationCenter.default.post(name: .toggleMonitoringContentMode, object: nil)
+
+    case .previousSession:
+      navigateSessionHistory(direction: .backward)
+
+    case .nextSession:
+      navigateSessionHistory(direction: .forward)
+
+    case .archiveCurrentSession:
+      requestArchiveCurrentSession()
     }
   }
 
@@ -2489,6 +2852,7 @@ public struct MultiProviderSessionsListView: View {
       else {
         return
       }
+      workflowComparisonState.showStandaloneContent()
       selectedModuleLandingPath = nil
       primarySessionId = nil
       selectedWorkspaceID = workspaceID
@@ -2620,9 +2984,37 @@ public struct MultiProviderSessionsListView: View {
       return
     }
 
+    if nextID == workflowComparisonState.retainedComparison?.implementation.itemID {
+      reopenWorkflowComparison()
+      return
+    }
+
+    workflowComparisonState.showStandaloneContent()
     selectedModuleLandingPath = nil
     primarySessionId = nextID
     scrollToSessionId = nextID
+  }
+
+  private func requestArchiveCurrentSession() {
+    guard
+      selectedWorkspaceID == nil,
+      let primarySessionId,
+      let item = selectedSessionItems.first(where: { $0.id == primarySessionId }),
+      !item.isPending
+    else {
+      NSSound.beep()
+      return
+    }
+    archiveShortcutTarget = item
+  }
+
+  private func archiveSession(_ item: SelectedSessionItem) {
+    withAnimation(.easeInOut(duration: 0.25)) {
+      switch item.providerKind {
+      case .claude: claudeViewModel.stopMonitoring(session: item.session)
+      case .codex: codexViewModel.stopMonitoring(session: item.session)
+      }
+    }
   }
 
   /// Scrolls the sidebar to the session currently open in the detail view.
@@ -2644,7 +3036,12 @@ public struct MultiProviderSessionsListView: View {
         didReveal = true
       }
 
-      if isPinned(item) {
+      if SidebarSessionOrdering.requiresAttention(item.sessionStatus) {
+        if isAttentionSectionCollapsed {
+          isAttentionSectionCollapsed = false
+          didReveal = true
+        }
+      } else if isPinned(item) {
         if isPinnedSectionCollapsed {
           isPinnedSectionCollapsed = false
           didReveal = true
@@ -2931,6 +3328,54 @@ private struct PinnedSectionHeader: View {
     .contentShape(Rectangle())
     .onHover { isHovered = $0 }
     .animation(.easeInOut(duration: 0.15), value: isHovered)
+  }
+}
+
+// MARK: - StatusGroupSectionHeader
+
+private struct AttentionSectionHeader: View {
+  let count: Int
+  let isExpanded: Bool
+  let onToggle: () -> Void
+
+  @State private var isHovered = false
+  @Environment(\.colorScheme) private var colorScheme
+
+  var body: some View {
+    Button(action: onToggle) {
+      HStack(spacing: 8) {
+        Image(systemName: "exclamationmark.circle.fill")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(.orange)
+        Text("Needs your attention")
+          .font(.geist(size: 13, weight: .semibold))
+          .foregroundStyle(.primary)
+        Text("\(count)")
+          .font(.geist(size: 11, weight: .regular))
+          .foregroundStyle(.secondary)
+        Spacer(minLength: 0)
+        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+          .font(.system(size: 10, weight: .medium))
+          .foregroundStyle(.secondary)
+          .padding(.trailing, 4)
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .padding(.vertical, 6)
+    .padding(.horizontal, 4)
+    .background(
+      RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .fill(
+          isHovered
+            ? Color.orange.opacity(colorScheme == .dark ? 0.14 : 0.10)
+            : Color.clear)
+    )
+    .contentShape(Rectangle())
+    .onHover { isHovered = $0 }
+    .animation(.easeInOut(duration: 0.15), value: isHovered)
+    .accessibilityLabel("Needs your attention, \(count) sessions")
+    .accessibilityHint(isExpanded ? "Collapse sessions" : "Expand sessions")
   }
 }
 
