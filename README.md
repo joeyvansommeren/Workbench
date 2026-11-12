@@ -46,6 +46,7 @@ rom session rows, and send GitHub context back into a session
 - **Notification sounds** — Configurable audio alert when a tool call awaits approval
 - **Privacy-first** — Runs entirely on your machine; no data is collected or transmitted
 - **Process cleanup** — When a monitored Hub card is removed, AgentHub terminates both the card terminal and the auxiliary Hub shell process tree so shell/CLI sessions are not left orphaned
+- **Node process protection**: a separate bundled helper checks AgentHub's descendants every 500 ms. It stops Node processes above 4 GiB physical footprint, or the largest consumers when more than 256 Node processes or 16 GiB combined are observed (the combined budget is at most one third of RAM). A non-modal inline notice explains which limit was exceeded; after dismissal it stays hidden for ten minutes. Interrupted tools may need restarting. Previously observed descendants are cleaned up when their session root or AgentHub exits, including force quit. Other applications are excluded using ancestry and PID/start-time identity checks. These are sampled limits, not kernel-enforced quotas: short-lived children that detach between samples cannot be reliably attributed. The helper must remain running; a missing or failed helper produces an alert.
 
 ## GitHub Support
 

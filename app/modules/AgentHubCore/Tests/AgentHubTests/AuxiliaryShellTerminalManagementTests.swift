@@ -2,6 +2,7 @@ import AppKit
 import Canvas
 import Combine
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentHubCore
@@ -329,6 +330,38 @@ private final class RecordingTerminalSurfaceFactory: EmbeddedTerminalSurfaceFact
 
 @Suite("Auxiliary shell terminal management", .serialized)
 struct AuxiliaryShellTerminalManagementTests {
+  @Test("Repeated terminal resolution and equal callbacks do not invalidate SwiftUI")
+  @MainActor
+  func stableWorkspaceDoesNotInvalidateView() {
+    let surface = TestTerminalSurface()
+    surface.workspaceSnapshotToCapture = makeWorkspaceSnapshot()
+    let viewModel = makeAuxiliaryShellViewModel(
+      terminalSurfaceFactory: RecordingTerminalSurfaceFactory(surfaces: [surface]),
+      terminalBackend: .regular)
+    func resolve() {
+      _ = viewModel.getOrCreateTerminal(
+        forKey: "session-123", sessionId: "session-123",
+        projectPath: "/tmp/project", initialPrompt: nil)
+    }
+    resolve()
+    var invalidated = false
+    withObservationTracking {
+      _ = viewModel.terminalWorkspaceSnapshots["session-123"]
+    } onChange: {
+      invalidated = true
+    }
+    for _ in 0..<100 {
+      resolve()
+      surface.onWorkspaceChanged?(makeWorkspaceSnapshot())
+    }
+    #expect(!invalidated)
+
+    let changed = makeWorkspaceSnapshot(activePanelIndex: 1)
+    surface.onWorkspaceChanged?(changed)
+    #expect(invalidated)
+    #expect(viewModel.terminalWorkspaceSnapshots["session-123"] == changed)
+  }
+
 
   @Test("Typing to an active terminal sends text immediately")
   @MainActor

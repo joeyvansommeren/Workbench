@@ -58,7 +58,39 @@ public final class GitHubReviewsViewModel {
   // time the user comes back from a session, and @State would reset the order.
   public var searchText = ""
   var tableSortOrder = GitHubReviewTableRow.suggestedSortOrder
-  public var selectedPullRequestID: String?
+  public var selectedPullRequestID: String? {
+    didSet {
+      guard oldValue != selectedPullRequestID else { return }
+      detailGeneration += 1
+      selectedDetail = nil
+      detailError = nil
+      detailUpdatedAt = nil
+      isLoadingDetail = false
+    }
+  }
+  public private(set) var selectedDetail: GitHubReviewDetail?
+  public private(set) var detailError: String?
+  public private(set) var detailUpdatedAt: Date?
+  public private(set) var isLoadingDetail = false
+  private var detailGeneration = 0
+
+  public func loadSelectedDetail() async {
+    guard let request = pullRequests.first(where: { $0.id == selectedPullRequestID }) else { return }
+    detailGeneration += 1
+    let generation = detailGeneration
+    isLoadingDetail = true
+    detailError = nil
+    defer { if generation == detailGeneration { isLoadingDetail = false } }
+    do {
+      let detail = try await service.pullRequestDetail(request)
+      guard !Task.isCancelled, generation == detailGeneration, selectedPullRequestID == request.id else { return }
+      selectedDetail = detail
+      detailUpdatedAt = Date()
+    } catch {
+      guard !Task.isCancelled, generation == detailGeneration else { return }
+      detailError = error.localizedDescription
+    }
+  }
   /// Your GitHub login, so bulk review can skip your own pull requests.
   public private(set) var viewerLogin: String?
 
@@ -201,6 +233,7 @@ public final class GitHubReviewsViewModel {
 
   public func selectProject(id: String) {
     guard selectedProjectID != id, projects.contains(where: { $0.id == id }) else { return }
+    selectedPullRequestID = nil
     selectedProjectID = id
     defaults.set(id, forKey: DefaultsKey.projectID)
     selectedViewID = preferredView(in: selectedProject)?.id
@@ -211,6 +244,7 @@ public final class GitHubReviewsViewModel {
 
   public func selectView(id: String) {
     guard selectedViewID != id, availableViews.contains(where: { $0.id == id }) else { return }
+    selectedPullRequestID = nil
     selectedViewID = id
     persistSelectedView()
     restoreCachedPullRequests()

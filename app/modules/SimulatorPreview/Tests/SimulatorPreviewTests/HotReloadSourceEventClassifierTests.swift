@@ -1,9 +1,32 @@
+import Foundation
 import Testing
 
 @testable import SimulatorPreview
 
 @Suite("HotReloadSourceEventClassifier")
 struct HotReloadSourceEventClassifierTests {
+
+  @Test("Snapshot prunes dependency directories and supports cancellation")
+  func boundedSnapshot() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    for directory in ["App", "Pods", "node_modules", "DerivedData"] {
+      let folder = root.appendingPathComponent(directory)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      for i in 0..<20 {
+        try Data().write(to: folder.appendingPathComponent("File\(i).swift"))
+      }
+    }
+    var visited = 0
+    let sources = HotReloadSourceEventClassifier.swiftSources(under: root.path, isCancelled: {
+      visited += 1
+      return false
+    })
+    #expect(sources.count == 20)
+    #expect(sources.allSatisfy { $0.contains("/App/") })
+    #expect(visited < 30)
+    #expect(HotReloadSourceEventClassifier.swiftSources(under: root.path, isCancelled: { true }).isEmpty)
+  }
 
   @Test("edit to a known file is injectable")
   func knownEdit() {

@@ -54,6 +54,7 @@ public struct AgentHubOperationsView: View {
       )
 
       Divider()
+      NodeProcessGuardNotice()
 
       Group {
         switch section {
@@ -151,9 +152,9 @@ public struct AgentHubOperationsView: View {
       }
     }
     .frame(
-      minWidth: 1200,
+      minWidth: AgentHubLayout.windowMinWidth,
       maxWidth: .infinity,
-      minHeight: 750,
+      minHeight: AgentHubLayout.windowMinHeight,
       maxHeight: .infinity,
       alignment: .topLeading
     )
@@ -492,7 +493,7 @@ public struct AgentHubSessionsView: View {
       worktreeBranchNamingService: provider.worktreeBranchNamingService,
       worktreeSuccessSoundService: provider.worktreeSuccessSoundService
     )
-    .frame(minWidth: 1200, minHeight: 750)
+    .frame(minWidth: AgentHubLayout.windowMinWidth, minHeight: AgentHubLayout.windowMinHeight)
     .modifier(RemoveTitleToolbarModifier())
     .task {
       provider.startWorktreeLaunchRequestMonitoring()

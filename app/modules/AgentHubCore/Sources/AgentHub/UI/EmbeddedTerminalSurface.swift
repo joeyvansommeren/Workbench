@@ -49,6 +49,12 @@ public protocol EmbeddedTerminalSurface: AnyObject {
   func sendPromptIfNeeded(_ prompt: String)
   func submitPromptImmediately(_ prompt: String) -> Bool
   func typeText(_ text: String)
+  /// Types into the agent's own tab only, never an accessory or child tab.
+  /// Chat actions (approve) use this; false when the agent tab is gone.
+  func typeTextToAgentSession(_ text: String) -> Bool
+  /// The last `maxRows` visible rows of the agent's own tab, for state the CLI
+  /// only draws on screen (compacting). Nil when the backend cannot read text.
+  func agentScreenTail(maxRows: Int) -> [String]?
   func typeInitialTextIfNeeded(_ text: String)
   func syncAppearance(isDark: Bool, fontSize: CGFloat, fontFamily: String, theme: RuntimeTheme?)
   func focus()
@@ -90,6 +96,18 @@ public protocol EmbeddedTerminalSurface: AnyObject {
 }
 
 public extension EmbeddedTerminalSurface {
+  /// Fail closed: a surface that does not know which tab is the agent's must
+  /// not guess. Typing into "whatever is active" is how a child session gets
+  /// the parent's approval. Backends with a protected agent tab override this.
+  func typeTextToAgentSession(_ text: String) -> Bool {
+    false
+  }
+
+  /// Backends without screen access (Ghostty's public API only sends text).
+  func agentScreenTail(maxRows: Int) -> [String]? {
+    nil
+  }
+
   var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)? {
     get { nil }
     set {}

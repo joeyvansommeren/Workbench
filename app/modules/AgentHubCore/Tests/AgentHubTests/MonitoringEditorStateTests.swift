@@ -6,7 +6,16 @@ import Testing
 
 @Suite("MonitoringEditorState")
 struct MonitoringEditorStateTests {
-  @Test("Missing editor state defaults to chat mode and the item project path")
+  @Test("Disabling chat hides it and routes existing chat views and cycling to terminal")
+  func chatDisabled() {
+    let modes = MonitoringEditorStateStore.availableContentModes(
+      diffDisplayMode: .inline, diffAvailabilityStatus: nil, chatEnabled: false)
+    #expect(modes == [.terminal, .editor])
+    #expect(MonitoringEditorStateStore.coercedContentMode(.chat, availableModes: modes) == .terminal)
+    #expect(MonitoringEditorStateStore.nextContentMode(after: .terminal, availableModes: modes) == .editor)
+  }
+
+  @Test("Missing editor state defaults to terminal mode and the item project path")
   func defaultStateUsesItemProjectPath() {
     let state = MonitoringEditorStateStore.state(
       for: "claude-session-1",
@@ -14,7 +23,7 @@ struct MonitoringEditorStateTests {
       in: [:]
     )
 
-    #expect(state.contentMode == .chat)
+    #expect(state.contentMode == .terminal)
     #expect(state.projectPath == "/tmp/repo")
     #expect(state.selectedFilePath == nil)
     #expect(state.navigationRequest == nil)

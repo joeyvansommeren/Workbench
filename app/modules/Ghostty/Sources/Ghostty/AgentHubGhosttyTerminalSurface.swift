@@ -322,6 +322,14 @@ public final class AgentHubGhosttyTerminalSurface: NSView, EmbeddedTerminalSurfa
     activeController?.sendText(text)
   }
 
+  /// Types into the protected agent tab only, never the active tab. Chat
+  /// approvals use this so an accessory or child tab can't receive them.
+  public func typeTextToAgentSession(_ text: String) -> Bool {
+    guard let controller = protectedAgentController else { return false }
+    controller.sendText(text)
+    return true
+  }
+
   public func typeInitialTextIfNeeded(_ text: String) {
     guard !text.isEmpty else { return }
     guard !hasPrefilledInitialInputText else { return }

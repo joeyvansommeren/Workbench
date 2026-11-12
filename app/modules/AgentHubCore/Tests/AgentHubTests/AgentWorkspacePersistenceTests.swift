@@ -152,7 +152,11 @@ struct AgentWorkspacePersistenceTests {
         arguments: ["claude", "session-1", EmbeddedTerminalBackend.ghostty.rawValue, snapshotData, now]
       )
       try db.execute(
-        sql: "INSERT INTO session_workspace_state VALUES (?, ?, ?, ?, ?, ?)",
+        sql: """
+          INSERT INTO session_workspace_state
+          (provider, selectedRepositoryPathsData, monitoredSessionIdsData, expansionStateData, updatedAt, ownedWorktreePathsData)
+          VALUES (?, ?, ?, ?, ?, ?)
+          """,
         arguments: ["claude", emptyStrings, emptyStrings, emptyExpansion, now, emptyStrings]
       )
       try db.execute(

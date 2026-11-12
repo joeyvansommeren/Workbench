@@ -21,6 +21,11 @@ public enum AgentHubLayout {
   /// Shared height for the secondary bar immediately below a top bar
   /// (MonitoringCardView path row, GitHubPanelView tab bar, etc.).
   public static let subBarHeight: CGFloat = 30
+
+  /// Smallest window that still fits the sidebar (280) and one 400 px session
+  /// column with a side panel closed. 1100 is the design target for laptops.
+  public static let windowMinWidth: CGFloat = 1100
+  public static let windowMinHeight: CGFloat = 700
 }
 
 private struct AgentHubPanelModifier: ViewModifier {

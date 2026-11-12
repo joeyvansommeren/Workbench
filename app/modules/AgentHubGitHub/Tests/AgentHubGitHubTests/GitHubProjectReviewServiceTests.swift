@@ -5,6 +5,18 @@ import Testing
 
 @Suite("GitHub Project review service")
 struct GitHubProjectReviewServiceTests {
+  @Test("Detail decodes current state, conversation, reviews and paginated inline comments")
+  func reviewDetail() throws {
+    let json = #"{"number":42,"title":"Fix","state":"MERGED","url":"https://github.com/o/r/pull/42","headRefName":"fix","baseRefName":"main","isDraft":false,"additions":1,"deletions":0,"changedFiles":1,"comments":[{"id":"c1","body":"Conversation","author":{"login":"alice"}}],"reviews":[{"id":"r1","body":"Looks good","state":"APPROVED","submittedAt":"2026-11-03T09:00:00Z"}]}"#
+    let detail = try GitHubProjectReviewService.decodeDetail(json,
+      inlineCommentsJSON: #"[[{"id":3,"body":"Inline","path":"a.swift","line":7,"user":{"login":"bob"}}],[]]"#)
+    #expect(detail.pullRequest.state == "MERGED")
+    #expect(detail.pullRequest.comments?.first?.body == "Conversation")
+    #expect(detail.reviews.first?.state == "APPROVED")
+    #expect(detail.reviews.first?.submittedAt != nil)
+    #expect(detail.inlineComments.first?.path == "a.swift")
+  }
+
   @Test("OR is its own argument so gh does not quote the query as one phrase")
   func orTerms() {
     #expect(GitHubProjectReviewService.orTerms(["A-1", "A-2", "A-3"]) == ["A-1", "OR", "A-2", "OR", "A-3"])

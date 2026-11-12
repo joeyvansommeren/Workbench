@@ -49,6 +49,20 @@ public struct TerminalWorkspaceSnapshot: Codable, Equatable, Sendable {
     ) ?? [:]
   }
 
+  /// The tab the user is looking at: active tab of the active panel.
+  public var activeTab: TerminalWorkspaceTabSnapshot? {
+    guard panels.indices.contains(activePanelIndex) else { return panels.first?.tabs.first }
+    let panel = panels[activePanelIndex]
+    guard panel.tabs.indices.contains(panel.activeTabIndex) else { return panel.tabs.first }
+    return panel.tabs[panel.activeTabIndex]
+  }
+
+  /// The child session shown in the active tab, when the user switched to one.
+  /// Nil when the active tab is the agent's own (unlinked) tab or a shell.
+  public var activeLinkedSession: TerminalWorkspaceLinkedSessionSnapshot? {
+    activeTab?.linkedSession
+  }
+
   public func normalizedSplitRatios() -> [String: [Double]] {
     guard let splitLayout else { return [:] }
     var childCounts: [String: Int] = [:]

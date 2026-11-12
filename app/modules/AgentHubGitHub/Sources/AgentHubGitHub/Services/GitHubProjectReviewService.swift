@@ -6,6 +6,7 @@
 import Foundation
 
 public protocol GitHubProjectReviewServiceProtocol: Sendable {
+  func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws -> GitHubReviewDetail
   func listProjects() async throws -> [GitHubReviewProject]
   func listPullRequests(
     project: GitHubReviewProject,
@@ -26,6 +27,10 @@ public protocol GitHubProjectReviewServiceProtocol: Sendable {
 }
 
 extension GitHubProjectReviewServiceProtocol {
+  public func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws -> GitHubReviewDetail {
+    throw GitHubCLIError.commandFailed("Pull request details are unavailable")
+  }
+
   public func rateLimitResetDate() async -> Date? { nil }
   public func viewerLogin() async -> String? { nil }
   public func ticketPullRequests(forKeys keys: [String], owner: String?) async throws
@@ -79,6 +84,31 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
 
   public init(cli: GitHubCLIService = GitHubCLIService()) {
     self.cli = cli
+  }
+
+  public func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws -> GitHubReviewDetail {
+    let fields = "number,title,body,state,url,headRefName,headRefOid,baseRefName,author,createdAt,updatedAt,isDraft,mergeable,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,labels,reviewRequests,comments,reviews"
+    async let json = cli.runAuthenticatedCommand([
+      "pr", "view", String(pullRequest.number), "--repo", pullRequest.repositoryNameWithOwner,
+      "--json", fields
+    ])
+    async let comments = cli.runAuthenticatedCommand([
+      "api", "repos/\(pullRequest.repositoryNameWithOwner)/pulls/\(pullRequest.number)/comments",
+      "--paginate", "--slurp"
+    ])
+    return try await Self.decodeDetail(json, inlineCommentsJSON: comments)
+  }
+
+  static func decodeDetail(_ json: String, inlineCommentsJSON: String) throws -> GitHubReviewDetail {
+    struct Reviews: Decodable { let reviews: [GitHubReviewDetail.Review] }
+    let data = Data(json.utf8)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try GitHubReviewDetail(
+      pullRequest: decoder.decode(GitHubPullRequest.self, from: data),
+      reviews: decoder.decode(Reviews.self, from: data).reviews,
+      inlineComments: GitHubCLIService.parseReviewComments(inlineCommentsJSON)
+    )
   }
 
   public func listProjects() async throws -> [GitHubReviewProject] {

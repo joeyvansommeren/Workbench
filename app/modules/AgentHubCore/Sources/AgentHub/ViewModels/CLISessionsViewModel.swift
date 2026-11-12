@@ -832,6 +832,23 @@ public final class CLISessionsViewModel {
     return true
   }
 
+  /// The agent tab's last screen rows for `key`, or nil when the backend cannot
+  /// read text. Bounded by `maxRows`; the caller decides when to ask.
+  public func agentTerminalScreenTail(forKey key: String, maxRows: Int) -> [String]? {
+    activeTerminals[key]?.agentScreenTail(maxRows: maxRows)
+  }
+
+  /// Types into the agent's own tab for `key`, never into an accessory or child
+  /// tab that happens to be active. Chat approvals go through here.
+  @discardableResult
+  public func typeTextInAgentTerminal(forKey key: String, text: String) -> Bool {
+    guard !text.isEmpty, let terminal = activeTerminals[key],
+      terminal.typeTextToAgentSession(text)
+    else { return false }
+    markSessionFocused(key)
+    return true
+  }
+
   /// Delivers an orchestration handoff to a running session, resuming its embedded terminal when needed.
   @discardableResult
   public func sendAutomatedPrompt(to session: CLISession, prompt: String) -> Bool {
@@ -1127,7 +1144,15 @@ public final class CLISessionsViewModel {
   ) {
     let persistableSessionId = persistableWorkspaceSessionId(key: key, sessionId: sessionId)
 
+    // Called during SwiftUI updates: equal snapshots must not invalidate the view again.
+    let snapshot = terminal.captureWorkspaceSnapshot()
+    if terminalWorkspaceSnapshots[key] != snapshot {
+      terminalWorkspaceSnapshots[key] = snapshot
+    }
     terminal.onWorkspaceChanged = { [weak self] snapshot in
+      if self?.terminalWorkspaceSnapshots[key] != snapshot {
+        self?.terminalWorkspaceSnapshots[key] = snapshot
+      }
       if let persistableSessionId {
         self?.scheduleTerminalWorkspaceSave(snapshot, sessionId: persistableSessionId)
       }
@@ -1691,6 +1716,7 @@ public final class CLISessionsViewModel {
     }
     activeTerminals.removeValue(forKey: key)
     activeTerminalDescriptors.removeValue(forKey: key)
+    terminalWorkspaceSnapshots.removeValue(forKey: key)
     terminalWorkspaceSaveTasks[key]?.cancel()
     terminalWorkspaceSaveTasks.removeValue(forKey: key)
   }
@@ -1698,6 +1724,8 @@ public final class CLISessionsViewModel {
   /// Transfers terminal from pending key to real session ID (for pending → real transition)
   public func transferTerminal(fromPendingId pendingId: UUID, toSessionId sessionId: String) {
     let pendingKey = "pending-\(pendingId.uuidString)"
+    Task { await TerminalProcessRegistry.shared.rekey(from: pendingKey, to: sessionId) }
+    terminalWorkspaceSnapshots.removeValue(forKey: pendingKey)
     if let terminal = activeTerminals.removeValue(forKey: pendingKey) {
       activeTerminals[sessionId] = terminal
       terminal.updateContext(terminalSessionKey: sessionId, sessionViewModel: self)
@@ -1837,6 +1865,10 @@ public final class CLISessionsViewModel {
   public var activeTerminals: [String: any EmbeddedTerminalSurface] = [:]
   @ObservationIgnored private var activeTerminalDescriptors: [String: TerminalSurfaceDescriptor] =
     [:]
+
+  /// Latest workspace layout per terminal key (tabs, active tab, linked child
+  /// sessions). Lets the chat say when the terminal is on a child session.
+  public private(set) var terminalWorkspaceSnapshots: [String: TerminalWorkspaceSnapshot] = [:]
 
   /// Active auxiliary shell terminals keyed by session key.
   /// Preserves shell PTY across session selection changes and pending → real transitions.
@@ -4876,13 +4908,16 @@ public final class CLISessionsViewModel {
     // their terminal can miss the pending → session transfer).
     removeTerminal(forKey: sessionId)
     removeAuxiliaryShellTerminal(forKey: sessionId)
+    var processKeys: Set<String> = [sessionId]
     for (pendingID, resolvedSessionID) in resolvedPendingSessionHistory where resolvedSessionID == sessionId {
-      removeTerminal(forKey: "pending-\(pendingID.uuidString)")
+      let pendingKey = "pending-\(pendingID.uuidString)"
+      removeTerminal(forKey: pendingKey)
+      processKeys.insert(pendingKey)
     }
     let provider = providerKind
     Task {
       await TerminalProcessRegistry.shared.terminateSessionTerminalProcesses(
-        provider: provider, sessionId: sessionId)
+        provider: provider, keys: processKeys)
     }
 
     syncFocusedSessionIdsToMonitor()

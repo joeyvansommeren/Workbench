@@ -82,34 +82,68 @@ struct DarwinProcessInspector: ProcessInspecting {
 struct DarwinProcessTerminator: ProcessTerminating {
   func terminate(pid: pid_t, processGroupId: pid_t?) async {
     guard pid > 0 else { return }
-
-    if let groupId = ownedProcessGroupId(pid: pid, processGroupId: processGroupId) {
-      if killpg(groupId, SIGTERM) != 0 {
-        _ = kill(pid, SIGTERM)
-      }
-    } else {
-      _ = kill(pid, SIGTERM)
-    }
-
+    let tree = ProcessTree.sendTerminate(root: pid)
     try? await Task.sleep(for: .milliseconds(300))
-
-    guard kill(pid, 0) == 0 else { return }
-    if let groupId = ownedProcessGroupId(pid: pid, processGroupId: processGroupId) {
-      if killpg(groupId, SIGKILL) != 0 {
-        _ = kill(pid, SIGKILL)
-      }
-    } else {
-      _ = kill(pid, SIGKILL)
-    }
-
+    ProcessTree.killSurvivors(tree, root: pid)
     try? await Task.sleep(for: .milliseconds(100))
   }
+}
 
-  private func ownedProcessGroupId(pid: pid_t, processGroupId: pid_t?) -> pid_t? {
-    guard let processGroupId, processGroupId > 0, processGroupId == pid else {
-      return nil
+/// Stops a process and everything below it. Codex starts each MCP server in
+/// its own process group, so killpg on the agent alone left them running.
+enum ProcessTree {
+  struct Identity: Equatable, Sendable {
+    let pid: pid_t
+    let startSeconds: UInt64
+    let startMicroseconds: UInt64
+  }
+
+  static func identity(for pid: pid_t) -> Identity? {
+    guard pid > 1 else { return nil }
+    var info = proc_bsdinfo()
+    let size = MemoryLayout<proc_bsdinfo>.size
+    guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(size)) == size else { return nil }
+    return Identity(pid: pid, startSeconds: info.pbi_start_tvsec,
+      startMicroseconds: info.pbi_start_tvusec)
+  }
+
+  /// `root` first, then every descendant, breadth first.
+  static func pids(under root: pid_t) -> [pid_t] {
+    var result = [root]
+    var index = 0
+    while index < result.count {
+      result += children(of: result[index])
+      index += 1
     }
-    return processGroupId
+    return result
+  }
+
+  private static func children(of pid: pid_t) -> [pid_t] {
+    var buffer = [pid_t](repeating: 0, count: 512)
+    let count = proc_listchildpids(pid, &buffer, Int32(buffer.count * MemoryLayout<pid_t>.size))
+    guard count > 0 else { return [] }
+    return buffer.prefix(Int(count)).filter { $0 > 0 }
+  }
+
+  /// SIGTERM to the tree. Returns identities so survivors can be killed later,
+  /// even after the root (and the view that owned it) is gone.
+  @discardableResult
+  static func sendTerminate(root: pid_t) -> [Identity] {
+    guard root > 1 else { return [] }
+    let tree = pids(under: root).compactMap { identity(for: $0) }
+    for process in tree where identity(for: process.pid) == process {
+      _ = kill(process.pid, SIGTERM)
+    }
+    return tree
+  }
+
+  static func killSurvivors(_ tree: [Identity], root: pid_t) {
+    let alive = tree.filter { identity(for: $0.pid) == $0 }
+    guard !alive.isEmpty else { return }
+    AppLogger.session.warning("Process tree PID=\(root) still has \(alive.count) live processes; sending SIGKILL")
+    for process in alive where identity(for: process.pid) == process {
+      _ = kill(process.pid, SIGKILL)
+    }
   }
 }
 
@@ -119,7 +153,7 @@ public actor TerminalProcessRegistry {
   private enum CleanupScope {
     case allRegistered
     case orphanedTerminals(provider: SessionProviderKind?, activePIDs: Set<Int32>)
-    case sessionTerminals(provider: SessionProviderKind, sessionId: String)
+    case sessionTerminals(provider: SessionProviderKind, keys: Set<String>)
   }
 
   private let processInspector: any ProcessInspecting
@@ -240,11 +274,31 @@ public actor TerminalProcessRegistry {
     )
   }
 
-  /// Terminates the terminal processes registered for one session. Archive's
+  /// Terminates every terminal process registered for one session. Archive's
   /// safety net: a terminal that never mounted (e.g. a bulk-launched review) can
   /// outlive the UI terminal map; its registered row still identifies it.
-  public func terminateSessionTerminalProcesses(provider: SessionProviderKind, sessionId: String) async {
-    await cleanupManagedProcesses(scope: .sessionTerminals(provider: provider, sessionId: sessionId))
+  /// `keys` holds the session id plus any pending keys it launched under. A row
+  /// matches on its session id or on its terminal key, so tabs (child agents)
+  /// inside the session's terminal stop too.
+  public func terminateSessionTerminalProcesses(provider: SessionProviderKind, keys: Set<String>) async {
+    await cleanupManagedProcesses(scope: .sessionTerminals(provider: provider, keys: keys))
+  }
+
+  /// A pending launch got its real session id: file its rows under it, so a
+  /// later archive (also after a restart) still finds them.
+  public func rekey(from oldKey: String, to newKey: String) async {
+    guard let store = await resolvedProcessStore() else { return }
+    do {
+      for var row in try await store.getManagedProcesses()
+      where row.terminalKey == oldKey || row.sessionId == oldKey {
+        if row.terminalKey == oldKey { row.terminalKey = newKey }
+        if row.sessionId == oldKey { row.sessionId = newKey }
+        row.updatedAt = Date.now
+        try await store.saveManagedProcess(row)
+      }
+    } catch {
+      AppLogger.session.error("Failed to rekey managed processes: \(error.localizedDescription)")
+    }
   }
 
   private func cleanupManagedProcesses(scope: CleanupScope) async {
@@ -292,10 +346,12 @@ public actor TerminalProcessRegistry {
       guard row.processKind?.isTerminalProcess == true else { return false }
       guard matchesProvider(row, provider: provider) else { return false }
       return !activePIDs.contains(row.pid)
-    case .sessionTerminals(let provider, let sessionId):
+    case .sessionTerminals(let provider, let keys):
       guard row.processKind?.isTerminalProcess == true else { return false }
+      // Child-agent tabs can run another provider inside this session's terminal.
+      if let terminalKey = row.terminalKey, keys.contains(terminalKey) { return true }
       guard matchesProvider(row, provider: provider) else { return false }
-      return row.sessionId == sessionId
+      return row.sessionId.map(keys.contains) ?? false
     }
   }
 

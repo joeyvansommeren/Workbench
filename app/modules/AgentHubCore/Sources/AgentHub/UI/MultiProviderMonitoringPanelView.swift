@@ -194,6 +194,7 @@ private struct ActiveWorkflowComparison {
 public struct MultiProviderMonitoringPanelView: View {
   @Bindable var claudeViewModel: CLISessionsViewModel
   @Bindable var codexViewModel: CLISessionsViewModel
+  @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
   @AppStorage(AgentHubDefaults.auxiliaryShellVisible) var isAuxiliaryShellVisible: Bool = false
   let onEmbeddedSidePanelVisibilityChange: (Bool) -> Void
   let onAddFolder: () -> Void
@@ -201,6 +202,8 @@ public struct MultiProviderMonitoringPanelView: View {
   let onRequestCreateWorkspace: (String) -> Void
   let onRequestForkSession: (CLISession, SessionProviderKind) -> Void
 
+  @State private var sideBySide = SessionColumnsState()
+  @State private var columnDragStartShares: [CGFloat]?
   @State private var sessionFileSheetItem: SessionFileSheetItem?
   @State private var sidePanelPresentation = EmbeddedSidePanelPresentationState<SidePanelPayload>()
   @State private var sidePanelExpansion = EmbeddedSidePanelExpansionState<SidePanelPayload>()
@@ -320,6 +323,7 @@ public struct MultiProviderMonitoringPanelView: View {
       onEmbeddedSidePanelVisibilityChange(wantsPresentation)
     }
     .onChange(of: snapshot.itemIDs) { _, _ in
+      sideBySide.retainAvailable(Set(snapshot.itemIDs))
       syncEditorStates()
       pruneAutoOpenedSidePanelKeys()
     }
@@ -442,12 +446,14 @@ public struct MultiProviderMonitoringPanelView: View {
         }
       }
     }
-    .onChange(of: primarySessionId) { _, newId in
+    .onChange(of: primarySessionId) { oldId, newId in
+      sideBySide.select(newId, replacing: oldId)
       guard let newId else { return }
       // Only in Terminal view: in Chat the terminal runs hidden underneath, and
       // focusing it would send your typing there instead of to the chat.
       if let item = makeItemSnapshot().allItems.first(where: { $0.id == newId }),
-        editorState(for: item).contentMode == .terminal
+        MonitoringEditorStateStore.coercedContentMode(
+          editorState(for: item).contentMode, availableModes: availableContentModes(for: item)) == .terminal
       {
         item.viewModel.focusTerminal(forKey: item.sessionId)
       }
@@ -568,7 +574,14 @@ public struct MultiProviderMonitoringPanelView: View {
           review: comparison.review
         )
       } else {
-        singleModeContent(snapshot: snapshot)
+        VStack(spacing: 0) {
+          sessionColumnsToolbar(snapshot: snapshot)
+          if sideBySide.itemIDs.count > 1 {
+            sessionColumnsSplit(snapshot: snapshot)
+          } else {
+            singleModeContent(snapshot: snapshot)
+          }
+        }
       }
     }
     .background(
@@ -580,6 +593,159 @@ public struct MultiProviderMonitoringPanelView: View {
           }
       }
     )
+  }
+
+  /// Columns keep the width you drag them to. HSplitView redistributed the
+  /// widths whenever a column changed or the panel re-rendered.
+  private func sessionColumnsSplit(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>) -> some View {
+    GeometryReader { geometry in
+      let ids = sideBySide.itemIDs
+      let dividerWidth: CGFloat = 1
+      let available = geometry.size.width - dividerWidth * CGFloat(max(ids.count - 1, 0))
+      // Below the minimum the columns scroll sideways instead of squeezing.
+      let total = max(available, Self.sessionColumnMinWidth * CGFloat(ids.count))
+      ScrollView(.horizontal) {
+        HStack(spacing: 0) {
+          ForEach(Array(ids.enumerated()), id: \.element) { index, id in
+            if let item = snapshot.allItems.first(where: { $0.id == id }) {
+              sessionColumn(item)
+                .frame(width: max(Self.sessionColumnMinWidth, share(ofColumn: index) * total))
+            }
+            if index < ids.count - 1 {
+              sessionColumnDivider(index: index, total: total)
+            }
+          }
+        }
+        .frame(height: geometry.size.height)
+      }
+    }
+  }
+
+  private static let sessionColumnMinWidth: CGFloat = 400
+
+  private func share(ofColumn index: Int) -> CGFloat {
+    let shares = sideBySide.widthShares
+    return index < shares.count ? shares[index] : 1 / CGFloat(max(sideBySide.itemIDs.count, 1))
+  }
+
+  private func sessionColumnDivider(index: Int, total: CGFloat) -> some View {
+    Rectangle()
+      .fill(Color(nsColor: .separatorColor))
+      .frame(width: 1)
+      .frame(maxHeight: .infinity)
+      .overlay {
+        Color.clear
+          .frame(width: 9)
+          .contentShape(Rectangle())
+          .onHover { inside in
+            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+          }
+          .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+              .onChanged { value in
+                let start = columnDragStartShares ?? sideBySide.widthShares
+                columnDragStartShares = start
+                sideBySide.resize(
+                  divider: index, from: start, by: value.translation.width / total,
+                  minShare: Self.sessionColumnMinWidth / total)
+              }
+              .onEnded { _ in columnDragStartShares = nil }
+          )
+      }
+      .accessibilityHidden(true)
+  }
+
+  private func sessionColumnsToolbar(snapshot: MonitoringItemsSnapshot<ProviderMonitoringItem>) -> some View {
+    let candidates = snapshot.allItems.filter { item in
+      guard case .monitored = item else { return false }
+      return item.id != snapshot.effectivePrimaryItemID && !sideBySide.itemIDs.contains(item.id)
+    }
+    let primaryIsReady = snapshot.effectivePrimaryItem.map { item in
+      if case .monitored = item { return true }
+      return false
+    } ?? false
+    let columnCount = sideBySide.itemIDs.count
+    return HStack(spacing: DesignTokens.Spacing.md) {
+      Menu {
+        ForEach(candidates) { item in
+          Button("\(comparisonDisplayName(for: item)) · \(item.providerKind.rawValue)") {
+            guard let primary = snapshot.effectivePrimaryItemID else { return }
+            sideBySide.add(item.id, beside: primary)
+          }
+        }
+      } label: {
+        Label(
+          columnCount > 1 ? "Add column" : "Open side by side",
+          systemImage: columnCount > 1 ? "plus.rectangle" : "rectangle.split.2x1")
+      }
+      .menuStyle(.borderlessButton)
+      .fixedSize()
+      .disabled(candidates.isEmpty || !primaryIsReady)
+      .help(
+        candidates.isEmpty
+          ? "Start or monitor another session to open it next to this one"
+          : "Choose another session to open next to this one")
+      .accessibilityLabel(columnCount > 1 ? "Add a session column" : "Open another session side by side")
+      if columnCount > 1 {
+        Text("\(columnCount) sessions side by side. Closing a column keeps its session running.")
+          .font(.secondaryCaption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+      }
+      Spacer()
+      if columnCount > 1 {
+        Button("Close columns", systemImage: "rectangle") {
+          sideBySide = SessionColumnsState()
+        }
+        .buttonStyle(.borderless)
+        .help("Back to one session. Every session keeps running.")
+        .accessibilityLabel("Close all columns, sessions keep running")
+      }
+    }
+    .controlSize(.small)
+    .padding(.horizontal, DesignTokens.Spacing.md)
+    .frame(height: AgentHubLayout.topBarHeight)
+  }
+
+  private func sessionColumn(_ item: ProviderMonitoringItem) -> some View {
+    let isActive = item.id == primarySessionId
+    let name = comparisonDisplayName(for: item)
+    return VStack(spacing: 0) {
+      SessionColumnHeader(
+        name: name,
+        providerKind: item.providerKind,
+        statusWord: columnStatusWord(for: item),
+        isActive: isActive,
+        onFocus: { setPrimarySessionIfNeeded(item.id) },
+        onClose: {
+          sideBySide.remove(item.id)
+          if primarySessionId == item.id {
+            primarySessionId = sideBySide.itemIDs.first
+          }
+        }
+      )
+      Divider()
+      singleModeCardContainer(for: item.id, viewModel: item.viewModel) {
+        workflowComparisonCard(for: item)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .overlay(alignment: .top) {
+      // One thin brand line marks the column whose session takes keyboard input.
+      Rectangle()
+        .fill(isActive ? Color.brandPrimary(for: item.providerKind) : Color.clear)
+        .frame(height: 1)
+        .accessibilityHidden(true)
+    }
+  }
+
+  private func columnStatusWord(for item: ProviderMonitoringItem) -> String {
+    switch item {
+    case .pending:
+      return "Starting"
+    case .monitored(_, _, _, let state):
+      return state?.status.displayName ?? "Not monitored"
+    }
   }
 
   private func activeWorkflowComparison(
@@ -1856,7 +2022,8 @@ public struct MultiProviderMonitoringPanelView: View {
   {
     MonitoringEditorStateStore.availableContentModes(
       diffDisplayMode: diffDisplayMode,
-      diffAvailabilityStatus: item.viewModel.diffAvailabilityStatus(for: item.projectPath)
+      diffAvailabilityStatus: item.viewModel.diffAvailabilityStatus(for: item.projectPath),
+      chatEnabled: chatEnabled
     )
   }
 

@@ -82,10 +82,16 @@ class SafeLocalProcessTerminalView: ManagedLocalProcessTerminalView {
 
 /// SwiftUI wrapper for SwiftTerm's LocalProcessTerminalView
 /// Provides an embedded terminal for interacting with Claude sessions
+extension EnvironmentValues {
+  /// The terminal stays mounted but out of sight, e.g. under the chat view.
+  @Entry var isTerminalConcealed = false
+}
+
 public struct EmbeddedTerminalView: NSViewRepresentable {
   @Environment(\.agentHub) private var agentHub
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.runtimeTheme) private var runtimeTheme
+  @Environment(\.isTerminalConcealed) private var isConcealed
   @AppStorage(AgentHubDefaults.terminalFontSize) private var terminalFontSize: Double = 12
   @AppStorage(AgentHubDefaults.terminalFontFamily) private var terminalFontFamily: String = "SF Mono"
 
@@ -158,6 +164,11 @@ public struct EmbeddedTerminalView: NSViewRepresentable {
     applyCallbacks(to: terminal)
     if !nsView.isMounted(terminal, key: terminalKey) {
       nsView.mount(terminal, key: terminalKey)
+    }
+    // A hidden view stops drawing; opacity(0) alone kept repainting every frame.
+    if nsView.isHidden != isConcealed {
+      nsView.isHidden = isConcealed
+      if !isConcealed { terminal.view.needsDisplay = true }
     }
     terminal.syncAppearance(isDark: colorScheme == .dark, fontSize: CGFloat(terminalFontSize), fontFamily: terminalFontFamily, theme: runtimeTheme)
 
@@ -488,6 +499,34 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   public func typeText(_ text: String) {
     guard let terminal = activeTab?.terminalView ?? protectedAgentTab?.terminalView else { return }
     terminal.send(txt: text)
+  }
+
+  /// Types into the agent tab this card owns, even when an accessory or child
+  /// session tab is active. Approvals from the chat must land on the parent.
+  public func typeTextToAgentSession(_ text: String) -> Bool {
+    guard let terminal = protectedAgentTab?.terminalView else { return false }
+    terminal.send(txt: text)
+    return true
+  }
+
+  /// The bottom rows of the agent tab's visible screen, verbatim. Bounded by
+  /// `maxRows`; reads the buffer SwiftTerm already holds, no new process or I/O.
+  public func agentScreenTail(maxRows: Int) -> [String]? {
+    guard let view = protectedAgentTab?.terminalView, let terminal = view.terminal else { return nil }
+    // Scrolled-back rows are history, not current runtime status.
+    guard view.scrollThumbsize == 0 || view.scrollThumbsize >= 1 || view.scrollPosition >= 1 else { return nil }
+    let rows = terminal.rows
+    guard rows > 0, maxRows > 0 else { return [] }
+    return (max(0, rows - maxRows)..<rows).compactMap { row in
+      terminal.getLine(row: row)?.translateToString(trimRight: true)
+    }
+  }
+
+  /// The child session shown in the active tab, if the user switched to one.
+  /// Nil while the agent's own tab (or a plain shell) is active.
+  public var activeLinkedSession: TerminalWorkspaceLinkedSessionSnapshot? {
+    guard let tab = activeTab, !isProtectedAgentTab(tab) else { return nil }
+    return tab.linkedSession
   }
 
   /// Prefills initial terminal input text once, without pressing Enter.

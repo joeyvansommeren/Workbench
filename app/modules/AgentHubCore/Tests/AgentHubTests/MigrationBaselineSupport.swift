@@ -21,4 +21,16 @@ func seedMigrationBaseline(before identifier: String, in db: Database) throws {
   for applied in identifiers[..<index] {
     try db.execute(sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)", arguments: [applied])
   }
+
+  // Later fork migrations alter this upstream table, so their baseline must include it.
+  if identifiers[..<index].contains(SessionMetadataStore.MigrationID.addOwnedWorktreePaths) {
+    try db.create(table: "session_workspace_state") { t in
+      t.column("provider", .text).primaryKey()
+      t.column("selectedRepositoryPathsData", .blob).notNull()
+      t.column("monitoredSessionIdsData", .blob).notNull()
+      t.column("expansionStateData", .blob).notNull()
+      t.column("updatedAt", .datetime).notNull()
+      t.column("ownedWorktreePathsData", .blob)
+    }
+  }
 }

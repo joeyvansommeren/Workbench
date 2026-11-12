@@ -81,6 +81,33 @@ struct GitHubReviewSessionInventory {
   /// Jira ticket keys each session works on (branch, name, prompt), so a PR titled
   /// "XFA-123: …" links to the session that implements XFA-123.
   var ticketKeysBySessionID: [String: [String]] = [:]
+  /// Built on first use and shared by every PR row: linking used to scan all
+  /// sessions' messages once per PR, per render.
+  let lookup = GitHubReviewSessionLookup()
+}
+
+final class GitHubReviewSessionLookup {
+  private var built = false
+  private(set) var byID: [String: CLISession] = [:]
+  private(set) var reviewSessionsByURL: [String: [CLISession]] = [:]
+  private(set) var sessionsByTicketKey: [String: [CLISession]] = [:]
+
+  func prepare(_ inventory: GitHubReviewSessionInventory) {
+    guard !built else { return }
+    built = true
+    for session in inventory.sessions {
+      byID[session.id] = session
+      for key in Set(inventory.ticketKeysBySessionID[session.id] ?? []) {
+        sessionsByTicketKey[key, default: []].append(session)
+      }
+      var urls = Set<String>()
+      for message in [session.firstMessage, session.lastMessage].compactMap({ $0 })
+      where GitHubReviewSessionLinker.isReviewPrompt(message) {
+        urls.formUnion(GitHubReviewSessionLinker.pullRequestURLs(in: message))
+      }
+      for url in urls { reviewSessionsByURL[url, default: []].append(session) }
+    }
+  }
 }
 
 struct GitHubReviewSessionLink: Identifiable, Equatable {
@@ -113,12 +140,14 @@ enum GitHubReviewSessionLinker {
     var candidates: [String: GitHubReviewSessionLink] = [:]
 
     for inventory in inventories {
+      let lookup = inventory.lookup
+      lookup.prepare(inventory)
       let providerLaunches = launches.filter {
         $0.pullRequestID == pullRequest.id && $0.provider == inventory.provider
       }
       for launch in providerLaunches {
         if let sessionID = launch.sessionID,
-          let session = inventory.sessions.first(where: { $0.id == sessionID })
+          let session = lookup.byID[sessionID]
         {
           insert(
             link(for: session, inventory: inventory),
@@ -126,7 +155,7 @@ enum GitHubReviewSessionLinker {
           )
         } else if let pendingID = launch.pendingID,
           let sessionID = inventory.resolvedPendingSessionIDs[pendingID],
-          let session = inventory.sessions.first(where: { $0.id == sessionID })
+          let session = lookup.byID[sessionID]
         {
           insert(
             link(for: session, inventory: inventory),
@@ -159,15 +188,14 @@ enum GitHubReviewSessionLinker {
       if !pullRequestKeys.isEmpty {
         // Same ticket is not enough: one ticket often spans several repositories,
         // and a session on the Organization Service must not claim the Web Flow PR.
-        for session in inventory.sessions
-        where !Set(inventory.ticketKeysBySessionID[session.id] ?? []).isDisjoint(with: pullRequestKeys)
-          && sessionPath(session.projectPath, belongsTo: pullRequest.repositoryName)
+        for session in pullRequestKeys.flatMap({ lookup.sessionsByTicketKey[$0] ?? [] })
+        where sessionPath(session.projectPath, belongsTo: pullRequest.repositoryName)
         {
           insert(link(for: session, inventory: inventory), into: &candidates)
         }
       }
 
-      for session in inventory.sessions where isReviewSession(session, for: pullRequest) {
+      for session in lookup.reviewSessionsByURL[pullRequest.url] ?? [] {
         insert(
           link(for: session, inventory: inventory),
           into: &candidates
@@ -243,19 +271,19 @@ enum GitHubReviewSessionLinker {
   private static let ticketKeyPattern = try! NSRegularExpression(
     pattern: #"(?<![A-Za-z0-9])[A-Z][A-Z0-9]+-[0-9]+(?![0-9])"#)
 
-  private static func isReviewSession(
-    _ session: CLISession,
-    for pullRequest: GitHubProjectPullRequest
-  ) -> Bool {
-    [session.firstMessage, session.lastMessage]
-      .compactMap { $0 }
-      .contains { message in
-        guard message.contains(pullRequest.url) else { return false }
-        return message.localizedCaseInsensitiveContains(
-          "Review this pull request independently"
-        )
-          || message.localizedCaseInsensitiveContains("independent code review")
-          || message.localizedCaseInsensitiveContains("read-only review")
-      }
+  static func isReviewPrompt(_ message: String) -> Bool {
+    message.localizedCaseInsensitiveContains("Review this pull request independently")
+      || message.localizedCaseInsensitiveContains("independent code review")
+      || message.localizedCaseInsensitiveContains("read-only review")
   }
+
+  static func pullRequestURLs(in message: String) -> [String] {
+    let range = NSRange(message.startIndex..., in: message)
+    return pullRequestURLPattern.matches(in: message, range: range).compactMap { match in
+      Range(match.range, in: message).map { String(message[$0]) }
+    }
+  }
+
+  private static let pullRequestURLPattern = try! NSRegularExpression(
+    pattern: #"https?://[^\s/]+/[^\s/]+/[^\s/]+/pull/[0-9]+"#)
 }

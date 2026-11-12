@@ -64,6 +64,9 @@ public struct MonitoringCardView: View {
   @State private var showingNameSheet = false
   @State private var activityRefreshTask: Task<Void, Never>?
   @State private var pendingActivityTimestamp: Date?
+  /// What the agent tab's screen says right now (compacting), when readable.
+  @State private var liveTerminalStatus: String?
+  @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
   @AppStorage(AgentHubDefaults.diffDisplayMode)
   private var diffDisplayModeRawValue: String = DiffDisplayMode.inline.rawValue
   @Environment(\.agentHub) private var agentHub
@@ -179,7 +182,8 @@ public struct MonitoringCardView: View {
   private var availableContentModes: [MonitoringCardContentMode] {
     MonitoringEditorStateStore.availableContentModes(
       diffDisplayMode: diffDisplayMode,
-      diffAvailabilityStatus: diffAvailabilityStatus
+      diffAvailabilityStatus: diffAvailabilityStatus,
+      chatEnabled: chatEnabled
     )
   }
 
@@ -314,7 +318,7 @@ public struct MonitoringCardView: View {
       // Header with session info and actions
       header
         .padding(.horizontal, DesignTokens.Spacing.sm)
-        .frame(height: AgentHubLayout.topBarHeight)
+        .frame(minHeight: AgentHubLayout.topBarHeight)
 
       Divider()
 
@@ -377,6 +381,9 @@ public struct MonitoringCardView: View {
     .animation(.easeInOut(duration: 0.2), value: isDragging)
     .task(id: session.projectPath) {
       await loadWebPreviewCandidateIfNeeded()
+    }
+    .task(id: liveStatusPollKey) {
+      await pollLiveTerminalStatus()
     }
     .task {
       // Project keys come from Jira; without them branch names can't be matched.
@@ -663,50 +670,6 @@ public struct MonitoringCardView: View {
     onShowWebPreview?(session, session.projectPath, mode)
   }
 
-  // MARK: - Web Preview Controls
-
-  /// Storybook takes precedence when present — it's the richer surface for
-  /// component-driven projects, and showing both buttons routes the same pane
-  /// to two different URLs in confusing ways.
-  @ViewBuilder
-  private var webPreviewControls: some View {
-    if hasStorybook {
-      Button(action: {
-        Task {
-          await DevServerManager.shared.startStorybookServer(
-            for: session.id,
-            projectPath: session.projectPath
-          )
-        }
-        presentWebPreview(mode: .storybook)
-      }) {
-        HStack(spacing: 4) {
-          Image(systemName: "book.pages")
-            .font(.caption2)
-          Text("Storybook")
-        }
-      }
-      .buttonStyle(.agentHubOutlined)
-      .help("Browse Storybook components")
-    } else if shouldShowWebPreviewButton {
-      Button(action: { presentWebPreview(mode: .app) }) {
-        HStack(spacing: 4) {
-          Image(systemName: "globe")
-            .font(.caption2)
-          Text("Preview")
-          if queuedPreviewContextCount > 0 {
-            previewContextBadge
-          }
-        }
-      }
-      .buttonStyle(.agentHubOutlined)
-      .help(
-        queuedPreviewContextCount > 0
-          ? "Preview localhost web app (\(queuedPreviewContextCount) queued updates pending next send)"
-          : "Preview localhost web app")
-    }
-  }
-
   @MainActor
   private func loadWebPreviewCandidateIfNeeded() async {
     guard state?.detectedLocalhostURL == nil else { return }
@@ -758,67 +721,44 @@ public struct MonitoringCardView: View {
   }
 
   private var header: some View {
-    HStack(spacing: 8) {
-      // Parent module: folder + repo name, only for worktree sessions — the
-      // path row already identifies root-repo sessions.
-      if isWorktreeSession {
-        Image(systemName: "folder")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .layoutPriority(1)
-        Text(sessionModulePreview.repositoryName)
-          .font(.primaryDefault)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-          .layoutPriority(1)
-      }
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        // Activity indicator: the dot plus a word, so state never depends on color alone.
+        HStack(spacing: 5) {
+          Circle()
+            .fill(isHighlighted ? Color.brandPrimary(for: providerKind) : .gray.opacity(0.3))
+            .frame(width: 10, height: 10)
+            .shadow(
+              color: isHighlighted ? Color.brandPrimary(for: providerKind).opacity(0.6) : .clear,
+              radius: 4)
+            .accessibilityHidden(true)
+          if let statusWord {
+            Text(statusWord)
+              .font(.secondaryCaption)
+              .foregroundStyle(isHighlighted ? Color.brandPrimary(for: providerKind) : .secondary)
+              .lineLimit(1)
+          }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Status: \(statusWord ?? "unknown")")
+        .help(statusWord ?? "Status unknown")
 
-      // Activity indicator circle - shows when session is working
-      Circle()
-        .fill(isHighlighted ? Color.brandPrimary(for: providerKind) : .gray.opacity(0.3))
-        .frame(width: 10, height: 10)
-        .shadow(
-          color: isHighlighted ? Color.brandPrimary(for: providerKind).opacity(0.6) : .clear,
-          radius: 4)
+        Text(sessionDisplayName)
+          .font(.primaryDefault)
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .layoutPriority(1)
 
-      // Session label - show custom name, slug, or default ID
-      if let customName = viewModel?.sessionCustomNames[session.id] {
-        Text(customName)
-          .font(.primaryDefault)
-          .lineLimit(1)
-      } else if let slug = session.slug {
-        // Show slug (truncates first) and short ID (always shown)
-        Text(slug)
-          .font(.primaryDefault)
-          .lineLimit(1)
-        Text("•")
+        // Provider name with brand color
+        Text(providerKind.rawValue)
           .font(.secondaryCaption)
-          .foregroundColor(.secondary)
+          .foregroundColor(.brandPrimary(for: providerKind))
           .fixedSize()
           .layoutPriority(1)
-        Text(session.shortId)
-          .font(.primaryDefault)
-          .fixedSize()
-          .layoutPriority(1)
-      } else {
-        Text(session.shortId)
-          .font(.primaryDefault)
-          .fixedSize()
-          .layoutPriority(1)
-      }
 
-      // Provider name with brand color
-      Text(providerKind.rawValue)
-        .font(.secondaryCaption)
-        .foregroundColor(.brandPrimary(for: providerKind))
-        .fixedSize()
-        .layoutPriority(1)
+        Spacer(minLength: 8)
 
-      Spacer()
-
-      // Action buttons — fixed size, never shrink
-      HStack(spacing: 6) {
-        // Pending changes preview button - show immediately when code change tool is detected
+        // Attention first: what needs you now stays a button.
         if let pendingToolUse = state?.pendingToolUse,
           pendingToolUse.isCodeChangeTool
         {
@@ -832,10 +772,10 @@ public struct MonitoringCardView: View {
             }
           }
           .buttonStyle(.agentHubOutlined(tint: .orange))
+          .fixedSize()
           .help("Preview pending \(pendingToolUse.toolName) change")
         }
 
-        // Plan button
         if let planState = planState {
           Button(action: {
             onShowPlan?(session, planState)
@@ -847,174 +787,172 @@ public struct MonitoringCardView: View {
             }
           }
           .buttonStyle(.agentHubOutlined(tint: .orange))
+          .fixedSize()
           .help("View session plan")
         }
 
-        if diffDisplayMode == .sidePanel {
-          // Diff button
-          Button(action: {
-            onShowDiff?(session, session.projectPath)
-          }) {
-            HStack(spacing: 4) {
-              Image(systemName: "arrow.left.arrow.right")
-                .font(.caption2)
-              Text("Diff")
-            }
-          }
-          .buttonStyle(.agentHubOutlined)
-          .help("View git changes")
-        }
-
-        // Web preview controls — segmented App | Storybook when Storybook is
-        // detected, otherwise a single Preview button.
-        webPreviewControls
-
-        if shouldShowMCPAppsButton {
-          Button(action: {
-            onShowMCPApp?(session, session.projectPath)
-          }) {
-            HStack(spacing: 4) {
-              Image(systemName: "square.stack.3d.up")
-                .font(.caption2)
-              Text("MCP")
-              if mcpAppResourceCount > 0 {
-                Text("\(mcpAppResourceCount)")
-                  .font(.system(.caption2, design: .monospaced))
-                  .foregroundStyle(.secondary)
-              }
-            }
-          }
-          .buttonStyle(.agentHubOutlined)
-          .help("Open MCP app resources")
-          .accessibilityLabel(mcpAppButtonAccessibilityLabel)
-        }
-
-        // Measurements button — appears only once the agent has actually filed a
-        // measurement, so a session that never analyzed anything stays uncluttered.
-        if measurementCount > 0 {
-          Button(action: {
-            onShowMeasurement?(session)
-          }) {
-            HStack(spacing: 4) {
-              Image(systemName: "chart.bar.doc.horizontal")
-                .font(.caption2)
-              Text("Measurements")
-              Text("\(measurementCount)")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-            }
-          }
-          .buttonStyle(.agentHubOutlined)
-          .help("Open measurements recorded in this session")
-          .accessibilityLabel(measurementButtonAccessibilityLabel)
-        }
-
-        // Studio button — appears only once the agent has filed an artifact or
-        // design canvas for this project (Claude or Codex alike).
-        if onShowStudio != nil, studioArtifactCount > 0 {
-          Button(action: {
-            onShowStudio?(session)
-          }) {
-            HStack(spacing: 4) {
-              Image(systemName: "paintpalette")
-                .font(.caption2)
-              Text("Studio")
-              if studioArtifactCount > 1 {
-                Text("\(studioArtifactCount)")
-                  .font(.system(.caption2, design: .monospaced))
-                  .foregroundStyle(.secondary)
-              }
-            }
-          }
-          .buttonStyle(.agentHubOutlined)
-          .help("Open artifacts and design canvases the agent rendered")
-          .accessibilityLabel(studioButtonAccessibilityLabel)
-        }
-
-        // Artifact button — only once the agent has actually published one to
-        // claude.ai, and only where the panel can host it.
-        if onShowArtifact != nil, !detectedArtifacts.isEmpty {
-          Button(action: {
-            onShowArtifact?(session)
-          }) {
-            HStack(spacing: 4) {
-              Image(systemName: "sparkles.rectangle.stack")
-                .font(.caption2)
-              Text("Artifact")
-              if detectedArtifacts.count > 1 {
-                Text("\(detectedArtifacts.count)")
-                  .font(.system(.caption2, design: .monospaced))
-                  .foregroundStyle(.secondary)
-              }
-            }
-          }
-          .buttonStyle(.agentHubOutlined)
-          .help("Open artifacts published in this session")
-          .accessibilityLabel(artifactButtonAccessibilityLabel)
-        }
-
-        // Mermaid diagram button (only visible when mermaid content is detected)
-        if state?.hasMermaidContent == true {
-          Button(action: {
-            onShowMermaid?(session)
-          }) {
-            HStack(spacing: 4) {
-              Image(systemName: "chart.xyaxis.line")
-                .font(.caption2)
-              Text("Diagram")
-            }
-          }
-          .buttonStyle(.agentHubOutlined)
-          .help("View Mermaid diagrams")
-        }
-
-        // Simulator button (only visible for Xcode projects) — opens the live
-        // simulator preview side panel, which also hosts device management.
-        // The legacy panel doesn't wire the side-panel callback, so it falls
-        // back to the old management sheet.
-        if isXcodeProject {
-          Button(action: {
-            if onShowSimulatorPreview != nil {
-              onShowSimulatorPreview?(session, session.projectPath)
-            } else {
-              simulatorSheetSession = session
-            }
-          }) {
-            HStack(spacing: 4) {
-              Image(systemName: "iphone.gen3")
-                .font(.caption2)
-              Text("Simulator")
-            }
-          }
-          .buttonStyle(.agentHubOutlined)
-          .help("Show a live, interactive simulator in the side panel")
-        }
-
-        // GitHub button
-        Button(action: presentGitHubPanel) {
-          HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.pull")
-              .font(.caption2)
-            Text("GitHub")
-          }
-        }
-        .buttonStyle(.agentHubOutlined)
-        .help("View GitHub PRs, issues, and CI status")
-
-        Button(action: onRefreshTerminal) {
-          HStack(spacing: 4) {
-            Image(systemName: "arrow.clockwise")
-              .font(.caption2)
-            Text("Refresh")
-          }
-        }
-        .buttonStyle(.agentHubOutlined)
-        .help("Refresh terminal (reload session history)")
       }
-      .fixedSize()
-      .layoutPriority(2)
+      HStack(spacing: 8) {
+        // Where you work: Terminal, Chat, Files, Diffs. One control, always visible.
+        CompactPillSegmentedControl(
+          selection: contentModeSelection,
+          items: contentModeItems,
+          selectedColor: Color.brandSecondary(for: providerKind),
+          accessibilityLabel: "Session view"
+        )
+        .fixedSize()
+        .layoutPriority(2)
+        .help("Switch between Terminal, Chat, Files, and Diffs")
 
+        Spacer(minLength: 0)
+
+        // Secondary tools stay available without crowding the primary modes.
+        toolsMenu
+          .fixedSize()
+          .layoutPriority(2)
+      }
     }
+  }
+
+  private var contentModeSelection: Binding<MonitoringCardContentMode> {
+    Binding(
+      get: { effectiveContentMode },
+      set: { contentMode = $0 }
+    )
+  }
+
+  private var contentModeItems: [CompactPillSegmentedControlItem<MonitoringCardContentMode>] {
+    availableContentModes.map { mode in
+      CompactPillSegmentedControlItem(value: mode, title: mode.label, helpText: mode.label)
+    }
+  }
+
+  /// Side panels this session can open. Items appear only when they apply;
+  /// the count in the label says how many agent-produced things are waiting.
+  private var toolsMenu: some View {
+    Menu {
+      if diffDisplayMode == .sidePanel {
+        Button {
+          onShowDiff?(session, session.projectPath)
+        } label: {
+          Label("Diff", systemImage: "arrow.left.arrow.right")
+        }
+      }
+
+      // Storybook takes precedence when present: showing both would route the
+      // same pane to two URLs.
+      if hasStorybook {
+        Button {
+          Task {
+            await DevServerManager.shared.startStorybookServer(
+              for: session.id,
+              projectPath: session.projectPath
+            )
+          }
+          presentWebPreview(mode: .storybook)
+        } label: {
+          Label("Storybook", systemImage: "book.pages")
+        }
+      } else if shouldShowWebPreviewButton {
+        Button {
+          presentWebPreview(mode: .app)
+        } label: {
+          Label(
+            queuedPreviewContextCount > 0
+              ? "Preview (\(queuedPreviewContextCount) queued updates)" : "Preview",
+            systemImage: "globe")
+        }
+      }
+
+      if shouldShowMCPAppsButton {
+        Button {
+          onShowMCPApp?(session, session.projectPath)
+        } label: {
+          Label("MCP apps (\(mcpAppResourceCount))", systemImage: "square.stack.3d.up")
+        }
+        .accessibilityLabel(mcpAppButtonAccessibilityLabel)
+      }
+
+      if measurementCount > 0 {
+        Button {
+          onShowMeasurement?(session)
+        } label: {
+          Label("Measurements (\(measurementCount))", systemImage: "chart.bar.doc.horizontal")
+        }
+        .accessibilityLabel(measurementButtonAccessibilityLabel)
+      }
+
+      if onShowStudio != nil, studioArtifactCount > 0 {
+        Button {
+          onShowStudio?(session)
+        } label: {
+          Label("Studio (\(studioArtifactCount))", systemImage: "paintpalette")
+        }
+        .accessibilityLabel(studioButtonAccessibilityLabel)
+      }
+
+      if onShowArtifact != nil, !detectedArtifacts.isEmpty {
+        Button {
+          onShowArtifact?(session)
+        } label: {
+          Label("Artifact (\(detectedArtifacts.count))", systemImage: "sparkles.rectangle.stack")
+        }
+        .accessibilityLabel(artifactButtonAccessibilityLabel)
+      }
+
+      if state?.hasMermaidContent == true {
+        Button {
+          onShowMermaid?(session)
+        } label: {
+          Label("Diagram", systemImage: "chart.xyaxis.line")
+        }
+      }
+
+      // Xcode projects: the live simulator panel, or the legacy management
+      // sheet where the panel callback is not wired.
+      if isXcodeProject {
+        Button {
+          if onShowSimulatorPreview != nil {
+            onShowSimulatorPreview?(session, session.projectPath)
+          } else {
+            simulatorSheetSession = session
+          }
+        } label: {
+          Label("Simulator", systemImage: "iphone.gen3")
+        }
+      }
+
+      Button(action: presentGitHubPanel) {
+        Label("GitHub", systemImage: "arrow.triangle.pull")
+      }
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: "square.grid.2x2")
+          .font(.caption2)
+        Text("Tools")
+        if toolsAttentionCount > 0 {
+          Text("\(toolsAttentionCount)")
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .menuStyle(.borderlessButton)
+    .help("Panels this session can open: GitHub, diff, preview, simulator, and what the agent produced")
+    .accessibilityLabel(
+      toolsAttentionCount > 0
+        ? "Tools menu, \(toolsAttentionCount) agent results waiting" : "Tools menu")
+  }
+
+  /// Things the agent produced that are waiting to be looked at.
+  private var toolsAttentionCount: Int {
+    mcpAppResourceCount + measurementCount + studioArtifactCount + detectedArtifacts.count
+  }
+
+  /// One word for the header: what the agent is doing right now.
+  private var statusWord: String? {
+    if let state { return state.status.displayName }
+    return session.id.hasPrefix("pending-") ? "Starting" : nil
   }
 
   // MARK: - Actions Popover Content
@@ -1035,6 +973,12 @@ public struct MonitoringCardView: View {
           onConnect()
           showingActionsPopover = false
         }
+      }
+      // Restarts the terminal process; a rare action, so it lives here and not
+      // in the header next to the everyday buttons.
+      PopoverButton(icon: "arrow.clockwise", title: "Refresh Terminal") {
+        showingActionsPopover = false
+        onRefreshTerminal()
       }
       PopoverButton(icon: "pencil", title: "Name Session") {
         showingActionsPopover = false
@@ -1076,9 +1020,7 @@ public struct MonitoringCardView: View {
         hubProvider?.showReview(
           owner: reference.owner, repository: reference.repository, number: reference.number)
       },
-      onOpenTicket: { key in hubProvider?.showJiraTicket(key) },
-      contentMode: $contentMode,
-      availableContentModes: availableContentModes
+      onOpenTicket: { key in hubProvider?.showJiraTicket(key) }
     )
   }
 
@@ -1094,6 +1036,7 @@ public struct MonitoringCardView: View {
       // starts once its terminal exists, and the composer types into it.
       ZStack {
         terminalContent
+          .environment(\.isTerminalConcealed, true)
           .opacity(0)
           .allowsHitTesting(false)
           .accessibilityHidden(true)
@@ -1123,26 +1066,73 @@ public struct MonitoringCardView: View {
         guard !session.id.hasPrefix("pending-") else { return false }
         return viewModel.sendAutomatedPrompt(to: session, prompt: text)
       },
+      target: ChatSessionTarget(name: sessionDisplayName, providerKind: providerKind),
+      // Only the active card's composer takes the keyboard; typing or focusing
+      // the chat of another column makes that column active first.
+      isActiveCard: isPrimarySession,
+      onInteraction: onTerminalInteraction,
+      liveTerminalStatus: liveTerminalStatus,
       terminalNotice: chatTerminalNotice,
+      terminalFocusNotice: chatTerminalFocusNotice,
       onShowTerminal: { contentMode = .terminal },
       pendingApproval: state?.pendingToolUse.map { ($0.toolName, $0.input.map(ChatTranscriptReader.firstLine)) },
       onApprove: {
-        // The permission menu selects option 1 ("Yes") on its digit key.
-        viewModel?.typeTextInActiveTerminal(forKey: terminalKey ?? session.id, text: "1") ?? false
+        // The permission menu selects option 1 ("Yes") on its digit key. Always
+        // the agent's own tab: an active child tab must never get the parent's approval.
+        viewModel?.typeTextInAgentTerminal(forKey: terminalKey ?? session.id, text: "1") ?? false
       }
     )
     .background(Color(nsColor: .windowBackgroundColor))
   }
 
+  private var sessionDisplayName: String {
+    viewModel?.displayName(for: session) ?? session.displayName
+  }
+
+  /// Whether this card reads its agent tab's screen: only the active card, only
+  /// while its chat is on screen. One bounded read of a few rows every two
+  /// seconds; no file I/O, no other terminals.
+  private var liveStatusPollKey: String {
+    "\(isPrimarySession)|\(effectiveContentMode == .chat)|\(terminalKey ?? session.id)"
+  }
+
+  private func pollLiveTerminalStatus() async {
+    guard isPrimarySession, effectiveContentMode == .chat else {
+      liveTerminalStatus = nil
+      return
+    }
+    let key = terminalKey ?? session.id
+    while !Task.isCancelled {
+      let tail = viewModel?.agentTerminalScreenTail(forKey: key, maxRows: Self.liveStatusRows)
+      let status = tail.flatMap(TerminalLiveStatusDetector.status(in:))
+      if status != liveTerminalStatus { liveTerminalStatus = status }
+      try? await Task.sleep(for: .seconds(2))
+    }
+    liveTerminalStatus = nil
+  }
+
+  private static let liveStatusRows = 12
+
   /// Things the chat can't show: approvals and a launch that hasn't written yet.
   private var chatTerminalNotice: String? {
     if case .awaitingApproval = state?.status {
-      return "The agent is waiting for your approval in the terminal."
+      return "\(sessionDisplayName) is waiting for your approval in the terminal."
     }
     if session.sessionFilePath == nil {
-      return "The session is starting. Its first steps show in the terminal."
+      return "\(sessionDisplayName) is starting. Its first steps show in the terminal."
     }
     return nil
+  }
+
+  /// The terminal under the chat is on a child session tab. The chat does not
+  /// follow it; it says so instead, so nothing is read or sent to the wrong agent.
+  private var chatTerminalFocusNotice: String? {
+    guard
+      let linked = viewModel?.terminalWorkspaceSnapshots[terminalKey ?? session.id]?
+        .activeLinkedSession
+    else { return nil }
+    return
+      "The terminal is on child session \(linked.sessionId.prefix(8)) (\(linked.provider.rawValue)). This chat stays with \(sessionDisplayName)."
   }
 
   private var terminalContent: some View {
@@ -1206,17 +1196,6 @@ public struct MonitoringCardView: View {
       ?? (providerKind == .claude ? .claudeDefault : .codexDefault)
   }
 
-  private var previewContextBadge: some View {
-    Text("\(queuedPreviewContextCount)")
-      .font(.system(.caption2, design: .monospaced))
-      .foregroundStyle(.secondary)
-      .padding(.horizontal, 5)
-      .padding(.vertical, 1)
-      .background(
-        Capsule()
-          .fill(Color.secondary.opacity(0.15))
-      )
-  }
 }
 
 enum MonitoringCardContentModeItems {
@@ -1245,30 +1224,6 @@ private struct MonitoringCardPathRow: View {
   let linkedTicketKey: String?
   let onOpenReview: (GitHubPullRequestURLReference) -> Void
   let onOpenTicket: (String) -> Void
-  @Binding var contentMode: MonitoringCardContentMode
-  let availableContentModes: [MonitoringCardContentMode]
-
-  private var selection: Binding<MonitoringCardContentMode> {
-    Binding(
-      get: {
-        MonitoringEditorStateStore.coercedContentMode(
-          contentMode,
-          availableModes: availableContentModes
-        )
-      },
-      set: { contentMode = $0 }
-    )
-  }
-
-  private var items: [CompactPillSegmentedControlItem<MonitoringCardContentMode>] {
-    availableContentModes.map { mode in
-      CompactPillSegmentedControlItem(
-        value: mode,
-        title: mode.label,
-        helpText: mode.label
-      )
-    }
-  }
 
   var body: some View {
     HStack(spacing: 8) {
@@ -1313,15 +1268,6 @@ private struct MonitoringCardPathRow: View {
       }
 
       Spacer(minLength: 8)
-
-      CompactPillSegmentedControl(
-        selection: selection,
-        items: items,
-        selectedColor: Color.brandSecondary(for: providerKind),
-        accessibilityLabel: "Switch session content"
-      )
-      .layoutPriority(2)
-      .help("Switch session content")
     }
     .frame(minHeight: 24)
   }

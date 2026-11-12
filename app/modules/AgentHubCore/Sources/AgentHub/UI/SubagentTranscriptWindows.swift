@@ -95,6 +95,7 @@ enum SubagentTranscriptWindows {
 /// Rows for a session's subagents, shared by the session card and the sidebar.
 /// Clicking a row opens that subagent's chat in its own window.
 struct SubagentListRows: View {
+  @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
   let subagents: [SessionSubagent]
   let providerKind: SessionProviderKind
   let reader: any ChatTranscriptReading
@@ -107,9 +108,10 @@ struct SubagentListRows: View {
         SubagentRow(subagent: subagent, compact: compact) {
           SubagentTranscriptWindows.open(subagent, providerKind: providerKind, reader: reader)
         }
+        .disabled(!chatEnabled)
         .padding(.leading, indent)
       }
-      if subagents.count > 1 {
+      if chatEnabled && subagents.count > 1 {
         Button {
           SubagentTranscriptWindows.openSideBySide(
             subagents.filter { $0.status == .running }.isEmpty

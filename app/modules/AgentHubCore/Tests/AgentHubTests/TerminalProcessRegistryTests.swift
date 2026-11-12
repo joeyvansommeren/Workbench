@@ -43,30 +43,55 @@ struct TerminalProcessRegistryTests {
     #expect(rows.first?.registeredAt == registeredAt)
   }
 
-  @Test("Archive cleanup terminates only the archived session's terminal processes")
+  @Test("Archive cleanup stops the session, its pending launch and its tabs only")
   func terminatesOnlyArchivedSessionTerminals() async throws {
     let store = MockManagedProcessStore()
     let terminator = MockProcessTerminator()
+    let pids: [pid_t] = [101, 102, 103, 104, 105]
     let registry = TerminalProcessRegistry(
       store: store,
-      processInspector: MockProcessInspector(identities: [
-        101: identity(pid: 101, groupId: 101, startTime: 1_000),
-        102: identity(pid: 102, groupId: 102, startTime: 1_000),
-        103: identity(pid: 103, groupId: 103, startTime: 1_000),
-      ]),
+      processInspector: MockProcessInspector(identities: Dictionary(
+        uniqueKeysWithValues: pids.map { ($0, identity(pid: $0, groupId: $0, startTime: 1_000)) })),
       processTerminator: terminator
     )
     await registry.register(
       pid: 101, kind: .agentTerminal, provider: .codex, terminalKey: "s-archived", sessionId: "s-archived")
     await registry.register(
       pid: 102, kind: .agentTerminal, provider: .codex, terminalKey: "s-open", sessionId: "s-open")
+    // A Claude child agent in a tab of the archived session's terminal.
     await registry.register(
-      pid: 103, kind: .agentTerminal, provider: .claude, terminalKey: "s-archived", sessionId: "s-archived")
+      pid: 103, kind: .agentTerminal, provider: .claude, terminalKey: "s-archived", sessionId: "child")
+    // Still filed under the pending key it launched with.
+    await registry.register(
+      pid: 104, kind: .agentTerminal, provider: .codex, terminalKey: "pending-1", sessionId: "pending-1")
+    // Another provider's session that happens to share the id: not ours.
+    await registry.register(
+      pid: 105, kind: .agentTerminal, provider: .claude, terminalKey: "elsewhere", sessionId: "s-archived")
 
-    await registry.terminateSessionTerminalProcesses(provider: .codex, sessionId: "s-archived")
+    await registry.terminateSessionTerminalProcesses(provider: .codex, keys: ["s-archived", "pending-1"])
 
-    #expect(await terminator.terminatedPIDs() == [101])
-    #expect(try await store.getManagedProcesses().map(\.pid).sorted() == [102, 103])
+    #expect(await terminator.terminatedPIDs().sorted() == [101, 103, 104])
+    #expect(try await store.getManagedProcesses().map(\.pid).sorted() == [102, 105])
+  }
+
+  @Test("Rekey files a pending launch under its real session id")
+  func rekeyMovesPendingRows() async throws {
+    let store = MockManagedProcessStore()
+    let terminator = MockProcessTerminator()
+    let registry = TerminalProcessRegistry(
+      store: store,
+      processInspector: MockProcessInspector(identities: [
+        201: identity(pid: 201, groupId: 201, startTime: 1_000)
+      ]),
+      processTerminator: terminator
+    )
+    await registry.register(
+      pid: 201, kind: .agentTerminal, provider: .codex, terminalKey: "pending-1", sessionId: "pending-1")
+
+    await registry.rekey(from: "pending-1", to: "s-real")
+    await registry.terminateSessionTerminalProcesses(provider: .codex, keys: ["s-real"])
+
+    #expect(await terminator.terminatedPIDs() == [201])
   }
 
   @Test("Register only persists owned process groups")

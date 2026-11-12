@@ -110,3 +110,23 @@ public struct GitHubTicketPullRequest: Equatable, Sendable {
   /// Closed without merging: abandoned, so it doesn't count toward a ticket's state.
   public var isAbandoned: Bool { pullRequest.state.lowercased() == "closed" }
 }
+
+public struct GitHubReviewDetail: Sendable {
+  public let pullRequest: GitHubPullRequest
+  public let reviews: [Review]
+  public let inlineComments: [GitHubComment]
+
+  public struct Review: Decodable, Identifiable, Sendable {
+    public let id: String
+    public let author: GitHubAuthor?
+    public let body: String
+    public let state: String
+    public let submittedAt: Date?
+  }
+
+  public init(pullRequest: GitHubPullRequest, reviews: [Review], inlineComments: [GitHubComment]) {
+    self.pullRequest = pullRequest
+    self.reviews = reviews
+    self.inlineComments = inlineComments
+  }
+}

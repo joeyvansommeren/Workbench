@@ -42,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   let updateController = UpdateController()
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    NodeProcessGuardController.shared.start()
     UNUserNotificationCenter.current().delegate = self
     UNUserNotificationCenter.current().setNotificationCategories([
       GitHubCIFailureNotification.category()

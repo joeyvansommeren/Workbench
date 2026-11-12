@@ -70,8 +70,7 @@ public struct FileExplorerNavigationRequest: Equatable {
 }
 
 struct MonitoringEditorState: Equatable {
-  /// Chat is the default view; the terminal keeps running underneath it.
-  var contentMode: MonitoringCardContentMode = .chat
+  var contentMode: MonitoringCardContentMode = .terminal
   var projectPath: String
   var selectedFilePath: String?
   var navigationRequest: FileExplorerNavigationRequest?
@@ -85,9 +84,10 @@ struct MonitoringEditorRouteResult {
 enum MonitoringEditorStateStore {
   static func availableContentModes(
     diffDisplayMode: DiffDisplayMode,
-    diffAvailabilityStatus: DiffAvailabilityStatus?
+    diffAvailabilityStatus: DiffAvailabilityStatus?,
+    chatEnabled: Bool = true
   ) -> [MonitoringCardContentMode] {
-    var modes: [MonitoringCardContentMode] = [.terminal, .chat, .editor]
+    var modes: [MonitoringCardContentMode] = chatEnabled ? [.terminal, .chat, .editor] : [.terminal, .editor]
     if diffDisplayMode == .inline,
        diffAvailabilityStatus?.canShowDiffViewer == true {
       modes.append(.diffs)

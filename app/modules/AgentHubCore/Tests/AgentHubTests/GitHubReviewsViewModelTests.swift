@@ -9,6 +9,15 @@ private final class GitHubProjectReviewServiceStub:
 {
   var projects: [GitHubReviewProject] = []
   var pullRequests: [GitHubProjectPullRequest] = []
+  var detail: GitHubReviewDetail?
+  var detailDelay: Duration?
+  var detailRequests: [String] = []
+  func pullRequestDetail(_ request: GitHubProjectPullRequest) async throws -> GitHubReviewDetail {
+    detailRequests.append(request.id)
+    if let detailDelay { try? await Task.sleep(for: detailDelay) }
+    if let detail { return detail }
+    throw GitHubCLIError.commandFailed("Detail unavailable")
+  }
   var projectsError: GitHubCLIError?
   var pullRequestsError: GitHubCLIError?
   var projectsDelay: Duration?
@@ -58,6 +67,50 @@ private actor GitHubReviewSessionStoreStub: GitHubReviewSessionStoreProtocol {
 @MainActor
 @Suite("GitHub Reviews view model")
 struct GitHubReviewsViewModelTests {
+  @Test("Details load on selection, refresh, and clear when closed")
+  func detailRefresh() async throws {
+    let service = GitHubProjectReviewServiceStub()
+    service.projects = [makeProject()]
+    service.pullRequests = [makePullRequest(id: "a", isDraft: false)]
+    let json = #"{"number":450,"title":"Latest title","state":"OPEN","url":"https://github.com/o/r/pull/450","headRefName":"fix","baseRefName":"main","isDraft":false,"additions":1,"deletions":0,"changedFiles":1}"#
+    let pr = try JSONDecoder().decode(GitHubPullRequest.self, from: Data(json.utf8))
+    service.detail = GitHubReviewDetail(pullRequest: pr, reviews: [], inlineComments: [])
+    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    await model.load()
+    model.selectedPullRequestID = "a"
+    await model.loadSelectedDetail()
+    #expect(model.selectedDetail?.pullRequest.title == "Latest title")
+    #expect(model.detailUpdatedAt != nil)
+    await model.loadSelectedDetail()
+    #expect(service.detailRequests == ["a", "a"])
+    model.selectedPullRequestID = nil
+    #expect(model.selectedDetail == nil)
+    #expect(model.detailUpdatedAt == nil)
+  }
+
+  @Test("Late detail errors cannot leak into a different selected PR; retry remains possible")
+  func detailSelectionIsolation() async {
+    let service = GitHubProjectReviewServiceStub()
+    service.projects = [makeProject()]
+    service.pullRequests = [makePullRequest(id: "a", isDraft: false), makePullRequest(id: "b", isDraft: false)]
+    service.detailDelay = .milliseconds(80)
+    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    await model.load()
+    model.selectedPullRequestID = "a"
+    let loading = Task { await model.loadSelectedDetail() }
+    while service.detailRequests.isEmpty { await Task.yield() }
+    model.selectedPullRequestID = "b"
+    await loading.value
+    #expect(model.detailError == nil)
+    #expect(model.selectedDetail == nil)
+    #expect(!model.isLoadingDetail)
+    await model.loadSelectedDetail()
+    #expect(model.detailError != nil)
+    #expect(service.detailRequests == ["a", "b"])
+    model.selectedPullRequestID = nil
+    #expect(model.detailError == nil)
+  }
+
   @Test("Selects the Code review view and removes draft results")
   func loadsPreferredReviewView() async {
     let service = GitHubProjectReviewServiceStub()
@@ -541,6 +594,38 @@ struct GitHubReviewsViewModelTests {
     #expect(links.first?.displayName == "PR 450 review")
     #expect(links.first?.statusText == "Ready")
     #expect(!links.contains { $0.session.id == "implementation" })
+  }
+
+  @Test("A review of PR 1234 does not link to PR 123")
+  func reviewLinkNeedsTheExactPullRequestURL() {
+    let pullRequest = makePullRequest(id: "ready", isDraft: false)
+    let longerNumber = makeSession(
+      id: "other-pr",
+      date: Date(timeIntervalSince1970: 100),
+      message: "Review this pull request independently: \(pullRequest.url)4"
+    )
+    let exact = makeSession(
+      id: "this-pr",
+      date: Date(timeIntervalSince1970: 50),
+      message: "Review this pull request independently: \(pullRequest.url)/files"
+    )
+
+    let links = GitHubReviewSessionLinker.links(
+      for: pullRequest,
+      launches: [],
+      inventories: [
+        GitHubReviewSessionInventory(
+          provider: .codex,
+          sessions: [longerNumber, exact],
+          pendingSessions: [],
+          resolvedPendingSessionIDs: [:],
+          customNames: [:],
+          statuses: [:]
+        )
+      ]
+    )
+
+    #expect(links.map(\.session.id) == ["this-pr"])
   }
 
   @Test("Keeps an explicit review launch linked while its pending session resolves")

@@ -258,21 +258,18 @@ open class ManagedLocalProcessTerminalView: TerminalView, TerminalViewDelegate, 
     )
   }
 
-  /// Terminates the process group for the running child.
+  /// Terminates the running child and every process below it.
   public func terminateProcessTree(graceSeconds: TimeInterval = 1.0) {
     guard process.running else { return }
     let pid = process.shellPid
     guard pid > 0 else { return }
 
-    if killpg(pid, SIGTERM) != 0 {
-      _ = kill(pid, SIGTERM)
-    }
-
+    let tree = ProcessTree.sendTerminate(root: pid)
     guard graceSeconds > 0 else { return }
-    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + graceSeconds) { [weak self] in
-      guard let self, self.process.running else { return }
-      AppLogger.session.warning("Process group PID=\(pid) still alive; sending SIGKILL")
-      _ = killpg(pid, SIGKILL)
+    // Not tied to self: archive drops the view right after this call, and a
+    // weak self used to skip the SIGKILL for anything that ignored SIGTERM.
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + graceSeconds) {
+      ProcessTree.killSurvivors(tree, root: pid)
     }
   }
 

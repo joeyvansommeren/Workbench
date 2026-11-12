@@ -14,7 +14,7 @@ public struct HotReloadSourceEventClassifier: Sendable {
 
   /// Path fragments that never count as project sources.
   private static let excludedFragments = [
-    "/.git/", "/DerivedData/", "/.build/", "/.swiftpm/", "/Pods/",
+    "/.git/", "/DerivedData/", "/.build/", "/.swiftpm/", "/Pods/", "/node_modules/",
   ]
 
   private var knownSources: Set<String>
@@ -27,22 +27,24 @@ public struct HotReloadSourceEventClassifier: Sendable {
   /// known set when the watcher starts).
   public static func swiftSources(
     under root: String,
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default,
+    isCancelled: () -> Bool = { false }
   ) -> Set<String> {
     var sources = Set<String>()
     let rootURL = URL(fileURLWithPath: root)
     let enumerator = fileManager.enumerator(
       at: rootURL,
-      includingPropertiesForKeys: [.isRegularFileKey],
+      includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
       options: [.skipsHiddenFiles]
     )
-    while let url = enumerator?.nextObject() as? URL {
+    while !isCancelled(), let url = enumerator?.nextObject() as? URL {
       let path = url.path
-      if Self.isExcluded(path: path) {
-        if url.hasDirectoryPath { enumerator?.skipDescendants() }
+      let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+      if Self.isExcluded(path: path + (values?.isDirectory == true ? "/" : "")) {
+        if values?.isDirectory == true { enumerator?.skipDescendants() }
         continue
       }
-      if path.hasSuffix(".swift") { sources.insert(path) }
+      if path.hasSuffix(".swift"), values?.isRegularFile == true { sources.insert(path) }
     }
     return sources
   }
@@ -104,7 +106,21 @@ public final class HotReloadSourceWatcher: HotReloadSourceWatching {
   private var classifier = HotReloadSourceEventClassifier(knownSources: [])
   private var onChange: (([HotReloadSourceChange]) -> Void)?
 
-  public init() {}
+  private var scanTask: Task<Set<String>, Never>?
+  private var scanID: UUID?
+  private var pendingPaths: Set<String> = []
+  private(set) var isScanning = false
+  private let scanSources: @Sendable (String, @Sendable () -> Bool) -> Set<String>
+
+  public convenience init() {
+    self.init(scanSources: { path, cancelled in
+      HotReloadSourceEventClassifier.swiftSources(under: path, isCancelled: cancelled)
+    })
+  }
+
+  init(scanSources: @escaping @Sendable (String, @Sendable () -> Bool) -> Set<String>) {
+    self.scanSources = scanSources
+  }
 
   deinit {
     stop()
@@ -115,10 +131,11 @@ public final class HotReloadSourceWatcher: HotReloadSourceWatching {
     onChange: @escaping ([HotReloadSourceChange]) -> Void
   ) {
     stop()
-    classifier = HotReloadSourceEventClassifier(
-      knownSources: HotReloadSourceEventClassifier.swiftSources(under: projectPath)
-    )
+    classifier = HotReloadSourceEventClassifier(knownSources: [])
     self.onChange = onChange
+    let id = UUID()
+    scanID = id
+    isScanning = true
 
     var context = FSEventStreamContext(
       version: 0,
@@ -146,14 +163,36 @@ public final class HotReloadSourceWatcher: HotReloadSourceWatching {
       FSEventStreamCreateFlags(
         kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents
       )
-    ) else { return }
+    ) else { stop(); return }
 
     self.stream = stream
     FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
-    FSEventStreamStart(stream)
+    guard FSEventStreamStart(stream) else { stop(); return }
+
+    let scan = scanSources
+    let task = Task.detached(priority: .utility) {
+      scan(projectPath, { Task.isCancelled })
+    }
+    scanTask = task
+    Task { @MainActor [weak self] in
+      let sources = await task.value
+      guard let self, self.scanID == id, !task.isCancelled else { return }
+      self.classifier = HotReloadSourceEventClassifier(knownSources: sources)
+      self.isScanning = false
+      self.scanTask = nil
+      let paths = self.pendingPaths
+      self.pendingPaths.removeAll()
+      self.handle(paths: Array(paths))
+    }
   }
 
   public func stop() {
+    scanTask?.cancel()
+    scanTask = nil
+    scanID = nil
+    isScanning = false
+    pendingPaths.removeAll()
+    onChange = nil
     guard let stream else { return }
     FSEventStreamStop(stream)
     FSEventStreamInvalidate(stream)
@@ -162,7 +201,11 @@ public final class HotReloadSourceWatcher: HotReloadSourceWatching {
     onChange = nil
   }
 
-  private func handle(paths: [String]) {
+  func handle(paths: [String]) {
+    guard !isScanning else {
+      pendingPaths.formUnion(paths.filter { $0.hasSuffix(".swift") })
+      return
+    }
     var changes: [HotReloadSourceChange] = []
     for path in Set(paths) {
       if let change = classifier.classify(

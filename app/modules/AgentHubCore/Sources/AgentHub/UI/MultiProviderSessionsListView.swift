@@ -1496,7 +1496,8 @@ public struct MultiProviderSessionsListView: View {
         onAddFolder: { showAddRepositoryPicker() },
         onStartSession: { repoPath in
           triggerNewSessionFlow(preferredRepositoryPath: repoPath)
-        }
+        },
+        onSearch: { showCommandPalette = true }
       )
 
       if let comparison {
@@ -2828,11 +2829,12 @@ public struct MultiProviderSessionsListView: View {
     )
   }
 
+  /// ⌘N: a new session in the focused project. With nothing focused, the
+  /// picker opens instead of the shortcut doing nothing.
   private func triggerFocusedNewSessionFlow() {
-    guard let focusedSessionLaunchPath else { return }
     triggerNewSessionFlow(
       preferredRepositoryPath: focusedSessionLaunchPath,
-      fallsBackToRepositoryPicker: false
+      fallsBackToRepositoryPicker: true
     )
   }
 
@@ -3539,13 +3541,15 @@ private struct SessionsSectionHeader: View {
   let onRefreshGitHubStates: () -> Void
   let onAddFolder: () -> Void
   let onStartSession: (String) -> Void
+  /// Opens the command palette, the one place that finds any session or project.
+  let onSearch: () -> Void
 
   @State private var showGroupPopover = false
 
   var body: some View {
-    VStack(spacing: 0) {
+    VStack(spacing: 6) {
       HStack(spacing: 2) {
-        Text("Projects")
+        Text("Sessions")
           .font(.heading)
           .foregroundColor(.secondary)
 
@@ -3553,13 +3557,14 @@ private struct SessionsSectionHeader: View {
 
         HeaderIconButton(
           systemName: "line.3.horizontal.decrease",
-          help: "Group sessions"
+          help: "Group sessions by repository or status"
         ) {
           showGroupPopover.toggle()
         }
         .popover(isPresented: $showGroupPopover, arrowEdge: .bottom) {
           GroupByPopover(groupMode: $groupMode)
         }
+        .accessibilityLabel("Group sessions")
 
         HeaderIconButton(
           systemName: isRefreshingGitHubStates ? "arrow.triangle.2.circlepath" : "arrow.clockwise",
@@ -3567,36 +3572,86 @@ private struct SessionsSectionHeader: View {
           isDisabled: !canRefreshGitHubStates || isRefreshingGitHubStates,
           action: onRefreshGitHubStates
         )
+        .accessibilityLabel("Refresh GitHub states")
 
         HeaderIconButton(
           systemName: "folder.badge.plus",
-          help: "Add a folder as a new module",
+          help: "Add a repository or a folder of repositories",
           action: onAddFolder
         )
-
-        if groupMode == .status {
-          HeaderIconMenu(
-            systemName: "plus",
-            help: "Start a new session"
-          ) {
-            ForEach(repos, id: \.path) { repo in
-              Button {
-                onStartSession(repo.path)
-              } label: {
-                Label(
-                  URL(fileURLWithPath: repo.path).lastPathComponent,
-                  systemImage: "folder"
-                )
-              }
-            }
-          }
-        }
+        .accessibilityLabel("Add repository")
       }
-      .padding(.vertical, 4)
       .padding(.leading, 4)
+
+      // The two daily actions, labeled, in both grouping modes: start work, find work.
+      HStack(spacing: 6) {
+        NewSessionMenu(repos: repos, onStartSession: onStartSession, onAddFolder: onAddFolder)
+        Button(action: onSearch) {
+          HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass")
+              .font(.system(size: 10, weight: .semibold))
+            Text("Search")
+            Text("⌘K")
+              .foregroundStyle(.tertiary)
+          }
+          .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help("Find any session, project, or action (⌘K)")
+        .accessibilityLabel("Search sessions and actions, Command K")
+      }
+      .padding(.horizontal, 2)
+      .padding(.bottom, 4)
 
       Divider()
     }
+  }
+}
+
+/// "New Session": one repository starts at once; several open a menu; none
+/// offers to add one. Always labeled, never hidden behind the grouping mode.
+private struct NewSessionMenu: View {
+  let repos: [SelectedRepository]
+  let onStartSession: (String) -> Void
+  let onAddFolder: () -> Void
+
+  var body: some View {
+    Group {
+      if repos.count == 1, let repo = repos.first {
+        Button { onStartSession(repo.path) } label: { label }
+          .help("Start a new session in \(URL(fileURLWithPath: repo.path).lastPathComponent)")
+      } else if repos.isEmpty {
+        Button(action: onAddFolder) { label }
+          .help("Add a repository first, then start a session in it")
+      } else {
+        Menu {
+          ForEach(repos, id: \.path) { repo in
+            Button {
+              onStartSession(repo.path)
+            } label: {
+              Label(URL(fileURLWithPath: repo.path).lastPathComponent, systemImage: "folder")
+            }
+          }
+        } label: {
+          label
+        }
+        .menuStyle(.borderedButton)
+        .help("Start a new session: choose the repository")
+      }
+    }
+    .controlSize(.small)
+    .accessibilityLabel("New session")
+    .accessibilityHint(repos.isEmpty ? "Adds a repository first" : "Choose a repository")
+  }
+
+  private var label: some View {
+    HStack(spacing: 5) {
+      Image(systemName: "plus")
+        .font(.system(size: 10, weight: .semibold))
+      Text("New Session")
+    }
+    .frame(maxWidth: .infinity)
   }
 }
 

@@ -276,21 +276,48 @@ struct GitHubReviewsView: View {
   }
 
   private var reviewQueue: some View {
-    VStack(spacing: 0) {
-      queueHeader
+    // Built once per render and handed down: every part of the queue used to
+    // rebuild the inventories and relink every row on its own.
+    let inventories = reviewSessionInventories
+    let rows = sortedReviewRows(inventories: inventories)
+    return VStack(spacing: 0) {
+      queueHeader(rows: rows)
       Divider()
-      content
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      HSplitView {
+        content(rows: rows)
+          .frame(minWidth: 350, maxWidth: .infinity, maxHeight: .infinity)
+        if let request = viewModel.pullRequests.first(where: { $0.id == viewModel.selectedPullRequestID }) {
+          VStack(spacing: 0) {
+            GitHubReviewDetailView(viewModel: viewModel, request: request)
+            Divider()
+            HStack {
+              Text("Actions").font(.headline)
+              Spacer()
+              promptMenu(provider: .codex, pullRequest: request)
+              promptMenu(provider: .claude, pullRequest: request)
+            }
+            .padding()
+            reviewSessionsCell(
+              rows.first(where: { $0.pullRequest.id == request.id })?.sessionLinks
+                ?? GitHubReviewSessionLinker.links(for: request,
+                  launches: viewModel.reviewSessionLaunches(for: request), inventories: inventories),
+              pullRequest: request)
+              .padding(.horizontal).padding(.bottom)
+          }
+          .id(request.id)
+          .frame(minWidth: 380, idealWidth: 520, maxWidth: .infinity)
+        }
+      }
     }
   }
 
-  private var queueHeader: some View {
+  private func queueHeader(rows: [GitHubReviewTableRow]) -> some View {
     HStack(spacing: DesignTokens.Spacing.md) {
       VStack(alignment: .leading, spacing: 2) {
         Text(viewModel.selectedView?.name ?? "Code review")
           .font(.geist(size: 17, weight: .semibold))
         Text(
-          [viewModel.selectedProject?.displayName ?? "Select a GitHub Project view", reviewCountLabel]
+          [viewModel.selectedProject?.displayName ?? "Select a GitHub Project view", reviewCountLabel(visible: rows.count)]
             .joined(separator: " · ")
         )
         .font(.secondarySmall)
@@ -308,9 +335,9 @@ struct GitHubReviewsView: View {
         .lineLimit(1)
         .transition(.opacity)
       }
-      followUpButton(.reReview)
-      followUpButton(.resolveComments)
-      bulkLaunchMenu
+      followUpButton(.reReview, rows: rows)
+      followUpButton(.resolveComments, rows: rows)
+      bulkLaunchMenu(rows: rows)
       Button {
         applySuggestedOrder()
       } label: {
@@ -326,7 +353,7 @@ struct GitHubReviewsView: View {
   }
 
   @ViewBuilder
-  private var content: some View {
+  private func content(rows: [GitHubReviewTableRow]) -> some View {
     if let recoveryIssue = viewModel.recoveryIssue, viewModel.pullRequests.isEmpty {
       recoveryContent(recoveryIssue)
     } else if viewModel.isLoadingProjects, viewModel.projects.isEmpty {
@@ -360,7 +387,7 @@ struct GitHubReviewsView: View {
         description: Text("The selected GitHub Project view contains no matching non-draft PRs.")
       )
     } else {
-      pullRequestTable
+      pullRequestTable(rows: rows)
     }
   }
 
@@ -526,11 +553,9 @@ struct GitHubReviewsView: View {
     }
   }
 
-  private var pullRequestTable: some View {
-    let inventories = reviewSessionInventories
-
-    return Table(
-      sortedReviewRows(inventories: inventories),
+  private func pullRequestTable(rows: [GitHubReviewTableRow]) -> some View {
+    Table(
+      rows,
       selection: $viewModel.selectedPullRequestID,
       sortOrder: $viewModel.tableSortOrder
     ) {
@@ -609,11 +634,10 @@ struct GitHubReviewsView: View {
       }
       .width(min: 190, ideal: 240)
 
-      TableColumn("Review") { pullRequest in
-        let pullRequest = pullRequest.pullRequest
+      TableColumn("Review") { row in
         HStack(spacing: DesignTokens.Spacing.xs) {
-          promptMenu(provider: .codex, pullRequest: pullRequest)
-          promptMenu(provider: .claude, pullRequest: pullRequest)
+          promptMenu(provider: .codex, pullRequest: row.pullRequest)
+          promptMenu(provider: .claude, pullRequest: row.pullRequest)
         }
       }
       .width(min: 145, ideal: 160)
@@ -655,9 +679,9 @@ struct GitHubReviewsView: View {
 
   /// One action for every visible pull request that no session works on yet,
   /// e.g. "Codex · Independent review" for the whole queue.
-  private var bulkLaunchMenu: some View {
+  private func bulkLaunchMenu(rows: [GitHubReviewTableRow]) -> some View {
     let unlinked = viewModel.bulkReviewCandidates(
-      GitHubReviewTableRow.withoutSessions(sortedReviewRows(inventories: reviewSessionInventories))
+      GitHubReviewTableRow.withoutSessions(rows)
         .map(\.pullRequest))
     return Menu {
       ForEach([SessionProviderKind.codex, .claude], id: \.self) { provider in
@@ -686,8 +710,7 @@ struct GitHubReviewsView: View {
 
   /// Re-review (others' PRs) or resolve comments (yours) in the sessions that exist.
   @ViewBuilder
-  private func followUpButton(_ kind: GitHubReviewBulkFollowUp.Kind) -> some View {
-    let rows = sortedReviewRows(inventories: reviewSessionInventories)
+  private func followUpButton(_ kind: GitHubReviewBulkFollowUp.Kind, rows: [GitHubReviewTableRow]) -> some View {
     let targets = viewModel.followUpTargets(rows, kind: kind)
     if !targets.isEmpty {
       Button {
@@ -765,12 +788,11 @@ struct GitHubReviewsView: View {
     return filtered.sorted(using: viewModel.tableSortOrder)
   }
 
-  private var reviewCountLabel: String {
+  private func reviewCountLabel(visible: Int) -> String {
     let total = viewModel.pullRequests.count
     guard !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       return "\(total) pull requests"
     }
-    let visible = sortedReviewRows(inventories: reviewSessionInventories).count
     return "\(visible) of \(total) pull requests"
   }
 

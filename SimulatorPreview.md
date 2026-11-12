@@ -293,6 +293,12 @@ host-side (`HotReloadConsoleTail`, kqueue + byte offsets) and
 `✅ Hot reload complete` → injected, `❌ Compilation failed` / `⚠️ Could not
 locate command` / type-size-changed → rebuild fallback.
 
+The initial Swift-source inventory runs on a cancellable background task, never
+on the UI thread. FSEvents starts first and buffers Swift paths until the
+inventory is ready. Stopping or switching projects invalidates late scan results.
+The inventory prunes dependency/build directories (including `node_modules`,
+`Pods` and `DerivedData`) before descending into them.
+
 Pipeline: `HotReloadSourceWatcher` (host-side FSEvents; existence-snapshot
 classifier so atomic-save renames aren't mistaken for structural changes) and
 the console events feed `HotReloadMonitor` (the pill's state machine; its

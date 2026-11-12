@@ -11,8 +11,19 @@ struct AgentHubCLI: AsyncParsableCommand {
       AgentHubMCPServerCommand.self,
       WorktreeCommand.self,
       PlanCommand.self,
+      ProcessGuardCommand.self,
     ]
   )
+}
+
+struct ProcessGuardCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(commandName: "process-guard", shouldDisplay: false)
+
+  @Option var parentPID: Int32
+
+  func run() async throws {
+    try await NodeProcessGuard.run(parentPID: parentPID)
+  }
 }
 
 struct PlanCommand: AsyncParsableCommand {

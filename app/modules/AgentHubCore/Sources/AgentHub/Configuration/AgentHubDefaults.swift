@@ -20,6 +20,7 @@ import Foundation
 /// UserDefaults.standard.set(true, forKey: AgentHubDefaults.showLastMessage)
 /// ```
 public enum AgentHubDefaults {
+  public static let chatEnabled = "com.agenthub.chatEnabled"
 
   /// Prefix for all AgentHub UserDefaults keys
   public static let keyPrefix = "com.agenthub."

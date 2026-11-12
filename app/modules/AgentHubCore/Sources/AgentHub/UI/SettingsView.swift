@@ -22,6 +22,7 @@ public struct SettingsView: View {
   @State private var cliEnvironmentVariables = CLIEnvironmentOverrides.variables
   @State private var githubPromptLibrary = GitHubPromptLibrary.shared
 
+  @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
   @AppStorage(AgentHubDefaults.smartModeEnabled)
   private var smartModeEnabled: Bool = false
 
@@ -238,6 +239,13 @@ public struct SettingsView: View {
 
   private var generalSettingsForm: some View {
     Form {
+      Section("Sessions") {
+        settingsToggle(
+          title: "Enable Chat",
+          description: "Show Chat alongside Terminal. When off, sessions use Terminal instead.",
+          isOn: $chatEnabled
+        )
+      }
       Section("Notifications") {
         settingsToggle(
           title: "Notification sounds",
