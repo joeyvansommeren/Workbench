@@ -586,7 +586,10 @@ struct AgentWorkflowDashboardViewModelTests {
     }
 
     await viewModel.refreshDetectedWorkflows()
-    try await Task.sleep(for: .milliseconds(30))
+    for _ in 0..<200 {
+      if viewModel.detectedBranches.first?.automatedReview?.phase == .failed { break }
+      try await Task.sleep(for: .milliseconds(10))
+    }
 
     let failedBranch = try #require(viewModel.detectedBranches.first)
     #expect(failedBranch.automatedReview?.phase == .failed)
