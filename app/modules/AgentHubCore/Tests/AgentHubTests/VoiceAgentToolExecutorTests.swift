@@ -19,6 +19,8 @@ private final class MockVoiceSessionManager: VoiceSessionManaging {
   var activeTerminalResult = false
   var calls: [String] = []
   private(set) var shownPrompts: [String] = []
+  private(set) var approvalDecisions: [ApprovalDecision] = []
+  var approvalOutcome: ApprovalResponseOutcome = .sent
   private(set) var launched: [(WorktreeBranch, String?)] = []
 
   init(providerKind: SessionProviderKind) {
@@ -40,6 +42,15 @@ private final class MockVoiceSessionManager: VoiceSessionManaging {
 
   func focusTerminal(forKey key: String) {
     calls.append("focus")
+  }
+
+  func respondToApproval(
+    sessionId: String,
+    decision: ApprovalDecision,
+    terminalKey: String?
+  ) -> ApprovalResponseOutcome {
+    approvalDecisions.append(decision)
+    return approvalOutcome
   }
 
   func voiceStartNewSessionInHub(
@@ -246,7 +257,7 @@ struct VoiceAgentToolExecutorTests {
   }
 
   @Test
-  func approvalResponsesUseEstablishedTerminalChoices() {
+  func approvalResponsesGoThroughTheAppResponder() {
     let (executor, claude, _) = makeExecutor()
     claude.voiceSessions = [session(id: "s1")]
     claude.monitorStates["s1"] = SessionMonitorState(
@@ -259,10 +270,40 @@ struct VoiceAgentToolExecutorTests {
       )
     )
 
-    _ = executor.respondToApproval(sessionId: "s1", approve: true)
-    _ = executor.respondToApproval(sessionId: "s1", approve: false)
+    let approved = executor.respondToApproval(sessionId: "s1", approve: true)
+    let denied = executor.respondToApproval(sessionId: "s1", approve: false)
 
-    #expect(claude.shownPrompts == ["1", "3"])
+    // Allow once, and deny is Escape (the responder's .deny), never "3".
+    #expect(claude.approvalDecisions == [.approveOnce, .deny])
+    #expect(claude.shownPrompts.isEmpty)
+    #expect(approved.status == "accepted")
+    #expect(denied.decision == "deny")
+  }
+
+  @Test
+  func approvalThatFailsClosedTellsTheUserToAnswerInTheTerminal() {
+    let (executor, claude, _) = makeExecutor()
+    claude.voiceSessions = [session(id: "s1")]
+    claude.monitorStates["s1"] = SessionMonitorState(
+      status: .awaitingApproval(tool: "Bash"),
+      pendingToolUse: PendingToolUse(toolName: "Bash", toolUseId: "tool-1", timestamp: Date())
+    )
+    claude.approvalOutcome = .answerInTerminal(.menuNotVisible)
+
+    let result = executor.respondToApproval(sessionId: "s1", approve: true)
+
+    #expect(result.status == "answer_in_terminal")
+  }
+
+  @Test
+  func approvalWithoutPendingToolIsRejectedWithoutKeystrokes() {
+    let (executor, claude, _) = makeExecutor()
+    claude.voiceSessions = [session(id: "s1")]
+
+    let result = executor.respondToApproval(sessionId: "s1", approve: true)
+
+    #expect(result.status == "rejected")
+    #expect(claude.approvalDecisions.isEmpty)
   }
 
   @Test

@@ -304,6 +304,25 @@ struct SessionTreeProjectionTests {
   func noPillWhilePending() {
     #expect(!pillNode(provider: .claude, pendingToolName: "Bash", isPending: true).showsApprovePill)
   }
+
+  @Test("Answer pill when the agent asks a question, for Claude and Codex")
+  func answerPillForInputQuestions() {
+    let claude = pillNode(provider: .claude, pendingToolName: "AskUserQuestion")
+    #expect(claude.showsAnswerPill)
+    #expect(!claude.showsApprovePill)
+    // Codex has no pending tool use; the status alone carries the question.
+    let codex = SessionNode(
+      id: "c1", session: CLISession(id: "c1", projectPath: "/tmp/Repo"), providerKind: .codex,
+      isPending: false, status: .awaitingApproval(tool: "request_user_input"))
+    #expect(codex.showsAnswerPill)
+  }
+
+  @Test("No Answer pill for approvals, other states, or a session still starting")
+  func noAnswerPill() {
+    #expect(!pillNode(provider: .claude, pendingToolName: "Bash").showsAnswerPill)
+    #expect(!pillNode(provider: .claude, pendingToolName: nil).showsAnswerPill)
+    #expect(!pillNode(provider: .claude, pendingToolName: "AskUserQuestion", isPending: true).showsAnswerPill)
+  }
 }
 
 // MARK: - Helpers

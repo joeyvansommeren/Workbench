@@ -51,6 +51,11 @@ public final class CLISessionsViewModel {
   private let cliAvailabilityService: any CLIAvailabilityChecking
   private let terminalSurfaceFactory: any EmbeddedTerminalSurfaceFactory
   private let terminalBackend: EmbeddedTerminalBackend
+  /// Answers Claude's permission menu by keystroke. Replaceable in tests.
+  @ObservationIgnored public var approvalResponder: any ApprovalResponding =
+    TerminalKeystrokeApprovalResponder()
+  /// Progress after an approval click, shared by the banner and the tree pill.
+  public let approvalTracker = ApprovalResponseTracker()
   @ObservationIgnored private var terminalWorkspaceSaveTasks: [String: Task<Void, Never>] = [:]
   @ObservationIgnored private var workspaceStatePersistTask: Task<Void, Never>?
   /// Guards `refresh()` so overlapping callers never run `refreshSessions`
@@ -891,6 +896,62 @@ public final class CLISessionsViewModel {
     else { return false }
     markSessionFocused(key)
     return true
+  }
+
+  /// Answers the session's pending permission prompt from the app (banner,
+  /// tree pill, chat, voice). Fails closed: `.answerInTerminal` when the app
+  /// can't confirm Claude's menu is waiting, and at most one key per request
+  /// (`.alreadyAnswered` after that). `terminalKey` defaults to the id.
+  @discardableResult
+  public func respondToApproval(
+    sessionId: String,
+    decision: ApprovalDecision,
+    terminalKey: String? = nil
+  ) -> ApprovalResponseOutcome {
+    let pending = monitorStates[sessionId]?.pendingToolUse
+    MainThreadStallMonitor.breadcrumb("approval: \(decision.breadcrumbVerb) \(pending?.toolName ?? "?")")
+    let key = terminalKey ?? sessionId
+    let request = pending.map(ApprovalRequestKey.init(pending:))
+    let outcome: ApprovalResponseOutcome
+    if let request, approvalTracker.hasAnswered(sessionId: sessionId, request: request) {
+      outcome = .answerInTerminal(.alreadyAnswered)
+    } else {
+      outcome = approvalResponder.respond(
+        to: ApprovalRequestContext(sessionId: sessionId, providerKind: providerKind, pendingToolUse: pending),
+        decision: decision,
+        terminal: activeTerminals[key].map { SurfaceApprovalKeystrokeTarget(surface: $0) }
+      )
+    }
+    if let request {
+      approvalTracker.record(
+        outcome, decision: decision, sessionId: sessionId, request: request,
+        menuStillVisible: { [weak self] in self?.agentPermissionMenuVisible(forKey: key) })
+    }
+    if outcome == .sent {
+      markSessionFocused(sessionId)
+    } else {
+      AppLogger.session.notice(
+        "Approval for \(sessionId, privacy: .public) left to the terminal: \(String(describing: outcome), privacy: .public)")
+    }
+    return outcome
+  }
+
+  /// Whether the agent tab still shows Claude's permission menu; nil when the
+  /// backend or the scroll position doesn't allow reading it.
+  private func agentPermissionMenuVisible(forKey key: String) -> Bool? {
+    guard let terminal = activeTerminals[key], terminal.canReadAgentScreen,
+      let tail = terminal.agentScreenTail(maxRows: ClaudePermissionMenu.tailRows)
+    else { return nil }
+    return ClaudePermissionMenu.isVisible(in: tail)
+  }
+
+  /// Routes ⌘↩ in the session's terminal to `handler` while a banner shows;
+  /// nil restores the newline/submit shortcut.
+  public func setApprovalShortcutHandler(forKey key: String, _ handler: (() -> Void)?) {
+    // Through a local: a write via the dictionary subscript would count as a
+    // change to `activeTerminals` and redraw every observer.
+    guard let terminal = activeTerminals[key] else { return }
+    terminal.approvalShortcutHandler = handler
   }
 
   /// Delivers an orchestration handoff to a running session, resuming its embedded terminal when needed.

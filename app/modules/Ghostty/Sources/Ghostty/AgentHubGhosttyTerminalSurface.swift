@@ -67,6 +67,7 @@ public final class AgentHubGhosttyTerminalSurface: NSView, EmbeddedTerminalSurfa
 
   public var onUserInteraction: (() -> Void)?
   public var onRequestShowEditor: (() -> Void)?
+  public var approvalShortcutHandler: (() -> Void)?
   public var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)?
   public var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)?
   public var onCLILaunchFailed: (() -> Void)?
@@ -338,6 +339,14 @@ public final class AgentHubGhosttyTerminalSurface: NSView, EmbeddedTerminalSurfa
     hasPrefilledInitialInputText = true
     focusProtectedAgentTab()
     protectedAgentController?.sendText(text)
+  }
+
+  /// Escape to the protected agent tab only: denies Claude's permission menu.
+  /// `sendText` is the IME path and drops control bytes, so the ESC goes
+  /// through a `text:` binding action, which writes it straight to the pty.
+  public func sendEscapeToAgentSession() -> Bool {
+    guard let controller = protectedAgentController else { return false }
+    return controller.performBindingAction("text:\\x1b")
   }
 
   public func syncAppearance(isDark: Bool, fontSize: CGFloat, fontFamily: String, theme: RuntimeTheme?) {
@@ -1378,19 +1387,27 @@ public final class AgentHubGhosttyTerminalSurface: NSView, EmbeddedTerminalSurfa
       return true
     }
 
+    let shortcut = NewlineShortcut(
+      rawValue: UserDefaults.standard.integer(forKey: AgentHubDefaults.terminalNewlineShortcut)
+    ) ?? .system
+    // While an approval banner shows, ⌘↩ approves from any tab; the responder
+    // still types into the agent tab only.
+    let route = ApprovalShortcutRouting.route(
+      shortcut: shortcut,
+      isReturn: event.keyCode == ApprovalShortcutRouting.returnKeyCode,
+      flags: flags,
+      isApprovalBannerVisible: approvalShortcutHandler != nil
+    )
+    guard case .terminal(let action) = route else {
+      approvalShortcutHandler?()
+      onUserInteraction?()
+      return true
+    }
+
     guard isProtectedAgentTab(focusedTab) else {
       onUserInteraction?()
       return false
     }
-
-    let shortcut = NewlineShortcut(
-      rawValue: UserDefaults.standard.integer(forKey: AgentHubDefaults.terminalNewlineShortcut)
-    ) ?? .system
-    let action = TerminalSubmitInterception.keyAction(
-      shortcut: shortcut,
-      isReturn: event.keyCode == 36,
-      flags: flags
-    )
     let queuedContextPrompt: String?
     switch action {
     case .submit, .systemSubmit:

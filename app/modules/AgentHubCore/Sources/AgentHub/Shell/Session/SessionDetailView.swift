@@ -546,6 +546,12 @@ private struct SessionDetailContent: View {
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color.wbSurfaceTerminal)
+    .overlay {
+      // Over the terminal, never beside it: the PTY keeps its size (P7).
+      if effectiveContentMode == .terminal, !item.isPending {
+        SessionApprovalBannerOverlay(sessionId: session.id, terminalKey: terminalKey, viewModel: viewModel)
+      }
+    }
   }
 
   // MARK: - Side panel
