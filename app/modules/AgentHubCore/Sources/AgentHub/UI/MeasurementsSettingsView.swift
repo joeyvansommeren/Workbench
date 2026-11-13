@@ -201,7 +201,7 @@ private struct MeasurementsUnscopedRow: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(count == 1 ? "1 measurement with no project" : "\(count) measurements with no project")
           .font(.body)
-        Text("These were recorded before AgentHub could resolve their project, so no panel can show them.")
+        Text("These were recorded before Workbench could resolve their project, so no panel can show them.")
           .font(.caption)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)

@@ -23,18 +23,24 @@ fi
 
 libgit2="${brew_prefix}/opt/libgit2/lib/libgit2.1.9.dylib"
 libssh2="${brew_prefix}/opt/libssh2/lib/libssh2.1.dylib"
-libssl="${brew_prefix}/opt/openssl@3/lib/libssl.3.dylib"
-libcrypto="${brew_prefix}/opt/openssl@3/lib/libcrypto.3.dylib"
+# Use the OpenSSL that libssh2 links against. Homebrew moved from openssl@3 to
+# openssl@4; a hard-coded version leaves a /opt/homebrew path in the bundle that
+# the signed app is not allowed to load.
+libssl="$(otool -L "${libssh2}" 2>/dev/null | awk '$1 ~ /libssl\./ { print $1; exit }')"
+libcrypto="$(otool -L "${libssh2}" 2>/dev/null | awk '$1 ~ /libcrypto\./ { print $1; exit }')"
 
 for lib in "${libgit2}" "${libssh2}" "${libssl}" "${libcrypto}"; do
   if [ ! -f "${lib}" ]; then
     echo "error: required libgit2 runtime dependency missing: ${lib}"
-    echo "Install dependencies with: brew install libgit2 libssh2 openssl@3"
+    echo "Install dependencies with: brew install libgit2 libssh2 openssl"
     exit 1
   fi
 done
 
 libllhttp="$(otool -L "${libgit2}" | awk '$1 ~ /libllhttp/ { print $1; exit }')"
+libssl_name="$(basename "${libssl}")"
+libcrypto_name="$(basename "${libcrypto}")"
+
 if [ -n "${libllhttp}" ]; then
   if [ ! -f "${libllhttp}" ]; then
     libllhttp_candidate="${brew_prefix}/opt/llhttp/lib/$(basename "${libllhttp}")"
@@ -62,8 +68,8 @@ copy_lib() {
 
 copy_lib "${libgit2}" "libgit2.1.9.dylib"
 copy_lib "${libssh2}" "libssh2.1.dylib"
-copy_lib "${libssl}" "libssl.3.dylib"
-copy_lib "${libcrypto}" "libcrypto.3.dylib"
+copy_lib "${libssl}" "${libssl_name}"
+copy_lib "${libcrypto}" "${libcrypto_name}"
 if [ -n "${libllhttp}" ]; then
   copy_lib "${libllhttp}" "${libllhttp_name}"
 fi
@@ -89,8 +95,8 @@ rewrite_dependency() {
 
 install_name_tool -id "@rpath/libgit2.1.9.dylib" "${frameworks_dir}/libgit2.1.9.dylib"
 install_name_tool -id "@rpath/libssh2.1.dylib" "${frameworks_dir}/libssh2.1.dylib"
-install_name_tool -id "@rpath/libssl.3.dylib" "${frameworks_dir}/libssl.3.dylib"
-install_name_tool -id "@rpath/libcrypto.3.dylib" "${frameworks_dir}/libcrypto.3.dylib"
+install_name_tool -id "@rpath/${libssl_name}" "${frameworks_dir}/${libssl_name}"
+install_name_tool -id "@rpath/${libcrypto_name}" "${frameworks_dir}/${libcrypto_name}"
 if [ -n "${libllhttp}" ]; then
   install_name_tool -id "@rpath/${libllhttp_name}" "${frameworks_dir}/${libllhttp_name}"
 fi
@@ -99,9 +105,11 @@ if [ -n "${libllhttp}" ]; then
   rewrite_dependency "${frameworks_dir}/libgit2.1.9.dylib" "libllhttp" "@rpath/${libllhttp_name}"
 fi
 rewrite_dependency "${frameworks_dir}/libgit2.1.9.dylib" "libssh2" "@rpath/libssh2.1.dylib"
-rewrite_dependency "${frameworks_dir}/libssh2.1.dylib" "libssl" "@rpath/libssl.3.dylib"
-rewrite_dependency "${frameworks_dir}/libssh2.1.dylib" "libcrypto" "@rpath/libcrypto.3.dylib"
-rewrite_dependency "${frameworks_dir}/libssl.3.dylib" "libcrypto" "@rpath/libcrypto.3.dylib"
+rewrite_dependency "${frameworks_dir}/libgit2.1.9.dylib" "libssl" "@rpath/${libssl_name}"
+rewrite_dependency "${frameworks_dir}/libgit2.1.9.dylib" "libcrypto" "@rpath/${libcrypto_name}"
+rewrite_dependency "${frameworks_dir}/libssh2.1.dylib" "libssl" "@rpath/${libssl_name}"
+rewrite_dependency "${frameworks_dir}/libssh2.1.dylib" "libcrypto" "@rpath/${libcrypto_name}"
+rewrite_dependency "${frameworks_dir}/${libssl_name}" "libcrypto" "@rpath/${libcrypto_name}"
 
 macos_dir="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/MacOS"
 for binary in "${TARGET_BUILD_DIR}/${EXECUTABLE_PATH}" "${macos_dir}/${PRODUCT_NAME}.debug.dylib"; do
@@ -118,8 +126,8 @@ if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ]; then
   fi
 
   for lib in \
-    "${frameworks_dir}/libcrypto.3.dylib" \
-    "${frameworks_dir}/libssl.3.dylib" \
+    "${frameworks_dir}/${libcrypto_name}" \
+    "${frameworks_dir}/${libssl_name}" \
     "${frameworks_dir}/${libllhttp_name:-libllhttp.dylib}" \
     "${frameworks_dir}/libssh2.1.dylib" \
     "${frameworks_dir}/libgit2.1.9.dylib"; do

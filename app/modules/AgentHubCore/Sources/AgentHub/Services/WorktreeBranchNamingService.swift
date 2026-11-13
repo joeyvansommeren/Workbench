@@ -138,7 +138,7 @@ public actor ClaudeWorktreeBranchNamingService: WorktreeBranchNamingServiceProto
         let fallback = Self.deterministicFallback(for: request, settings: settings, uuid: uuidProvider())
         await emitProgress(
           .completed(
-            message: "Branch naming reached the 15-second limit, so AgentHub used a fallback name",
+            message: "Branch naming reached the 15-second limit, so Workbench used a fallback name",
             source: fallback.source,
             branchNames: Self.resolvedBranchNames(from: fallback)
           ),
@@ -179,7 +179,7 @@ public actor ClaudeWorktreeBranchNamingService: WorktreeBranchNamingServiceProto
       let fallback = Self.deterministicFallback(for: request, settings: settings, uuid: uuidProvider())
       await emitProgress(
         .completed(
-          message: "Branch naming returned an unusable stem, so AgentHub used a fallback name",
+          message: "Branch naming returned an unusable stem, so Workbench used a fallback name",
           source: fallback.source,
           branchNames: Self.resolvedBranchNames(from: fallback)
         ),
@@ -303,7 +303,7 @@ private extension ClaudeWorktreeBranchNamingService {
     let fallback = Self.deterministicFallback(for: request, settings: settings, uuid: uuidProvider())
     await emitProgress(
       .completed(
-        message: "Branch naming was unavailable, so AgentHub used a fallback name",
+        message: "Branch naming was unavailable, so Workbench used a fallback name",
         source: fallback.source,
         branchNames: Self.resolvedBranchNames(from: fallback)
       ),

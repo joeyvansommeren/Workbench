@@ -772,7 +772,7 @@ public final class MultiSessionLaunchViewModel {
           AppLogger.intelligence.error(
             "\(Self.aiWorktreeLogPrefix, privacy: .public) Worktree naming completed without usable branch names"
           )
-          applyBranchNamingProgress(.failed(message: "AgentHub could not resolve a usable branch name"))
+          applyBranchNamingProgress(.failed(message: "Workbench could not resolve a usable branch name"))
           launchError = "Failed to resolve worktree branch names."
           isLaunching = false
           return
@@ -1055,7 +1055,7 @@ public final class MultiSessionLaunchViewModel {
     )
 
     guard let branchName = namingResult.single else {
-      applyBranchNamingProgress(.failed(message: "AgentHub could not resolve a fallback branch name"))
+      applyBranchNamingProgress(.failed(message: "Workbench could not resolve a fallback branch name"))
       launchError = "Failed to resolve a worktree branch name."
       smartPhase = .planReady
       isLaunching = false

@@ -40,7 +40,7 @@ public struct WorktreeSettingsView: View {
           TextField("Optional prefix, e.g. feature/", text: $worktreeBranchPrefix)
             .textFieldStyle(.roundedBorder)
 
-          Text("AgentHub uses Claude Haiku to name launcher-created worktree branches, then prepends this prefix when set.")
+          Text("Workbench uses Claude Haiku to name launcher-created worktree branches, then prepends this prefix when set.")
             .font(.caption)
             .foregroundStyle(.secondary)
 
@@ -57,7 +57,7 @@ public struct WorktreeSettingsView: View {
         )
       } else {
         Section("Worktrees") {
-          Text("AgentHub provider not found")
+          Text("Workbench provider not found")
             .font(.caption)
             .foregroundStyle(.secondary)
         }

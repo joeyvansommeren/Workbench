@@ -160,10 +160,6 @@ struct AgentHubApp: App {
     }
     .windowStyle(.hiddenTitleBar)
     .commands {
-      CommandGroup(after: .appInfo) {
-        CheckForUpdatesView(updateController: appDelegate.updateController)
-      }
-
       CommandMenu("Navigate") {
         Button("Workflows") {
           AgentHubAppCommand.selectWorkspace(.workflows)

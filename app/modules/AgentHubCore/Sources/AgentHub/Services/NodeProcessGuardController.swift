@@ -79,7 +79,7 @@ public final class NodeProcessGuardController: NodeProcessGuardControlling {
 
   private static func showNotice(_ message: String) {
     let alert = NSAlert()
-    alert.messageText = "AgentHub process protection"
+    alert.messageText = "Workbench process protection"
     alert.informativeText = message
     alert.alertStyle = .warning
     alert.addButton(withTitle: "OK")

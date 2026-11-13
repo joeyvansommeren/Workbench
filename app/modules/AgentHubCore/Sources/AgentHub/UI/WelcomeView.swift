@@ -57,7 +57,7 @@ public struct WelcomeView: View {
       appIconBadge
 
       VStack(spacing: 6) {
-        Text("Welcome to AgentHub")
+        Text("Welcome to Workbench")
           .font(.system(size: 22, weight: .semibold, design: .monospaced))
           .foregroundColor(.primary)
 
