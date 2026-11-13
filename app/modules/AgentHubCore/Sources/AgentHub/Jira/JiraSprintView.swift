@@ -220,9 +220,9 @@ private struct JiraSprintErrorView: View {
         if isCLIMissing {
           Button("Copy install command") {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString("brew install acli", forType: .string)
+            NSPasteboard.general.setString(JiraCLIProcessRunner.installCommand, forType: .string)
           }
-          .help("Copies: brew install acli")
+          .help("Copies: \(JiraCLIProcessRunner.installCommand)")
         } else if !viewModel.isConnecting {
           Button("Connect Jira") {
             Task { await viewModel.connect() }
