@@ -9,7 +9,7 @@ public struct AuxiliaryShellTerminalView: NSViewRepresentable {
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.runtimeTheme) private var runtimeTheme
   @AppStorage(AgentHubDefaults.terminalFontSize) private var terminalFontSize: Double = 12
-  @AppStorage(AgentHubDefaults.terminalFontFamily) private var terminalFontFamily: String = "SF Mono"
+  @AppStorage(AgentHubDefaults.terminalFontFamily) private var terminalFontFamily: String = "Geist Mono"
 
   let terminalKey: String
   let projectPath: String

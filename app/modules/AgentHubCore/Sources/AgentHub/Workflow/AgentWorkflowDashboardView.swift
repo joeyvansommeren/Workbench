@@ -39,13 +39,15 @@ public struct AgentWorkflowDashboardView: View {
   public var body: some View {
     NavigationSplitView {
       workflowSidebar
-        .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
+        .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 360)
     } content: {
       branchColumn
-        .navigationSplitViewColumnWidth(min: 400, ideal: 500, max: 640)
+        .navigationSplitViewColumnWidth(min: 300, ideal: 500, max: 640)
     } detail: {
       sessionColumn
+        .navigationSplitViewColumnWidth(min: 340, ideal: 420)
     }
+    .toolbar(removing: .sidebarToggle)
     .navigationSplitViewStyle(.balanced)
     .tint(Color.brandPrimary(from: runtimeTheme))
     .background(workspaceBackground.ignoresSafeArea())
@@ -82,14 +84,8 @@ public struct AgentWorkflowDashboardView: View {
   private var sidebarHeader: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
       HStack {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("AGENT WORKFLOWS")
-            .font(.geist(size: 10, weight: .semibold))
-            .foregroundStyle(.secondary)
-          Text("Detected automatically from local sessions")
-            .font(.secondaryCaption)
-            .foregroundStyle(.secondary)
-        }
+        Text("Workflows")
+          .font(.heading)
         Spacer()
         Button {
           isCreatingWorkflow.toggle()
@@ -115,15 +111,14 @@ public struct AgentWorkflowDashboardView: View {
         .accessibilityLabel("Refresh pull request states")
       }
 
-      Picker("Workflow state", selection: scopeBinding) {
-        Text("Active \(viewModel.activeWorkflowCount)")
-          .tag(AgentWorkflowListScope.active)
-        Text("Completed \(viewModel.completedWorkflowCount)")
-          .tag(AgentWorkflowListScope.completed)
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .accessibilityLabel("Workflow state")
+      CompactPillSegmentedControl(
+        selection: scopeBinding,
+        items: [
+          .init(value: AgentWorkflowListScope.active, title: "Active \(viewModel.activeWorkflowCount)"),
+          .init(value: AgentWorkflowListScope.completed, title: "Completed \(viewModel.completedWorkflowCount)"),
+        ],
+        accessibilityLabel: "Workflow state"
+      )
 
       sessionAnalysisControls
 
@@ -247,14 +242,8 @@ public struct AgentWorkflowDashboardView: View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
         HStack {
-          VStack(alignment: .leading, spacing: 2) {
-            Text("SESSION LIBRARY")
-              .font(.geist(size: 10, weight: .semibold))
-              .foregroundStyle(.secondary)
-            Text("Drag a session onto a workflow above")
-              .font(.secondaryCaption)
-              .foregroundStyle(.secondary)
-          }
+          Text("Session Library")
+            .font(.heading)
           Spacer()
           Text("\(filteredSessionLibraryItems.count)")
             .font(.secondaryCaption)
@@ -572,7 +561,7 @@ private struct DetectedTicketWorkflowHeader: View {
     HStack(alignment: .top, spacing: DesignTokens.Spacing.md) {
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
         Text(workflow.ticketKey ?? "Unassigned sessions")
-          .font(.jetBrainsMono(size: 14, weight: .semibold))
+          .font(.mono(size: 14, weight: .semibold))
         if let summary = workflow.summary {
           Text(summary)
             .font(.secondaryDefault)
@@ -830,6 +819,8 @@ private struct DetectedBranchSessionDetail: View {
     return "Start an independent cross-model review of the implementation agent's current work."
   }
 
+  @State private var confirmCloseAll = false
+
   private var detailHeader: some View {
     HStack(spacing: DesignTokens.Spacing.md) {
       VStack(alignment: .leading, spacing: 2) {
@@ -839,46 +830,20 @@ private struct DetectedBranchSessionDetail: View {
         )
         .font(.primaryDefault)
         .lineLimit(1)
+        .layoutPriority(1)
         Text(branch.repositoryPath)
-          .font(.jetBrainsMono(size: 10))
+          .font(.mono(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .truncationMode(.middle)
+          .layoutPriority(1)
       }
       Spacer()
-      Button("Close all sessions", systemImage: "xmark.circle", action: onCloseAllSessions)
-        .controlSize(.small)
-        .disabled(workflowSessionCount == 0)
-        .help("Close every implementation and review session in this workflow")
-      if let comparisonRequest, let onCompareSessions {
-        Button("Side by side", systemImage: "rectangle.split.2x1") {
-          onCompareSessions(comparisonRequest)
-        }
-        .controlSize(.small)
-        .help("Open the implementation and review sessions next to each other")
-      }
       if let automation = branch.automatedReview {
         Label(automation.phase.displayName, systemImage: automation.phase.systemImage)
           .font(.secondaryCaption)
           .foregroundStyle(.secondary)
-        if automation.phase == .failed {
-          Button("Retry reviewer", action: onRetryReview)
-            .controlSize(.small)
-        }
-      }
-      if branch.manualWorkflowID != nil, !branch.isCompleted, let onStartSession {
-        Menu {
-          Button("Codex") {
-            onStartSession(workflowID, .codex, nil)
-          }
-          Button("Claude") {
-            onStartSession(workflowID, .claude, nil)
-          }
-        } label: {
-          Label("Start session", systemImage: "plus")
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+          .lineLimit(1)
       }
       if let pullRequest = branch.pullRequest, let url = URL(string: pullRequest.url) {
         Link(destination: url) {
@@ -886,6 +851,44 @@ private struct DetectedBranchSessionDetail: View {
         }
         .buttonStyle(.plain)
         .font(.secondarySmall)
+        .lineLimit(1)
+      }
+      Menu {
+        if let comparisonRequest, let onCompareSessions {
+          Button("Side by side", systemImage: "rectangle.split.2x1") {
+            onCompareSessions(comparisonRequest)
+          }
+        }
+        if branch.automatedReview?.phase == .failed {
+          Button("Retry reviewer", systemImage: "arrow.counterclockwise", action: onRetryReview)
+        }
+        if branch.manualWorkflowID != nil, !branch.isCompleted, let onStartSession {
+          Section {
+            Button("Start Codex") { onStartSession(workflowID, .codex, nil) }
+            Button("Start Claude") { onStartSession(workflowID, .claude, nil) }
+          }
+        }
+        Section {
+          Button("Close all sessions", systemImage: "xmark.circle", role: .destructive) {
+            confirmCloseAll = true
+          }
+          .disabled(workflowSessionCount == 0)
+        }
+      } label: {
+        Image(systemName: "ellipsis.circle")
+      }
+      .menuStyle(.borderlessButton)
+      .fixedSize()
+      .help("Workflow actions")
+      .accessibilityLabel("Workflow actions")
+      .confirmationDialog(
+        "Close all sessions?",
+        isPresented: $confirmCloseAll,
+        titleVisibility: .visible
+      ) {
+        Button("Close all", role: .destructive, action: onCloseAllSessions)
+      } message: {
+        Text("This closes every implementation and review session in this workflow.")
       }
     }
     .padding(.horizontal, DesignTokens.Spacing.md)
@@ -911,7 +914,7 @@ private struct RoleSessionSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
       Label(title, systemImage: symbol)
-        .font(.primaryDefault)
+        .font(.heading)
 
       if sessions.isEmpty {
         HStack(alignment: .firstTextBaseline, spacing: DesignTokens.Spacing.md) {
@@ -962,40 +965,41 @@ private struct DetectedAgentSessionRow: View {
         HStack(spacing: DesignTokens.Spacing.sm) {
           Text(assignment.provider.rawValue)
             .font(.secondarySmall)
+            .lineLimit(1)
+            .fixedSize()
           Text(displayName)
-            .font(.jetBrainsMono(size: 10))
+            .font(.mono(size: 10))
             .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
           if assignment.session.isActive {
             Label("Active", systemImage: "circle.fill")
               .font(.secondaryCaption)
               .foregroundStyle(.green)
+              .lineLimit(1)
+              .fixedSize()
           } else if isPrimary {
             Text("Latest")
               .font(.secondaryCaption)
               .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .fixedSize()
           }
         }
 
         if let message = assignment.session.firstMessage, !message.isEmpty {
           Text(message)
             .font(.secondaryDefault)
-            .lineLimit(3)
+            .lineLimit(2)
         }
 
         Text("\(assignment.roleReason) · \(assignment.roleConfidence.label) confidence")
           .font(.secondaryCaption)
           .foregroundStyle(.secondary)
+          .lineLimit(1)
       }
 
       Spacer(minLength: 0)
-
-      if let onOpenSession {
-        Button("Open terminal") {
-          onOpenSession(assignment)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-      }
 
       Menu {
         if let onOpenSession {
@@ -1018,6 +1022,7 @@ private struct DetectedAgentSessionRow: View {
       .menuStyle(.borderlessButton)
       .fixedSize()
       .help("Session actions")
+      .accessibilityLabel("Session actions")
     }
     .padding(.vertical, DesignTokens.Spacing.xs)
     .accessibilityElement(children: .contain)
@@ -1059,7 +1064,7 @@ private struct CreateManualWorkflowSheet: View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
         Label("New Workflow", systemImage: "rectangle.stack.badge.plus")
-          .font(.headline)
+          .font(.geist(size: 13, weight: .bold))
         Text("Create the workflow and start its implementation agent immediately.")
           .font(.secondarySmall)
           .foregroundStyle(.secondary)
@@ -1091,13 +1096,14 @@ private struct CreateManualWorkflowSheet: View {
 
         GridRow {
           fieldLabel("Implementer")
-          Picker("Implementation agent", selection: $provider) {
-            Text("Codex").tag(SessionProviderKind.codex)
-            Text("Claude").tag(SessionProviderKind.claude)
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-          .frame(maxWidth: 240)
+          CompactPillSegmentedControl(
+            selection: $provider,
+            items: [
+              .init(value: SessionProviderKind.codex, title: "Codex"),
+              .init(value: SessionProviderKind.claude, title: "Claude"),
+            ],
+            accessibilityLabel: "Implementation agent"
+          )
         }
       }
 

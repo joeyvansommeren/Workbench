@@ -27,21 +27,21 @@ public struct WorktreeSettingsView: View {
         }
 
         Text(selectedDisplayMode.settingsDescription)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
       }
 
       Section("Generated Branches") {
         VStack(alignment: .leading, spacing: 8) {
           Text("Branch prefix")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
 
           TextField("Optional prefix, e.g. feature/", text: $worktreeBranchPrefix)
             .textFieldStyle(.roundedBorder)
 
           Text("Workbench uses Claude Haiku to name launcher-created worktree branches, then prepends this prefix when set.")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
 
           previewBox
@@ -58,7 +58,7 @@ public struct WorktreeSettingsView: View {
       } else {
         Section("Worktrees") {
           Text("Workbench provider not found")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
         }
       }
@@ -82,16 +82,16 @@ public struct WorktreeSettingsView: View {
 
     return VStack(alignment: .leading, spacing: 4) {
       Text("Preview")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
 
       Text(settings.previewBranchName())
-        .font(.system(.subheadline, design: .monospaced))
+        .font(.mono(size: 11))
         .foregroundStyle(.primary)
 
       if !settings.normalizedPrefix.isEmpty {
         Text("Normalized prefix: \(settings.normalizedPrefix)")
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
       }
     }

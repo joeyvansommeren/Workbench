@@ -78,7 +78,7 @@ struct DiffCommentRow: View {
 
         // Line content (code preview)
         Text(comment.lineContent)
-          .font(.system(size: 11, design: .monospaced))
+          .font(.mono(size: 11))
           .foregroundColor(.secondary)
           .lineLimit(comment.endLineNumber != nil ? 3 : 1)
           .truncationMode(.middle)
@@ -96,7 +96,7 @@ struct DiffCommentRow: View {
             .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
         } else {
           Text(comment.text)
-            .font(.system(size: 12))
+            .font(.geist(size: 12))
             .foregroundColor(.primary.opacity(0.92))
             .lineLimit(3)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,12 +119,12 @@ struct DiffCommentRow: View {
     HStack(spacing: 6) {
       // Line number or range
       Text(comment.lineLabel)
-        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+        .font(.mono(size: 11, weight: .semibold))
         .foregroundColor(.primary)
 
       // Side indicator pill
       Text(sideLabel)
-        .font(.system(size: 9, weight: .semibold))
+        .font(.geist(size: 9, weight: .semibold))
         .foregroundColor(sideColor)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
@@ -190,7 +190,7 @@ struct DiffCommentRow: View {
   private var editingView: some View {
     VStack(alignment: .leading, spacing: 6) {
       TextEditor(text: $editText)
-        .font(.system(size: 12))
+        .font(.geist(size: 12))
         .scrollContentBackground(.hidden)
         .padding(4)
         .background(Color.primary.opacity(0.05))
@@ -211,7 +211,7 @@ struct DiffCommentRow: View {
           editText = ""
         }
         .buttonStyle(.plain)
-        .font(.system(size: 11))
+        .font(.geist(size: 11))
         .foregroundColor(.secondary)
 
         Button("Save") {
@@ -222,7 +222,7 @@ struct DiffCommentRow: View {
           editText = ""
         }
         .buttonStyle(.plain)
-        .font(.system(size: 11, weight: .semibold))
+        .font(.geist(size: 11, weight: .semibold))
         .foregroundColor(Color.brandPrimary(for: providerKind))
         .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }

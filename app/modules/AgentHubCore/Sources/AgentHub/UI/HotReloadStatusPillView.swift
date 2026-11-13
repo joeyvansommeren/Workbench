@@ -19,7 +19,7 @@ struct HotReloadStatusPillView: View {
     HStack(spacing: 5) {
       PulsingDotView(color: dotColor, isPulsing: isPulsing)
       Text(label)
-        .font(.caption.weight(.medium))
+        .font(.geist(size: 10, weight: .medium))
         .foregroundStyle(labelStyle)
         .lineLimit(1)
     }

@@ -23,7 +23,7 @@ struct MeasurementChartView: View {
       // collides with the tick labels for no readability gain.
       if let yLabel = chart.yLabel, !yLabel.isEmpty {
         Text(yLabel)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
       }
 
@@ -47,7 +47,7 @@ struct MeasurementChartView: View {
         AxisValueLabel(orientation: labelOrientation) {
           if let label = value.as(String.self) {
             Text(label)
-              .font(.caption2)
+              .font(.geist(size: 10))
           }
         }
       }
@@ -58,7 +58,7 @@ struct MeasurementChartView: View {
         AxisValueLabel {
           if let number = value.as(Double.self) {
             Text(MeasurementNumberFormat.axis(number))
-              .font(.caption2)
+              .font(.geist(size: 10))
           }
         }
       }
@@ -66,7 +66,7 @@ struct MeasurementChartView: View {
     .chartXScale(domain: chart.xOrder ?? derivedCategoryOrder)
     .chartXAxisLabel(position: .bottom, alignment: .center) {
       if let xLabel = chart.xLabel, !xLabel.isEmpty {
-        Text(xLabel).font(.caption2).foregroundStyle(.secondary)
+        Text(xLabel).font(.geist(size: 10)).foregroundStyle(.secondary)
       }
     }
     .frame(height: 200)

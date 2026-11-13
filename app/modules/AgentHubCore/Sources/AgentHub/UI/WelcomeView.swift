@@ -58,11 +58,11 @@ public struct WelcomeView: View {
 
       VStack(spacing: 6) {
         Text("Welcome to Workbench")
-          .font(.system(size: 22, weight: .semibold, design: .monospaced))
+          .font(.mono(size: 22, weight: .semibold))
           .foregroundColor(.primary)
 
         Text("Start a new session with Codex or Claude.")
-          .font(.system(size: 12, weight: .regular, design: .monospaced))
+          .font(.mono(size: 12))
           .foregroundColor(.secondary)
           .multilineTextAlignment(.center)
       }
@@ -72,7 +72,7 @@ public struct WelcomeView: View {
           Image(systemName: "plus.circle.fill")
             .font(.system(size: 13))
           Text("Add Repository")
-            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .font(.mono(size: 12, weight: .semibold))
         }
         .foregroundColor(colorScheme == .dark ? .black : .white)
         .frame(height: 36)
@@ -156,12 +156,12 @@ public struct WelcomeView: View {
         }
 
         Text(repoName(repo))
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
+          .font(.mono(size: 11, weight: .semibold))
           .foregroundColor(.primary)
           .lineLimit(1)
 
         Text(repoPath(repo))
-          .font(.system(size: 10, weight: .regular, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
           .lineLimit(1)
 
@@ -169,7 +169,7 @@ public struct WelcomeView: View {
           Image(systemName: "arrow.triangle.branch")
             .font(.system(size: 8))
           Text("\(repo.worktrees.count)")
-            .font(.system(size: 10, design: .monospaced))
+            .font(.mono(size: 10))
         }
         .foregroundColor(.secondary)
       }
@@ -230,7 +230,7 @@ public struct WelcomeView: View {
         .foregroundColor(.primary)
 
       Text(title)
-        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+        .font(.mono(size: 13, weight: .semibold))
         .foregroundColor(.primary)
     }
   }
@@ -243,12 +243,12 @@ public struct WelcomeView: View {
         .frame(width: 16)
 
       Text(description)
-        .font(.system(size: 11, weight: .regular, design: .monospaced))
+        .font(.mono(size: 11))
         .foregroundColor(.primary)
         .frame(maxWidth: .infinity, alignment: .leading)
 
       Text(key)
-        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+        .font(.mono(size: 11, weight: .semibold))
         .foregroundColor(.secondary)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
@@ -268,11 +268,11 @@ public struct WelcomeView: View {
 
       VStack(alignment: .leading, spacing: 3) {
         Text(title)
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
+          .font(.mono(size: 11, weight: .semibold))
           .foregroundColor(.primary)
 
         Text(description)
-          .font(.system(size: 10, weight: .regular, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
@@ -289,11 +289,11 @@ public struct WelcomeView: View {
 
       VStack(alignment: .leading, spacing: 3) {
         Text(title)
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
+          .font(.mono(size: 11, weight: .semibold))
           .foregroundColor(.primary)
 
         Link(description, destination: url)
-          .font(.system(size: 10, weight: .regular, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }

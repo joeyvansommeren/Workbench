@@ -69,7 +69,11 @@ public final class AppVisibilityMonitor {
 ///
 /// Split out from the views so the rule is testable without AppKit windows.
 public enum StatusPulsePolicy {
-  public static func shouldPulse(isActiveStatus: Bool, isAppVisible: Bool) -> Bool {
-    isActiveStatus && isAppVisible
+  public static func shouldPulse(
+    isActiveStatus: Bool,
+    isAppVisible: Bool,
+    reduceMotion: Bool = false
+  ) -> Bool {
+    !reduceMotion && isActiveStatus && isAppVisible
   }
 }

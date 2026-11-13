@@ -368,7 +368,7 @@ public struct MultiSessionLaunchView: View {
           .padding(.top, 4)
       }
       TextEditor(text: $viewModel.sharedPrompt)
-        .font(.system(size: 12))
+        .font(.geist(size: 12))
         .scrollContentBackground(.hidden)
         .padding(2)
         .onKeyPress { press in
@@ -761,7 +761,7 @@ public struct MultiSessionLaunchView: View {
 
   private func manualNameField(_ placeholder: String, text: Binding<String>, width: CGFloat) -> some View {
     TextField(placeholder, text: text)
-      .font(.system(size: 11))
+      .font(.geist(size: 11))
       .textFieldStyle(.plain)
       .padding(.horizontal, 10)
       .padding(.vertical, 5)
@@ -900,7 +900,7 @@ public struct MultiSessionLaunchView: View {
             Image(systemName: "arrow.triangle.branch")
               .font(.system(size: 9))
             Text("--worktree")
-              .font(.jetBrainsMono(size: 11, weight: .medium))
+              .font(.mono(size: 11, weight: .medium))
           }
           .foregroundColor(viewModel.claudeUseWorktree ? (colorScheme == .dark ? .black : .white) : .secondary)
           .padding(.horizontal, 10)
@@ -918,7 +918,7 @@ public struct MultiSessionLaunchView: View {
 
         if viewModel.claudeUseWorktree {
           TextField("auto-generated name", text: $viewModel.claudeWorktreeName)
-            .font(.system(size: 11))
+            .font(.geist(size: 11))
             .textFieldStyle(.plain)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -1289,7 +1289,7 @@ public struct MultiSessionLaunchView: View {
       VStack(alignment: .leading, spacing: 4) {
         HStack(alignment: .firstTextBaseline) {
           Text(step.toolName)
-            .font(.jetBrainsMono(size: 10, weight: .semibold))
+            .font(.mono(size: 10, weight: .semibold))
             .foregroundColor(.primary.opacity(0.85))
             .lineLimit(1)
           Spacer(minLength: 8)

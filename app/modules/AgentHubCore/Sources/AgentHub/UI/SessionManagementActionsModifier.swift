@@ -235,7 +235,7 @@ private struct CreateWorkflowForSessionSheet: View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
         Text("New Workflow")
-          .font(.headline)
+          .font(.geist(size: 13, weight: .bold))
         Text("This session will be added immediately.")
           .font(.secondarySmall)
           .foregroundStyle(.secondary)
@@ -248,14 +248,14 @@ private struct CreateWorkflowForSessionSheet: View {
 
       LabeledContent("Repository") {
         Text(session.projectPath)
-          .font(.jetBrainsMono(size: 10))
+          .font(.mono(size: 10))
           .lineLimit(1)
           .truncationMode(.middle)
       }
       if let branchName = session.branchName {
         LabeledContent("Branch") {
           Text(branchName)
-            .font(.jetBrainsMono(size: 10))
+            .font(.mono(size: 10))
             .lineLimit(1)
         }
       }

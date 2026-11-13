@@ -68,7 +68,7 @@ public struct SimulatorPickerView: View {
       Image(systemName: "display")
         .foregroundColor(.secondary)
       Text(URL(fileURLWithPath: session.projectPath).lastPathComponent)
-        .font(.system(.headline, design: .monospaced))
+        .font(.mono(size: 13, weight: .bold))
         .lineLimit(1)
 
       Spacer()
@@ -122,7 +122,7 @@ public struct SimulatorPickerView: View {
       ProgressView()
         .scaleEffect(0.8)
       Text("Loading destinations...")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -134,10 +134,10 @@ public struct SimulatorPickerView: View {
         .font(.largeTitle)
         .foregroundColor(.secondary.opacity(0.5))
       Text("No Destinations Found")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
       Text("Make sure Xcode is installed and the project has a supported platform configuration.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 32)
@@ -175,7 +175,7 @@ public struct SimulatorPickerView: View {
   private var macSectionHeader: some View {
     HStack {
       Text("My Mac")
-        .font(.subheadline.weight(.semibold))
+        .font(.geist(size: 11, weight: .semibold))
         .foregroundColor(.secondary)
       Spacer()
     }
@@ -201,10 +201,10 @@ public struct SimulatorPickerView: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text("My Mac")
-          .font(.system(.body))
+          .font(.geist(size: 13))
           .lineLimit(1)
         Text(macStateLabel(for: state))
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(macStateLabelColor(for: state))
           .lineLimit(nil)
           .fixedSize(horizontal: false, vertical: true)
@@ -229,12 +229,12 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Building...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
         Button("Cancel") {
           SimulatorService.shared.cancelBuild(projectPath: session.projectPath)
         }
-        .font(.caption)
+        .font(.geist(size: 10))
         .buttonStyle(.bordered)
         .controlSize(.small)
         .tint(.red)
@@ -245,7 +245,7 @@ public struct SimulatorPickerView: View {
           Button("Fix", systemImage: "wrench.and.screwdriver.fill") {
             onSendToSession?(error)
           }
-          .font(.caption)
+          .font(.geist(size: 10))
           .buttonStyle(.bordered)
           .controlSize(.small)
           .tint(.accentColor)
@@ -255,7 +255,7 @@ public struct SimulatorPickerView: View {
             await SimulatorService.shared.buildAndRunOnMac(projectPath: session.projectPath)
           }
         }
-        .font(.caption)
+        .font(.geist(size: 10))
         .buttonStyle(.bordered)
         .controlSize(.small)
       }
@@ -265,7 +265,7 @@ public struct SimulatorPickerView: View {
           await SimulatorService.shared.buildAndRunOnMac(projectPath: session.projectPath)
         }
       }
-      .font(.caption)
+      .font(.geist(size: 10))
       .buttonStyle(.bordered)
       .controlSize(.small)
     }
@@ -301,11 +301,11 @@ public struct SimulatorPickerView: View {
   private var physicalDeviceSectionHeader: some View {
     HStack {
       Text("Connected Devices")
-        .font(.subheadline.weight(.semibold))
+        .font(.geist(size: 11, weight: .semibold))
         .foregroundColor(.secondary)
       Spacer()
       Text("\(SimulatorService.shared.physicalDevices.count)")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
     .padding(.horizontal, 16)
@@ -318,11 +318,11 @@ public struct SimulatorPickerView: View {
   private func runtimeHeader(_ runtime: SimulatorRuntime) -> some View {
     HStack {
       Text(runtime.displayName)
-        .font(.subheadline.weight(.semibold))
+        .font(.geist(size: 11, weight: .semibold))
         .foregroundColor(.secondary)
       Spacer()
       Text("\(runtime.availableDevices.count)")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
     .padding(.horizontal, 16)
@@ -351,10 +351,10 @@ public struct SimulatorPickerView: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text(device.name)
-          .font(.system(.body, design: .default))
+          .font(.geist(size: 13))
           .lineLimit(1)
         Text(physicalStateLabel(for: serviceState, device: device))
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(stateLabelColor(for: serviceState))
           .lineLimit(nil)
           .fixedSize(horizontal: false, vertical: true)
@@ -399,10 +399,10 @@ public struct SimulatorPickerView: View {
       // Device info
       VStack(alignment: .leading, spacing: 2) {
         Text(device.name)
-          .font(.system(.body, design: .default))
+          .font(.geist(size: 13))
           .lineLimit(1)
         Text(stateLabel(for: serviceState, device: device))
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(stateLabelColor(for: serviceState))
           .lineLimit(nil)
           .fixedSize(horizontal: false, vertical: true)
@@ -438,7 +438,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Building...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
         physicalCancelButton(identifier: device.identifier)
       }
@@ -448,7 +448,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Installing...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
         physicalCancelButton(identifier: device.identifier)
       }
@@ -458,7 +458,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Launching...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
         physicalCancelButton(identifier: device.identifier)
       }
@@ -468,7 +468,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Preparing...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
     case .failed(let error):
@@ -477,7 +477,7 @@ public struct SimulatorPickerView: View {
           Button("Fix", systemImage: "wrench.and.screwdriver.fill") {
             onSendToSession?(error)
           }
-          .font(.caption)
+          .font(.geist(size: 10))
           .buttonStyle(.bordered)
           .controlSize(.small)
           .tint(.accentColor)
@@ -505,7 +505,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Booting...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
 
@@ -515,7 +515,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Building...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
         cancelButton(udid: device.udid)
       }
@@ -526,7 +526,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Installing...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
         cancelButton(udid: device.udid)
       }
@@ -537,7 +537,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Launching...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
         cancelButton(udid: device.udid)
       }
@@ -552,7 +552,7 @@ public struct SimulatorPickerView: View {
           .scaleEffect(0.6)
           .frame(width: 16, height: 16)
         Text("Shutting down...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
 
@@ -562,7 +562,7 @@ public struct SimulatorPickerView: View {
           Button("Fix", systemImage: "wrench.and.screwdriver.fill") {
             onSendToSession?(error)
           }
-          .font(.caption)
+          .font(.geist(size: 10))
           .buttonStyle(.bordered)
           .controlSize(.small)
           .tint(.accentColor)
@@ -641,7 +641,7 @@ public struct SimulatorPickerView: View {
         await SimulatorService.shared.openSimulatorApp()
       }
     }
-    .font(.caption)
+    .font(.geist(size: 10))
     .buttonStyle(.bordered)
     .controlSize(.small)
   }
@@ -652,7 +652,7 @@ public struct SimulatorPickerView: View {
         await SimulatorService.shared.shutdownDevice(udid: udid)
       }
     }
-    .font(.caption)
+    .font(.geist(size: 10))
     .buttonStyle(.bordered)
     .controlSize(.small)
     .tint(.red)

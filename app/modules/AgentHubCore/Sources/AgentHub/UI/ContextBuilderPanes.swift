@@ -88,7 +88,7 @@ struct ContextFilePickerPane: View {
         .foregroundColor(.secondary)
       TextField("Search files in \(projectName)", text: Bindable(viewModel).searchQuery)
         .textFieldStyle(.plain)
-        .font(.system(size: 12))
+        .font(.geist(size: 12))
     }
     .padding(6)
     .background(
@@ -200,7 +200,7 @@ private struct ContextFilePickerRow: View {
           .foregroundColor(isSelected ? .brandPrimary : .secondary)
         VStack(alignment: .leading, spacing: 1) {
           Text(result.name)
-            .font(.system(size: 12))
+            .font(.geist(size: 12))
             .lineLimit(1)
           Text(result.relativePath)
             .font(.secondaryCaption)
@@ -268,7 +268,7 @@ private struct ContextSnippetRowView: View {
         .font(.system(size: 10))
         .foregroundColor(.secondary)
       Text(snippet.title)
-        .font(.system(size: 11, design: .monospaced))
+        .font(.mono(size: 11))
         .lineLimit(1)
         .help(String(snippet.content.prefix(400)))
       Text("pasted text")
@@ -331,13 +331,13 @@ struct ContextTextSnippetSheet: View {
       ZStack(alignment: .topLeading) {
         if content.isEmpty {
           Text("Type or paste in content…")
-            .font(.system(size: 12))
+            .font(.geist(size: 12))
             .foregroundColor(.secondary.opacity(0.6))
             .padding(.leading, 7)
             .padding(.top, 6)
         }
         TextEditor(text: $content)
-          .font(.system(size: 12))
+          .font(.geist(size: 12))
           .scrollContentBackground(.hidden)
           .padding(4)
       }
@@ -390,7 +390,7 @@ private struct ContextSelectedFileRowView: View {
         .font(.system(size: 10))
         .foregroundColor(row.isMissing ? .orange : .secondary)
       Text(displayPath)
-        .font(.system(size: 11, design: .monospaced))
+        .font(.mono(size: 11))
         .strikethrough(row.isMissing)
         .foregroundColor(row.isMissing ? .secondary : .primary)
         .lineLimit(1)
@@ -438,7 +438,7 @@ struct ContextTokenBudgetBar: View {
     VStack(alignment: .leading, spacing: 4) {
       HStack(spacing: 6) {
         Text(summaryText)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
         Button {
           showingEstimateHelp.toggle()
@@ -451,10 +451,10 @@ struct ContextTokenBudgetBar: View {
         .popover(isPresented: $showingEstimateHelp) {
           VStack(alignment: .leading, spacing: 8) {
             Text("Why is this approximate?")
-              .font(.subheadline)
+              .font(.geist(size: 11))
               .fontWeight(.semibold)
             Text("Token counts are estimated from file size (UTF-8 bytes ÷ 4, plus a 15% safety margin), not computed by a real tokenizer. Actual counts vary by model and content — code often tokenizes denser than prose — so estimates deliberately err high. \(windowAssumptionText)")
-              .font(.caption)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
               .fixedSize(horizontal: false, vertical: true)
           }
@@ -537,7 +537,7 @@ struct ContextAssembledPreview: View {
         }
         ScrollView {
           Text(viewModel.assembledPreview.isEmpty ? "Nothing selected." : viewModel.assembledPreview)
-            .font(.system(size: 10, design: .monospaced))
+            .font(.mono(size: 10))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(6)

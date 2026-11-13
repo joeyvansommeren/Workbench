@@ -30,7 +30,9 @@ struct JiraSprintView: View {
         onCancelSync: viewModel.cancelSyncPlanning
       )
       content
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .overlay(alignment: .top) {
       if let notice = viewModel.statusNotice {
         JiraStatusNoticeView(notice: notice, onDismiss: viewModel.dismissStatusNotice)
@@ -188,22 +190,41 @@ private struct JiraSprintErrorView: View {
   let message: String
   @Bindable var viewModel: JiraSprintViewModel
 
+  private var isCLIMissing: Bool {
+    message.lowercased().contains("not found") || message.lowercased().contains("acli")
+  }
+
   var body: some View {
     ContentUnavailableView {
       Label("Could not load Jira", systemImage: "exclamationmark.triangle")
     } description: {
-      Text(message)
-      Text("Workbench reads Jira through the Atlassian CLI (`acli`).")
+      if isCLIMissing {
+        Text("Install the Atlassian CLI to use the sprint board.")
+      } else {
+        Text(message)
+      }
     } actions: {
       HStack {
-        Button(viewModel.isConnecting ? "Waiting for browser…" : "Connect Jira") {
-          Task { await viewModel.connect() }
+        if isCLIMissing {
+          Button("Copy install command") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString("brew install acli", forType: .string)
+          }
+          .help("Copies: brew install acli")
+        } else if !viewModel.isConnecting {
+          Button("Connect Jira") {
+            Task { await viewModel.connect() }
+          }
+        } else {
+          Button("Waiting for browser…") {}
+            .disabled(true)
         }
-        .disabled(viewModel.isConnecting)
         Button("Retry") {
           Task { await viewModel.load() }
         }
       }
+      // ContentUnavailableView squeezes actions to equal widths; keep labels whole.
+      .fixedSize()
     }
   }
 }

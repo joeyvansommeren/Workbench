@@ -1,0 +1,38 @@
+name: "Workbench"
+version: "1.0"
+author: "Workbench"
+description: "Soft graphite dark theme with a calm periwinkle accent"
+
+colors:
+  brand:
+    primary: "#93A4F8"
+    secondary: "#2A2E45"
+    tertiary: "#C3CCFB"
+
+  backgrounds:
+    dark: "#1C1D21"
+    expandedContentDark: "#18191C"
+    light: "#FAFAF9"
+    expandedContentLight: "#FFFFFF"
+
+  terminal:
+    background: "#18191C"
+    foreground: "#E4E6EB"
+    cursor: "#93A4F8"
+    ansi:
+      black: "#2A2C31"
+      red: "#F07A84"
+      green: "#9BD18B"
+      yellow: "#E8C46A"
+      blue: "#7FB2F5"
+      magenta: "#C99BF0"
+      cyan: "#6CC7CF"
+      white: "#E4E6EB"
+      brightBlack: "#7C818C"
+      brightRed: "#F59CA3"
+      brightGreen: "#B8E0AA"
+      brightYellow: "#F2D68F"
+      brightBlue: "#A3C8F8"
+      brightMagenta: "#DBB8F5"
+      brightCyan: "#93D8DE"
+      brightWhite: "#F7F8FA"

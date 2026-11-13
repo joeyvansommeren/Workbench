@@ -8,11 +8,11 @@
 import SwiftUI
 
 public enum AgentHubLayout {
-  public static let panelCornerRadius: CGFloat = 16
-  public static let cardCornerRadius: CGFloat = 12
-  public static let rowCornerRadius: CGFloat = 10
-  public static let chipCornerRadius: CGFloat = 8
-  public static let buttonCornerRadius: CGFloat = 4
+  public static let panelCornerRadius: CGFloat = DesignTokens.Radius.lg  // 14
+  public static let cardCornerRadius: CGFloat = DesignTokens.Radius.md   // 10
+  public static let rowCornerRadius: CGFloat = DesignTokens.Radius.sm    // 6
+  public static let chipCornerRadius: CGFloat = DesignTokens.Radius.sm   // 6
+  public static let buttonCornerRadius: CGFloat = DesignTokens.Radius.sm // 6
 
   /// Shared height for top bars across panels (MonitoringCardView header,
   /// GitHubPanelView header, etc.) so sibling panels line up exactly.
@@ -24,8 +24,8 @@ public enum AgentHubLayout {
 
   /// Smallest window that still fits the sidebar (280) and one 400 px session
   /// column with a side panel closed. 1100 is the design target for laptops.
-  public static let windowMinWidth: CGFloat = 1100
-  public static let windowMinHeight: CGFloat = 700
+  public static let windowMinWidth: CGFloat = 900
+  public static let windowMinHeight: CGFloat = 600
 }
 
 private struct AgentHubPanelModifier: ViewModifier {
@@ -47,12 +47,13 @@ private struct AgentHubCardModifier: ViewModifier {
   let transparent: Bool
 
   func body(content: Content) -> some View {
-    // Simple black/white background
-    let backgroundColor = colorScheme == .dark ? Color(white: 0.08) : Color(white: 0.98)
+    // Dark surfaces are translucent lifts over the themed background, so the
+    // theme's own color shows through instead of a fixed near-black.
+    let backgroundColor = colorScheme == .dark ? Color.white.opacity(0.035) : Color(white: 0.98)
     let highlightOpacity = colorScheme == .dark ? 0.6 : 0.85
     let strokeColor = isHighlighted
       ? Color.brandPrimary.opacity(highlightOpacity)
-      : Color.secondary.opacity(0.2)
+      : Color.primary.opacity(0.08)
     let strokeWidth: CGFloat = isHighlighted ? 2 : 1
 
     return content
@@ -72,12 +73,11 @@ private struct AgentHubRowModifier: ViewModifier {
   let isHighlighted: Bool
 
   func body(content: Content) -> some View {
-    // Simple black/white background
-    let backgroundColor = colorScheme == .dark ? Color(white: 0.1) : Color(white: 0.96)
+    let backgroundColor = colorScheme == .dark ? Color.white.opacity(0.05) : Color(white: 0.96)
     let highlightOpacity = colorScheme == .dark ? 0.5 : 0.75
     let strokeColor = isHighlighted
       ? Color.brandPrimary.opacity(highlightOpacity)
-      : Color.secondary.opacity(0.2)
+      : Color.primary.opacity(0.08)
 
     return content
       .background(
@@ -95,8 +95,8 @@ private struct AgentHubInsetModifier: ViewModifier {
   @Environment(\.colorScheme) private var colorScheme
 
   func body(content: Content) -> some View {
-    // Simple black/white background
-    let backgroundColor = colorScheme == .dark ? Color(white: 0.08) : Color(white: 0.94)
+    // Insets are recessed: darker than the surface they sit on.
+    let backgroundColor = colorScheme == .dark ? Color.black.opacity(0.18) : Color(white: 0.94)
 
     return content
       .background(
@@ -105,7 +105,7 @@ private struct AgentHubInsetModifier: ViewModifier {
       )
       .overlay(
         RoundedRectangle(cornerRadius: AgentHubLayout.rowCornerRadius, style: .continuous)
-          .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+          .stroke(Color.primary.opacity(0.08), lineWidth: 1)
       )
   }
 }
@@ -115,11 +115,10 @@ private struct AgentHubChipModifier: ViewModifier {
   let isActive: Bool
 
   func body(content: Content) -> some View {
-    // Simple black/white background
     let fillOpacity = colorScheme == .dark ? 0.15 : 0.4
     let fillColor = isActive
       ? Color.brandPrimary.opacity(fillOpacity)
-      : (colorScheme == .dark ? Color(white: 0.15) : Color(white: 0.92))
+      : (colorScheme == .dark ? Color.white.opacity(0.07) : Color(white: 0.92))
     let chipStrokeOpacity = colorScheme == .dark ? 0.4 : 0.65
     let strokeColor = isActive
       ? Color.brandPrimary.opacity(chipStrokeOpacity)

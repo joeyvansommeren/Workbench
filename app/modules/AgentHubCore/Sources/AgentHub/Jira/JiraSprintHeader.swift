@@ -13,16 +13,25 @@ struct JiraSprintHeader: View {
   var onSync: () -> Void = {}
   var onCancelSync: () -> Void = {}
 
+  private var showControls: Bool {
+    if case .failed = viewModel.state { return false }
+    return viewModel.state != .idle
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
       HStack(alignment: .center, spacing: DesignTokens.Spacing.md) {
         JiraSprintSwitcher(viewModel: viewModel)
         Spacer()
-        WorkspaceSearchField(prompt: "Search tickets", text: $viewModel.searchText, width: 220)
-        syncButton
+        if showControls {
+          WorkspaceSearchField(prompt: "Search tickets", text: $viewModel.searchText, width: 220)
+          syncButton
+        }
         refreshButton
       }
-      JiraAssigneeBar(viewModel: viewModel)
+      if showControls {
+        JiraAssigneeBar(viewModel: viewModel)
+      }
     }
     .padding(.horizontal, DesignTokens.Spacing.lg)
     .padding(.top, DesignTokens.Spacing.lg)
@@ -71,6 +80,7 @@ struct JiraSprintHeader: View {
     .buttonStyle(.borderless)
     .disabled(viewModel.state == .loading)
     .help("Refresh sprint")
+    .accessibilityLabel("Refresh sprint")
     .keyboardShortcut("r", modifiers: .command)
   }
 }
@@ -124,7 +134,8 @@ private struct JiraSprintSwitcher: View {
     }
     .menuStyle(.button)
     .buttonStyle(.plain)
-    .fixedSize()
+    .lineLimit(1)
+    .layoutPriority(1)
   }
 
   private var subtitle: String {
@@ -144,7 +155,8 @@ private struct JiraSprintSwitcher: View {
         parts.append("not started")
       }
     }
-    parts.append("\(viewModel.sprintTickets.count) tickets")
+    let ticketCount = viewModel.sprintTickets.count
+    parts.append("\(ticketCount) \(ticketCount == 1 ? "ticket" : "tickets")")
     return parts.joined(separator: " · ")
   }
 
@@ -211,8 +223,6 @@ private struct JiraFilterChip: View {
   let isSelected: Bool
   let action: () -> Void
 
-  @Environment(\.runtimeTheme) private var runtimeTheme
-
   var body: some View {
     Button(action: action) {
       HStack(spacing: 5) {
@@ -222,17 +232,18 @@ private struct JiraFilterChip: View {
         }
       }
       .font(.geist(size: 12, weight: isSelected ? .semibold : .medium))
+      .foregroundStyle(isSelected ? .primary : .secondary)
       .padding(.horizontal, 10)
       .frame(height: 26)
       .background(
-        Capsule().fill(
-          isSelected ? Color.brandPrimary(from: runtimeTheme).opacity(0.18) : Color.primary.opacity(0.05))
+        RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous)
+          .fill(isSelected ? Color.surfaceCard : Color.clear)
       )
       .overlay(
-        Capsule().strokeBorder(
-          isSelected ? Color.brandPrimary(from: runtimeTheme).opacity(0.6) : .clear, lineWidth: 1)
+        RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous)
+          .strokeBorder(isSelected ? Color.primary.opacity(0.1) : .clear, lineWidth: 1)
       )
-      .contentShape(Capsule())
+      .contentShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous))
     }
     .buttonStyle(.plain)
   }
@@ -257,6 +268,6 @@ private struct JiraAssigneeChip: View {
         .contentShape(Circle())
     }
     .buttonStyle(.plain)
-    .help("\(assignee.name)\(isMe ? " (you)" : "") · \(assignee.ticketCount) tickets")
+    .help("\(assignee.name)\(isMe ? " (you)" : "") · \(assignee.ticketCount) \(assignee.ticketCount == 1 ? "ticket" : "tickets")")
   }
 }

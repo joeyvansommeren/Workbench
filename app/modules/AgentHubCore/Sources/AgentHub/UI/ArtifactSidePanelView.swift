@@ -27,9 +27,9 @@ private struct ArtifactSignInBanner: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text("Sign in below to view this artifact")
-          .font(.caption.weight(.semibold))
+          .font(.geist(size: 10, weight: .semibold))
         Text("Artifacts are hosted by Anthropic and private to your account. This is Anthropic's standard sign-in page — Workbench doesn't handle it. Signing in in your browser doesn't carry over, so sign in here; you only need to do it once.")
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
@@ -180,7 +180,7 @@ struct ArtifactSidePanelView: View {
         .accessibilityHidden(true)
 
       Text("Artifact")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
 
       if artifacts.count == 1, let selectedArtifact {
         Text(selectedArtifact.displayTitle)

@@ -78,7 +78,7 @@ public struct MermaidDiagramView: View {
     VStack(spacing: 12) {
       ProgressView()
       Text("Extracting diagrams...")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -90,7 +90,7 @@ public struct MermaidDiagramView: View {
         .font(.title2)
         .foregroundColor(.secondary)
       Text(message)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .padding(.horizontal)
@@ -104,7 +104,7 @@ public struct MermaidDiagramView: View {
         .font(.title2)
         .foregroundColor(.secondary)
       Text("No Mermaid diagrams found")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -235,7 +235,7 @@ private struct DiagramCard: View {
       // Label row + controls
       HStack {
         Text("Diagram \(index)")
-          .font(.caption)
+          .font(.geist(size: 10))
           .fontWeight(.medium)
           .foregroundColor(.secondary)
 
@@ -252,7 +252,7 @@ private struct DiagramCard: View {
             .help("Zoom out")
 
             Text("\(Int(scale * 100))%")
-              .font(.caption2)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
               .frame(minWidth: 36)
 
@@ -292,7 +292,7 @@ private struct DiagramCard: View {
             ProgressView()
               .scaleEffect(0.7)
             Text("Rendering...")
-              .font(.caption)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
           }
           .frame(height: 120)
@@ -302,7 +302,7 @@ private struct DiagramCard: View {
             Image(systemName: "exclamationmark.triangle")
               .foregroundColor(.secondary)
             Text(error)
-              .font(.caption)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
               .multilineTextAlignment(.center)
           }

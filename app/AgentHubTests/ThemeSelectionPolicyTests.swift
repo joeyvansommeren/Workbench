@@ -64,7 +64,7 @@ struct ThemeSelectionPolicyTests {
     #expect(defaults.string(forKey: AgentHubDefaults.previousNonGhosttyTheme) == "vela.yaml")
   }
 
-  @Test("Regular backend falls back to Singularity when previous regular theme is invalid")
+  @Test("Regular backend falls back to Workbench when previous regular theme is invalid")
   func regularBackendFallsBackWhenPreviousThemeIsInvalid() throws {
     let (defaults, suiteName) = try makeDefaults()
     defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -76,9 +76,9 @@ struct ThemeSelectionPolicyTests {
       backend: .regular
     )
 
-    #expect(selectedThemeId == "singularity.yaml")
-    #expect(defaults.string(forKey: AgentHubDefaults.selectedTheme) == "singularity.yaml")
-    #expect(defaults.string(forKey: AgentHubDefaults.previousNonGhosttyTheme) == "singularity.yaml")
+    #expect(selectedThemeId == "workbench.yaml")
+    #expect(defaults.string(forKey: AgentHubDefaults.selectedTheme) == "workbench.yaml")
+    #expect(defaults.string(forKey: AgentHubDefaults.previousNonGhosttyTheme) == "workbench.yaml")
   }
 
   @Test("Regular backend preserves custom YAML theme selections")

@@ -65,7 +65,7 @@ struct StatCardView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       Text(value)
-        .font(.jetBrainsMono(size: 24, weight: .bold))
+        .font(.mono(size: 24, weight: .bold))
         .foregroundStyle(.primary)
       Text(label.uppercased())
         .font(GitHubTypography.caption)
@@ -377,8 +377,8 @@ struct GitHubCommentCard: View {
         }
       }
 
-      Text(commentBody)
-        .font(GitHubTypography.body)
+      MarkdownView(content: commentBody, includeScrollView: false)
+        .frame(maxWidth: 680, alignment: .leading)
         .textSelection(.enabled)
     }
     .frame(maxWidth: .infinity, alignment: .leading)

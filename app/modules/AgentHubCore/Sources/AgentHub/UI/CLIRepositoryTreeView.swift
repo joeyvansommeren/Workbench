@@ -146,7 +146,7 @@ public struct CLIRepositoryTreeView: View {
 
           // Repository name
           Text(repository.name)
-            .font(.headline)
+            .font(.geist(size: 13, weight: .bold))
             .fontWeight(.semibold)
             .foregroundColor(.primary)
         }
@@ -159,7 +159,7 @@ public struct CLIRepositoryTreeView: View {
       // Session count
       if repository.totalSessionCount > 0 {
         Text("\(repository.totalSessionCount)")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
           .padding(.horizontal, 8)
           .padding(.vertical, 4)

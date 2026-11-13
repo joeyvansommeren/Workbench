@@ -157,9 +157,14 @@ struct AgentHubApp: App {
     WindowGroup {
       AgentHubOperationsView()
         .agentHub(appDelegate.provider)
+        // Default for any Text without an explicit font, so nothing falls back to SF Pro.
+        .font(.geist(size: 13))
     }
     .windowStyle(.hiddenTitleBar)
     .commands {
+      // Split views have no toolbar toggle; View › Toggle Sidebar (⌃⌘S) replaces it.
+      SidebarCommands()
+
       CommandMenu("Navigate") {
         Button("Workflows") {
           AgentHubAppCommand.selectWorkspace(.workflows)
@@ -211,6 +216,7 @@ struct AgentHubApp: App {
     Settings {
       SettingsView()
         .agentHub(appDelegate.provider)
+        .font(.geist(size: 13))
     }
   }
 }

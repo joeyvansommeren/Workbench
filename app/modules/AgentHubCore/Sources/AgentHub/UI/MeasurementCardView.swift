@@ -29,7 +29,7 @@ struct MeasurementCardView: View {
       )
 
       Text(record.claim)
-        .font(.body)
+        .font(.geist(size: 13))
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
 
@@ -80,13 +80,13 @@ private struct MeasurementCardHeader: View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       VStack(alignment: .leading, spacing: 2) {
         Text(record.title)
-          .font(.headline)
+          .font(.geist(size: 13, weight: .bold))
           .textSelection(.enabled)
           .fixedSize(horizontal: false, vertical: true)
 
         if let question = record.question, !question.isEmpty {
           Text(question)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -109,7 +109,7 @@ private struct MeasurementCardHeader: View {
       }
 
       Text(timestampLabel)
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundStyle(.tertiary)
         .fixedSize()
 
@@ -186,7 +186,7 @@ private struct MeasurementTableView: View {
 
   private func cell(_ value: String, isHeader: Bool) -> some View {
     Text(value)
-      .font(.caption)
+      .font(.geist(size: 10))
       .fontWeight(isHeader ? .semibold : .regular)
       .monospacedDigit()
       .foregroundStyle(isHeader ? .secondary : .primary)
@@ -221,10 +221,10 @@ private struct MeasurementHistoryView: View {
             .font(.caption2)
             .rotationEffect(.degrees(isExpanded ? 90 : 0))
           Text(history.count == 1 ? "1 earlier run" : "\(history.count) earlier runs")
-            .font(.caption.weight(.medium))
+            .font(.geist(size: 10, weight: .medium))
           if let delta = deltaLabel {
             Text(delta)
-              .font(.caption2.weight(.semibold))
+              .font(.geist(size: 10, weight: .semibold))
           }
         }
         .foregroundStyle(.secondary)
@@ -290,12 +290,12 @@ private struct MeasurementHistoryRow: View {
     HStack(alignment: .top, spacing: 8) {
       VStack(alignment: .leading, spacing: 2) {
         Text(run.runAt.formatted(date: .abbreviated, time: .shortened))
-          .font(.caption2.monospacedDigit())
+          .font(.geist(size: 10).monospacedDigit())
           .foregroundStyle(.tertiary)
 
         if showsBranch, let branch = run.branchName {
           Text(branch)
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -304,7 +304,7 @@ private struct MeasurementHistoryRow: View {
       .frame(width: 108, alignment: .leading)
 
       Text(run.claim)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(isCurrent ? .primary : .secondary)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -322,7 +322,7 @@ private struct MeasurementCaveatsView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       Label("Read with care", systemImage: "exclamationmark.triangle.fill")
-        .font(.caption.weight(.semibold))
+        .font(.geist(size: 10, weight: .semibold))
         .foregroundStyle(.orange)
 
       ForEach(Array(caveats.enumerated()), id: \.offset) { _, caveat in
@@ -331,7 +331,7 @@ private struct MeasurementCaveatsView: View {
           Text(caveat)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
       }
     }
@@ -361,7 +361,7 @@ private struct MeasurementQueryDisclosure: View {
               .font(.caption2)
               .rotationEffect(.degrees(isExpanded ? 90 : 0))
             Text("Query")
-              .font(.caption.weight(.medium))
+              .font(.geist(size: 10, weight: .medium))
           }
           .foregroundStyle(.secondary)
         }
@@ -374,7 +374,7 @@ private struct MeasurementQueryDisclosure: View {
             MeasurementPasteboard.copy(query)
           }
           .buttonStyle(.plain)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
         }
       }
@@ -382,7 +382,7 @@ private struct MeasurementQueryDisclosure: View {
       if isExpanded {
         ScrollView(.horizontal, showsIndicators: true) {
           Text(query)
-            .font(.system(.caption, design: .monospaced))
+            .font(.mono(size: 10))
             .textSelection(.enabled)
             .padding(8)
         }
@@ -401,7 +401,7 @@ private struct MeasurementSourceFooter: View {
 
   var body: some View {
     Label(source, systemImage: "cylinder.split.1x2")
-      .font(.caption2)
+      .font(.geist(size: 10))
       .foregroundStyle(.tertiary)
       .lineLimit(1)
       .truncationMode(.middle)

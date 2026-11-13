@@ -106,11 +106,11 @@ public struct WorktreeGenerationProgressBar: View {
 
       VStack(alignment: .leading, spacing: 1) {
         Text(model.title)
-          .font(.system(.subheadline, weight: .semibold))
+          .font(.geist(size: 11, weight: .semibold))
           .lineLimit(1)
         if let subtitle = model.subtitle, !subtitle.isEmpty {
           Text(subtitle)
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundStyle(coordinator.hasFailures ? Color.red.opacity(0.9) : Color.secondary)
             .lineLimit(coordinator.hasFailures ? 4 : 1)
             .fixedSize(horizontal: false, vertical: true)
@@ -123,7 +123,7 @@ public struct WorktreeGenerationProgressBar: View {
 
       if creationInFlight(coordinator) && hasFileProgress(coordinator) {
         Text("\(Int(displayProgress(coordinator) * 100))%")
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundStyle(.secondary)
           .monospacedDigit()
       }
@@ -284,7 +284,7 @@ private struct WorktreeGenerationOperationRow: View {
       VStack(alignment: .leading, spacing: 3) {
         HStack(spacing: 6) {
           Text(titleText)
-            .font(.system(.subheadline, weight: .medium))
+            .font(.geist(size: 11, weight: .medium))
             .lineLimit(1)
           if !isNaming {
             providerTag
@@ -292,7 +292,7 @@ private struct WorktreeGenerationOperationRow: View {
           Spacer(minLength: 4)
           if !detailTrailing.isEmpty {
             Text(detailTrailing)
-              .font(.system(.caption, design: .monospaced))
+              .font(.mono(size: 10))
               .foregroundStyle(.secondary)
               .monospacedDigit()
           }
@@ -311,7 +311,7 @@ private struct WorktreeGenerationOperationRow: View {
         }
 
         Text(statusLine)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(operation.isFailure ? Color.red.opacity(0.9) : .secondary)
           .lineLimit(operation.isFailure ? 4 : 1)
           .fixedSize(horizontal: false, vertical: true)
@@ -363,7 +363,7 @@ private struct WorktreeGenerationOperationRow: View {
 
   private var providerTag: some View {
     Text(operation.provider.rawValue)
-      .font(.caption2.weight(.medium))
+      .font(.geist(size: 10, weight: .medium))
       .foregroundStyle(.secondary)
       .padding(.horizontal, 6)
       .padding(.vertical, 1)

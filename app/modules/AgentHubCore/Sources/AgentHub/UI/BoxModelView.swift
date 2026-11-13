@@ -14,7 +14,7 @@ struct BoxModelView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       Text("Box Model")
-        .font(.system(size: 12, weight: .semibold))
+        .font(.geist(size: 12, weight: .semibold))
         .foregroundStyle(.secondary)
 
       ZStack {
@@ -40,9 +40,9 @@ struct BoxModelView: View {
           .overlay(alignment: .center) {
             VStack(spacing: 4) {
               Text("content")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(.mono(size: 11, weight: .semibold))
               Text("\(snapshot.width) × \(snapshot.height)")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.mono(size: 11))
                 .foregroundStyle(.secondary)
             }
           }
@@ -71,9 +71,9 @@ struct BoxModelView: View {
       .overlay(alignment: .topLeading) {
         VStack(alignment: .leading, spacing: 2) {
           Text(title)
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .font(.mono(size: 11, weight: .semibold))
           Text(subtitle)
-            .font(.system(size: 10, design: .monospaced))
+            .font(.mono(size: 10))
             .foregroundStyle(.secondary)
         }
         .padding(padding + 12)
@@ -100,7 +100,7 @@ struct BoxModelView: View {
 
   private func edgeLabel(_ value: String?) -> some View {
     Text(value ?? "—")
-      .font(.system(size: 10, design: .monospaced))
+      .font(.mono(size: 10))
       .foregroundStyle(.secondary)
   }
 }

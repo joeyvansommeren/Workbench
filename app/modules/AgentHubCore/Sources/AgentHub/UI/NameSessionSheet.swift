@@ -20,7 +20,7 @@ struct NameSessionSheet: View {
   var body: some View {
     VStack(spacing: 16) {
       Text("Name Session")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
 
       TextField("Enter a name...", text: $nameText)
         .textFieldStyle(.roundedBorder)
@@ -28,7 +28,7 @@ struct NameSessionSheet: View {
         .onSubmit { save() }
 
       Text("Session ID: \(session.shortId)")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
 
       HStack(spacing: 12) {

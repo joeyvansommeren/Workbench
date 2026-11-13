@@ -102,7 +102,7 @@ struct InlineEditorView: View {
             .foregroundColor(.red)
 
           Text(error)
-            .font(.system(.caption, design: .default))
+            .font(.geist(size: 10))
             .foregroundColor(.red)
             .lineLimit(2)
         }
@@ -173,7 +173,7 @@ struct InlineEditorView: View {
       TextEditor(text: $text)
         .scrollContentBackground(.hidden)
         .focused($isFocused)
-        .font(.system(.body, design: .default))
+        .font(.geist(size: 13))
         .frame(minHeight: 32, maxHeight: 60)
         .fixedSize(horizontal: false, vertical: true)
         .padding(6)
@@ -184,7 +184,7 @@ struct InlineEditorView: View {
 
       if text.isEmpty {
         Text(placeholder)
-          .font(.body)
+          .font(.geist(size: 13))
           .foregroundColor(.secondary)
           .padding(.leading, 11)
           .allowsHitTesting(false)
@@ -292,7 +292,7 @@ struct InlineEditorView: View {
       Text("⌘")
       Text("↵")
     }
-    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+    .font(.mono(size: 11, weight: .semibold))
     .foregroundColor(.secondary)
   }
 

@@ -234,6 +234,7 @@ public struct MultiProviderSessionsListView: View {
         } detail: {
           detailPane
         }
+        .toolbar(removing: .sidebarToggle)
         .navigationSplitViewStyle(.balanced)
         .background(appBackground.ignoresSafeArea())
 
@@ -1342,9 +1343,9 @@ public struct MultiProviderSessionsListView: View {
     if sessionCount > 0 {
       let threadLabel = sessionCount == 1 ? "thread" : "threads"
       return "This will archive \(sessionCount) focused \(threadLabel) "
-        + "and stop focusing \(name) in AgentHub. The worktree stays on disk."
+        + "and stop focusing \(name) in Workbench. The worktree stays on disk."
     }
-    return "This will stop focusing \(name) in AgentHub. The worktree stays on disk."
+    return "This will stop focusing \(name) in Workbench. The worktree stays on disk."
   }
 
   private func isTrackedRepositoryModule(_ modulePath: String) -> Bool {
@@ -1638,7 +1639,7 @@ public struct MultiProviderSessionsListView: View {
                       : {
                         archiveSessions(group.items, groupName: group.displayName)
                       },
-                    removeTitle: worktreeModule == nil ? "Remove" : "Remove from AgentHub",
+                    removeTitle: worktreeModule == nil ? "Remove" : "Remove from Workbench",
                     onRemove: section.isFolderGroup
                       ? nil
                       : removeAction(
@@ -1682,7 +1683,7 @@ public struct MultiProviderSessionsListView: View {
         if !workspaceViewModel.workspaces.isEmpty {
           VStack(alignment: .leading, spacing: 4) {
             Text("Workspaces")
-              .font(.caption.weight(.semibold))
+              .font(.geist(size: 10, weight: .semibold))
               .foregroundStyle(.secondary)
               .padding(.top, 6)
             workspaceRows(for: workspaceViewModel.workspaces, ownedItems: workspaceOwnedItems)
@@ -2093,9 +2094,9 @@ public struct MultiProviderSessionsListView: View {
       .help("About Browse all Sessions")
       .popover(isPresented: $showBrowseInfo, arrowEdge: isBrowseExpanded ? .bottom : .top) {
         Text(
-          "Find all local Claude and Codex sessions started from the terminal and bring them into AgentHub."
+          "Find all local Claude and Codex sessions started from the terminal and bring them into Workbench."
         )
-        .font(.callout)
+        .font(.geist(size: 12))
         .foregroundColor(.secondary)
         .padding(12)
         .frame(width: 240)
@@ -3189,7 +3190,7 @@ private struct FolderGroupHeader: View {
             .lineLimit(1)
 
           Text("\(itemCount)")
-            .font(.caption2.monospacedDigit())
+            .font(.geist(size: 10).monospacedDigit())
             .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
@@ -3250,6 +3251,9 @@ private struct ProjectGroupHeader: View {
           Text(name)
             .font(Font.geist(size: 13, weight: .semibold))
             .foregroundColor(.primary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(name)
           if canToggle {
             Image(systemName: "chevron.right")
               .font(.system(size: 10, weight: .semibold))

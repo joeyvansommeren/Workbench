@@ -78,7 +78,7 @@ public struct SessionMonitorPanel: View {
               ProgressView()
                 .scaleEffect(0.7)
               Text("Loading session data...")
-                .font(.caption)
+                .font(.geist(size: 10))
                 .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity)
@@ -122,13 +122,15 @@ private struct StatusBadge: View {
   let status: SessionStatus
   @State private var pulse = false
   @Environment(\.appVisibility) private var appVisibility
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   /// See `CollapsibleSessionRow.shouldPulse` — a `repeatForever` animation
   /// pins the display link, so it stops while the app is occluded.
   private var shouldPulse: Bool {
     StatusPulsePolicy.shouldPulse(
       isActiveStatus: isActiveStatus,
-      isAppVisible: appVisibility?.isVisible ?? true
+      isAppVisible: appVisibility?.isVisible ?? true,
+      reduceMotion: reduceMotion
     )
   }
 
@@ -139,7 +141,7 @@ private struct StatusBadge: View {
         Circle()
           .fill(statusColor)
           .frame(width: 6, height: 6)
-          .shadow(color: statusColor.opacity(0.5), radius: isActiveStatus ? 4 : 2)
+          // Glow removed — state is shown by tone and text.
 
         if isActiveStatus {
           Circle()
@@ -151,7 +153,7 @@ private struct StatusBadge: View {
       }
 
       Text(status.displayName)
-        .font(.caption)
+        .font(.geist(size: 10))
         .fontWeight(.medium)
         .foregroundColor(statusColor)
     }
@@ -217,7 +219,7 @@ struct ModelBadge: View {
       Image(systemName: "cpu")
         .font(.subheadline)
       Text(displayName)
-        .font(.system(.subheadline, design: .monospaced))
+        .font(.mono(size: 11))
     }
     .foregroundColor(.secondary)
   }
@@ -235,7 +237,7 @@ private struct RecentActivityList: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       Text("Recent Activity")
-        .font(.caption2)
+        .font(.geist(size: 10))
         .fontWeight(.semibold)
         .foregroundColor(.secondary)
 
@@ -254,7 +256,7 @@ private struct ActivityRow: View {
   var body: some View {
     HStack(spacing: 8) {
       Text(formatTime(activity.timestamp))
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .monospacedDigit()
         .frame(width: 55, alignment: .leading)
@@ -265,7 +267,7 @@ private struct ActivityRow: View {
         .frame(width: 14)
 
       Text(activity.description)
-        .font(.caption2)
+        .font(.geist(size: 10))
         .lineLimit(1)
         .foregroundColor(.primary)
     }

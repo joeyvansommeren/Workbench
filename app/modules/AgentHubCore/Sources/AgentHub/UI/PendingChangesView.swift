@@ -86,11 +86,11 @@ public struct PendingChangesView: View {
           .foregroundColor(.orange)
 
         Text("Pending Changes")
-          .font(.title3.weight(.semibold))
+          .font(.geist(size: 15, weight: .semibold))
 
         // Tool badge
         Text(pendingToolUse.toolName)
-          .font(.caption)
+          .font(.geist(size: 10))
           .fontWeight(.medium)
           .foregroundColor(.orange)
           .padding(.horizontal, 8)
@@ -103,12 +103,12 @@ public struct PendingChangesView: View {
       // Session info
       HStack(spacing: 8) {
         Text(session.shortId)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
 
         if let branch = session.branchName {
           Text("[\(branch)]")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
         }
       }
@@ -207,7 +207,7 @@ public struct PendingChangesView: View {
     VStack(spacing: 12) {
       ProgressView()
       Text("Generating preview...")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -220,11 +220,11 @@ public struct PendingChangesView: View {
         .foregroundColor(.orange.opacity(0.5))
 
       Text("Could Not Generate Preview")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text(message)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 40)
@@ -260,7 +260,7 @@ public struct PendingChangesView: View {
               ProgressView()
                 .controlSize(.small)
               Text("Loading diff...")
-                .font(.caption)
+                .font(.geist(size: 10))
                 .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -279,10 +279,10 @@ public struct PendingChangesView: View {
         Image(systemName: preview.isNewFile ? "doc.badge.plus" : "doc.text.fill")
           .foregroundStyle(preview.isNewFile ? .green : .blue)
         Text(preview.fileName)
-          .font(.headline)
+          .font(.geist(size: 13, weight: .bold))
         if preview.isNewFile {
           Text("(New File)")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.green)
         }
       }
@@ -410,18 +410,18 @@ public struct PendingChangesWaitingView: View {
           .font(.title3)
           .foregroundColor(.orange)
         Text("Pending Changes")
-          .font(.title3.weight(.semibold))
+          .font(.geist(size: 15, weight: .semibold))
       }
 
       Spacer()
 
       HStack(spacing: 8) {
         Text(session.shortId)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
         if let branch = session.branchName {
           Text("[\(branch)]")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
         }
       }
@@ -440,10 +440,10 @@ public struct PendingChangesWaitingView: View {
         .font(.system(size: 36))
         .foregroundStyle(.secondary)
       Text("Waiting for the next pending edit…")
-        .font(.callout)
+        .font(.geist(size: 12))
         .foregroundStyle(.secondary)
       Text("This panel will update automatically when the agent proposes a change.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 32)

@@ -37,7 +37,7 @@ struct ResourceLinksPanel<TrailingAccessory: View>: View {
             HStack(spacing: 6) {
               headerLabel
               Text("\(links.count)")
-                .font(.caption2)
+                .font(.geist(size: 10))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
@@ -99,7 +99,7 @@ struct ResourceLinksPanel<TrailingAccessory: View>: View {
         .foregroundStyle(Color.brandPrimary(for: providerKind))
 
       Text("Resources")
-        .font(.caption)
+        .font(.geist(size: 10))
         .fontWeight(.medium)
         .foregroundStyle(.primary)
     }
@@ -138,11 +138,11 @@ private struct ResourceLinkChip: View {
 
         VStack(alignment: .leading, spacing: 0) {
           Text(link.displayTitle)
-            .font(.caption2)
+            .font(.geist(size: 10))
             .fontWeight(.medium)
             .lineLimit(1)
           Text(link.displayDomain)
-            .font(.system(size: 9))
+            .font(.geist(size: 9))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -200,24 +200,24 @@ private struct CreatePullRequestChip: View {
           .foregroundStyle(.green)
 
         Text("Create PR")
-          .font(.caption)
+          .font(.geist(size: 10))
           .bold()
           .foregroundStyle(.primary)
           .lineLimit(1)
 
         Text("\(formattedCount(summary.fileCount)) files")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(1)
 
         Text("+\(formattedCount(summary.additions))")
-          .font(.caption)
+          .font(.geist(size: 10))
           .bold()
           .foregroundStyle(.green)
           .lineLimit(1)
 
         Text("-\(formattedCount(summary.deletions))")
-          .font(.caption)
+          .font(.geist(size: 10))
           .bold()
           .foregroundStyle(.red)
           .lineLimit(1)
@@ -244,25 +244,25 @@ private struct CurrentPullRequestChip: View {
     Button(action: action) {
       HStack(spacing: 10) {
         Text("PR #\(pullRequest.number)")
-          .font(.caption)
+          .font(.geist(size: 10))
           .bold()
           .underline()
           .foregroundStyle(.primary)
           .lineLimit(1)
 
         Text("\(formattedCount(pullRequest.changedFiles)) files")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(1)
 
         Text("+\(formattedCount(pullRequest.additions))")
-          .font(.caption)
+          .font(.geist(size: 10))
           .bold()
           .foregroundStyle(.green)
           .lineLimit(1)
 
         Text("-\(formattedCount(pullRequest.deletions))")
-          .font(.caption)
+          .font(.geist(size: 10))
           .bold()
           .foregroundStyle(.red)
           .lineLimit(1)

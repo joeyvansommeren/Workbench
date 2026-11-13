@@ -438,7 +438,7 @@ public struct WebPreviewView: View {
           .font(.system(size: 10))
           .foregroundColor(.orange)
         Text("Preview not running")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
     case .noContent:
@@ -446,7 +446,7 @@ public struct WebPreviewView: View {
     case nil:
       HStack(spacing: 6) {
         ProgressView().controlSize(.mini)
-        Text("Detecting project...").font(.caption).foregroundColor(.secondary)
+        Text("Detecting project...").font(.geist(size: 10)).foregroundColor(.secondary)
       }
     }
   }
@@ -471,7 +471,7 @@ public struct WebPreviewView: View {
         .frame(maxWidth: 200)
       } else if let path = selectedFilePath {
         Text(URL(fileURLWithPath: path).lastPathComponent)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
       }
     }
@@ -485,17 +485,17 @@ public struct WebPreviewView: View {
     case .detecting:
       HStack(spacing: 6) {
         ProgressView().controlSize(.mini)
-        Text("Detecting project...").font(.caption).foregroundColor(.secondary)
+        Text("Detecting project...").font(.geist(size: 10)).foregroundColor(.secondary)
       }
     case .starting(let message):
       HStack(spacing: 6) {
         ProgressView().controlSize(.mini)
-        Text(message).font(.caption).foregroundColor(.secondary)
+        Text(message).font(.geist(size: 10)).foregroundColor(.secondary)
       }
     case .waitingForReady:
       HStack(spacing: 6) {
         ProgressView().controlSize(.mini)
-        Text("Starting server...").font(.caption).foregroundColor(.secondary)
+        Text("Starting server...").font(.geist(size: 10)).foregroundColor(.secondary)
       }
     case .ready(let url):
       HStack(spacing: 6) {
@@ -503,7 +503,7 @@ public struct WebPreviewView: View {
           .fill(Color.green)
           .frame(width: 6, height: 6)
         Text(url.absoluteString)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
       }
     case .failed:
@@ -512,13 +512,13 @@ public struct WebPreviewView: View {
           .fill(Color.red)
           .frame(width: 6, height: 6)
         Text("Failed")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.red)
       }
     case .stopping:
       HStack(spacing: 6) {
         ProgressView().controlSize(.mini)
-        Text("Stopping...").font(.caption).foregroundColor(.secondary)
+        Text("Stopping...").font(.geist(size: 10)).foregroundColor(.secondary)
       }
     }
   }
@@ -661,7 +661,7 @@ public struct WebPreviewView: View {
   ) -> some View {
     Button(title, systemImage: systemImage, action: action)
       .labelStyle(.iconOnly)
-      .font(.system(size: 14, weight: .medium))
+      .font(.geist(size: 14, weight: .medium))
       .foregroundStyle(.secondary)
       .frame(width: 28, height: 28)
       .contentShape(Rectangle())
@@ -801,7 +801,7 @@ public struct WebPreviewView: View {
         Spacer()
         ProgressView()
         Text("Stopping server...")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
         Spacer()
       }
@@ -817,10 +817,10 @@ public struct WebPreviewView: View {
       ProgressView()
         .controlSize(.large)
       Text("Detecting project...")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
       Text("Analyzing \(session.projectName)...")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
       Spacer()
     }
@@ -835,11 +835,11 @@ public struct WebPreviewView: View {
         .controlSize(.large)
 
       Text(loadingMessage)
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text("Starting dev server for \(session.projectName)...")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
 
       Spacer()
@@ -856,11 +856,11 @@ public struct WebPreviewView: View {
           .controlSize(.large)
 
         Text(previewLoadingTitle)
-          .font(.headline)
+          .font(.geist(size: 13, weight: .bold))
           .foregroundColor(.secondary)
 
         Text(previewLoadingSubtitle)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
       .padding(.horizontal, 24)
@@ -878,11 +878,11 @@ public struct WebPreviewView: View {
         .foregroundColor(.red.opacity(0.6))
 
       Text("Failed to Start Server")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text(error)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 40)
@@ -906,17 +906,17 @@ public struct WebPreviewView: View {
         .foregroundColor(.secondary.opacity(0.6))
 
       Text("No Web Content")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text(reason)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 40)
 
       Text("No worries, ask your agent to run a local server again and reopen this window.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 40)
@@ -2139,7 +2139,7 @@ public struct WebPreviewView: View {
         .foregroundColor(.white)
 
       Text(inspectorViewModel.isResolving ? "Edit Mode — mapping source" : "Edit Mode — click any element to edit")
-        .font(.system(size: 11, weight: .semibold))
+        .font(.geist(size: 11, weight: .semibold))
         .foregroundColor(.white)
 
       Spacer()

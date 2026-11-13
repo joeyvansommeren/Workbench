@@ -167,7 +167,7 @@ struct SimulatorPreviewSpotlightView: View {
 
       if let connectedDeviceName {
         Text("Previewing the app on \(connectedDeviceName)")
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.tertiary)
           .padding(.bottom, 6)
       }
@@ -193,7 +193,7 @@ struct SimulatorPreviewSpotlightView: View {
     VStack(spacing: 8) {
       ProgressView()
       Text("Discovering previews…")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
     }
   }
@@ -202,7 +202,7 @@ struct SimulatorPreviewSpotlightView: View {
     VStack(spacing: 8) {
       ProgressView()
       Text("Starting previews…")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
     }
   }
@@ -225,7 +225,7 @@ struct SimulatorPreviewSpotlightView: View {
           "Launch the app with preview support enabled to render SwiftUI previews here.")
         if !message.isEmpty {
           Text(message)
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundStyle(.tertiary)
         }
       }
@@ -353,11 +353,11 @@ struct SimulatorPreviewCanvasView: View {
 
       VStack(spacing: 1) {
         Text(selection.title)
-          .font(.caption.weight(.medium))
+          .font(.geist(size: 10, weight: .medium))
           .lineLimit(1)
         if let subtitle = selection.subtitle {
           Text(subtitle)
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -433,7 +433,7 @@ struct SimulatorPreviewCanvasView: View {
           Image(systemName: "arrow.clockwise")
             .foregroundStyle(.orange)
           Text("Render failed — retry")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

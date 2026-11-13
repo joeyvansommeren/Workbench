@@ -31,12 +31,12 @@ struct WebPreviewTokenPromotionBar: View {
         .foregroundStyle(.secondary)
 
       Text(offer.contextLabel)
-        .font(.system(size: 11, weight: .medium))
+        .font(.geist(size: 11, weight: .medium))
         .foregroundStyle(.primary)
 
       Button(action: onPromote) {
         Text(offer.actionLabel)
-          .font(.system(size: 11, weight: .semibold))
+          .font(.geist(size: 11, weight: .semibold))
       }
       .controlSize(.small)
       .help("Rewrite \(offer.token)'s definition so every element using it updates")

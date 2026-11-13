@@ -30,7 +30,7 @@ public struct SettingsView: View {
   private var terminalFontSize: Double = 12
 
   @AppStorage(AgentHubDefaults.terminalFontFamily)
-  private var terminalFontFamily: String = "SF Mono"
+  private var terminalFontFamily: String = "Geist Mono"
 
   @AppStorage(AgentHubDefaults.terminalBackend)
   private var terminalBackendRawValue: Int = EmbeddedTerminalBackend.regular.rawValue
@@ -116,9 +116,8 @@ public struct SettingsView: View {
   @State private var themeSelectionTask: Task<Void, Never>?
   @State private var applyingThemeSelectionId: String?
   private let terminalFontFamilies = [
-    "SF Mono",
+    "Geist Mono",
     "JetBrains Mono",
-    "GeistMono",
     "Fira Code",
     "Cascadia Mono",
     "Source Code Pro",
@@ -209,7 +208,7 @@ public struct SettingsView: View {
       applyingThemeSelectionId = nil
     }
     .alert(
-      "Relaunch AgentHub?",
+      "Relaunch Workbench?",
       isPresented: $showTerminalBackendRelaunchAlert,
       presenting: pendingTerminalBackend
     ) { backend in
@@ -223,7 +222,7 @@ public struct SettingsView: View {
       }
     } message: { backend in
       Text(
-        "Switching to \(backend.label) requires relaunching AgentHub. Running terminals will be closed during relaunch."
+        "Switching to \(backend.label) requires relaunching Workbench. Running terminals will be closed during relaunch."
       )
     }
   }
@@ -290,7 +289,7 @@ public struct SettingsView: View {
 
         if let error = agentHub?.globalSessionControlPanelCoordinator.registrationErrorMessage {
           Label(error, systemImage: "exclamationmark.triangle")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.orange)
         }
       }
@@ -298,7 +297,7 @@ public struct SettingsView: View {
       Section("Claude Code integration") {
         settingsToggle(
           title: "Enable approval hooks",
-          description: "Detects pending Edit/Bash/etc. approvals in real time. Installs a hook into each monitored project's .claude/settings.local.json (gitignored) only while AgentHub is actively watching the session.",
+          description: "Detects pending Edit/Bash/etc. approvals in real time. Installs a hook into each monitored project's .claude/settings.local.json (gitignored) only while Workbench is actively watching the session.",
           isOn: $claudeApprovalHooksEnabled
         )
         .onChange(of: claudeApprovalHooksEnabled) { _, newValue in
@@ -352,7 +351,7 @@ public struct SettingsView: View {
             "Node.js not found — Xcode project sessions will launch without simulator tools until Node.js or xcodebuildmcp is installed.",
             systemImage: "exclamationmark.triangle"
           )
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.orange)
         }
       }
@@ -488,7 +487,7 @@ public struct SettingsView: View {
                 ProgressView()
                   .controlSize(.small)
                 Text("Applying...")
-                  .font(.caption)
+                  .font(.geist(size: 10))
                   .foregroundStyle(.secondary)
               }
               .transition(.opacity)
@@ -507,7 +506,7 @@ public struct SettingsView: View {
         } footer: {
           if let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             Text("Workbench v\(appVersion)")
-              .font(.caption)
+              .font(.geist(size: 10))
           }
         }
       }
@@ -548,7 +547,7 @@ public struct SettingsView: View {
         }
 
         Text(selectedWebPreviewInspectorDataLevel.settingsDescription)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       } header: {
         Text("Web Preview")
@@ -591,11 +590,11 @@ public struct SettingsView: View {
           if installed {
             Label("Installed", systemImage: "checkmark.circle.fill")
               .foregroundColor(.green)
-              .font(.caption)
+              .font(.geist(size: 10))
           } else {
             Label("Not Installed", systemImage: "xmark.circle.fill")
               .foregroundColor(.secondary)
-              .font(.caption)
+              .font(.geist(size: 10))
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -607,7 +606,7 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: 16) {
           VStack(alignment: .leading, spacing: 6) {
             Text("Command")
-              .font(.caption)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
 
             HStack(spacing: 8) {
@@ -625,14 +624,14 @@ public struct SettingsView: View {
 
           VStack(alignment: .leading, spacing: 6) {
             Text("Extra arguments")
-              .font(.caption)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
 
             TextField("e.g. --api-mode enterprise", text: commandArgs)
               .textFieldStyle(.roundedBorder)
 
             Text("Arguments applied to each CLI launch.")
-              .font(.caption)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
           }
 
@@ -655,7 +654,7 @@ public struct SettingsView: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(title)
         Text(description)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
     }
@@ -717,12 +716,12 @@ public struct SettingsView: View {
 
       if ghosttyConfigPathIsInvalid {
         Label("File not found or not readable — the setting is ignored.", systemImage: "exclamationmark.triangle")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.orange)
       }
 
       Text("Layered on top of your Ghostty configuration, for Workbench terminals only. The app backdrop updates immediately; fresh terminal processes may require relaunch.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
   }

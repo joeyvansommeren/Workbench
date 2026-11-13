@@ -43,12 +43,12 @@ struct SimulatorDeviceToolbarView: View {
     HStack(spacing: 4) {
       VStack(alignment: .leading, spacing: 1) {
         Text(deviceName)
-          .font(.caption.weight(.semibold))
+          .font(.geist(size: 10, weight: .semibold))
           .foregroundStyle(contentColor)
           .lineLimit(1)
         if let runtimeName {
           Text(runtimeName)
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundStyle(contentColor.opacity(0.55))
             .lineLimit(1)
         }

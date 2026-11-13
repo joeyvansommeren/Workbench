@@ -50,7 +50,7 @@ public struct CLINotInstalledView: View {
 
         Link(destination: installationURL) {
           Label("Installation Guide", systemImage: "arrow.up.right.circle.fill")
-            .font(.subheadline)
+            .font(.geist(size: 11))
         }
         .buttonStyle(.borderedProminent)
         .tint(Color.brandPrimary(for: provider))

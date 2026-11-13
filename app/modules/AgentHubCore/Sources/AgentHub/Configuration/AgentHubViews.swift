@@ -38,12 +38,14 @@ public struct AgentHubOperationsView: View {
     VStack(spacing: 0) {
       HStack(spacing: DesignTokens.Spacing.md) {
         WorkspaceSwitcherBar(selection: $section)
-        Spacer()
+          .fixedSize(horizontal: true, vertical: false)
+        Spacer(minLength: DesignTokens.Spacing.sm)
         if section == .workflows {
-          StateChip(
-            text: "Approval required before commit, push, or PR",
-            systemImage: "hand.raised.fill"
-          )
+          // Longest label that fits; narrow windows get the short form.
+          ViewThatFits(in: .horizontal) {
+            StateChip(text: "Approval required before commit, push, or PR", systemImage: "hand.raised.fill")
+            StateChip(text: "Approval required", systemImage: "hand.raised.fill")
+          }
           .help("Workflow policy: a human approves every commit, push, and pull request")
         }
       }
@@ -124,22 +126,22 @@ public struct AgentHubOperationsView: View {
         case .sprint:
           if let agentHub {
             JiraSprintView(
-              viewModel: agentHub.jiraSprintViewModel,
-              repositories: WorktreeModuleResolver.mergedRepositories(
-                agentHub.claudeSessionsViewModel.selectedRepositories
-                  + agentHub.codexSessionsViewModel.selectedRepositories
-              ),
-              linkedSessions: agentHub.jiraLinkedSessions(),
-              onStart: { ticket, provider, repositoryPath in
-                await startJiraTicket(
-                  ticket,
-                  provider: provider,
-                  repositoryPath: repositoryPath,
-                  agentHub: agentHub
-                )
-              },
-              onOpenSession: { agentHub.showSession($0) }
-            )
+                viewModel: agentHub.jiraSprintViewModel,
+                repositories: WorktreeModuleResolver.mergedRepositories(
+                  agentHub.claudeSessionsViewModel.selectedRepositories
+                    + agentHub.codexSessionsViewModel.selectedRepositories
+                ),
+                linkedSessions: agentHub.jiraLinkedSessions(),
+                onStart: { ticket, provider, repositoryPath in
+                  await startJiraTicket(
+                    ticket,
+                    provider: provider,
+                    repositoryPath: repositoryPath,
+                    agentHub: agentHub
+                  )
+                },
+                onOpenSession: { agentHub.showSession($0) }
+              )
           } else {
             ContentUnavailableView(
               "AgentHub provider not found",
@@ -493,7 +495,7 @@ public struct AgentHubSessionsView: View {
       worktreeBranchNamingService: provider.worktreeBranchNamingService,
       worktreeSuccessSoundService: provider.worktreeSuccessSoundService
     )
-    .frame(minWidth: AgentHubLayout.windowMinWidth, minHeight: AgentHubLayout.windowMinHeight)
+    .frame(minWidth: AgentHubLayout.windowMinWidth)
     .modifier(RemoveTitleToolbarModifier())
     .task {
       provider.startWorktreeLaunchRequestMonitoring()
@@ -506,9 +508,9 @@ public struct AgentHubSessionsView: View {
         .font(.largeTitle)
         .foregroundStyle(.secondary)
       Text("Workbench provider not found")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
       Text("Add .agentHub() modifier to a parent view")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -638,7 +640,7 @@ private struct ResumeSessionByIDSheet: View {
       }
       TextField("Session ID", text: $text)
         .textFieldStyle(.roundedBorder)
-        .font(.jetBrainsMono(size: 12))
+        .font(.mono(size: 12))
         .focused($isFocused)
         .onSubmit(resume)
         .onChange(of: text) { _, _ in notFound = false }

@@ -29,7 +29,7 @@ struct ContextWindowBar: View {
           ModelBadge(model: model)
         }
         Text(formattedUsage)
-          .font(.system(.subheadline, design: .monospaced))
+          .font(.mono(size: 11))
           .foregroundColor(.secondary)
 
         // Help button
@@ -44,10 +44,10 @@ struct ContextWindowBar: View {
         .popover(isPresented: $showingHelp) {
           VStack(alignment: .leading, spacing: 8) {
             Text("Why is this an estimate?")
-              .font(.subheadline)
+              .font(.geist(size: 11))
               .fontWeight(.semibold)
             Text("Context usage is calculated from API response data (input + cache tokens). Claude Code's internal /context command includes additional overhead like autocompact buffer reservations that aren't exposed in session files.")
-              .font(.caption)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
               .fixedSize(horizontal: false, vertical: true)
           }

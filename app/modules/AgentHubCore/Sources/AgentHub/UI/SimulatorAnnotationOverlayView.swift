@@ -204,7 +204,7 @@ struct SimulatorAnnotationOverlayView: View {
     let y = above < 14 ? min(frame.maxY + 16, viewSize.height - 14) : above
 
     return Text(text)
-      .font(.caption2.weight(.medium))
+      .font(.geist(size: 10, weight: .medium))
       .lineLimit(1)
       .truncationMode(.middle)
       .padding(.horizontal, 8)
@@ -240,7 +240,7 @@ struct SimulatorAnnotationOverlayView: View {
           ? "Click anywhere to drop a pin (element data unavailable)"
           : "Click an element to annotate it"
     )
-    .font(.caption)
+    .font(.geist(size: 10))
     .foregroundStyle(.secondary)
     .padding(.horizontal, 10)
     .padding(.vertical, 5)
@@ -280,7 +280,7 @@ struct SimulatorAnnotationOverlayView: View {
     return VStack(alignment: .leading, spacing: 4) {
       if let target = model.pendingTarget {
         Text(target.summary)
-          .font(.caption2.weight(.semibold))
+          .font(.geist(size: 10, weight: .semibold))
           .foregroundStyle(.primary)
           .lineLimit(1)
       }
@@ -288,7 +288,7 @@ struct SimulatorAnnotationOverlayView: View {
       HStack(spacing: 8) {
         TextField("Describe the change…", text: $draftText)
           .textFieldStyle(.plain)
-          .font(.callout)
+          .font(.geist(size: 12))
           .focused($isInputFocused)
           .onSubmit { commitDraft() }
           .onExitCommand { cancelDraft() }

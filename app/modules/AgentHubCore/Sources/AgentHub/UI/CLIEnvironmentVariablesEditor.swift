@@ -29,7 +29,7 @@ struct CLIEnvironmentVariablesEditor: View {
               }
               .labelsHidden()
               .textFieldStyle(.roundedBorder)
-              .font(.system(.body, design: .monospaced))
+              .font(.mono(size: 13))
               .lineLimit(1)
               .frame(maxWidth: .infinity)
 
@@ -44,7 +44,7 @@ struct CLIEnvironmentVariablesEditor: View {
               }
               .labelsHidden()
               .textFieldStyle(.roundedBorder)
-              .font(.system(.body, design: .monospaced))
+              .font(.mono(size: 13))
               .lineLimit(1)
               .frame(maxWidth: .infinity)
 

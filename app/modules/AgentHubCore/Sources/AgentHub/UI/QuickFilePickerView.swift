@@ -38,9 +38,9 @@ private enum QuickFileSearchPhase: Equatable {
       case .ready:
         return "Local fallback is ready if Spotlight has no indexed match."
       case .building:
-        return "AgentHub is also building a local fallback for unindexed files."
+        return "Workbench is also building a local fallback for unindexed files."
       case .idle:
-        return "AgentHub will build a local fallback if Spotlight has no indexed match."
+        return "Workbench will build a local fallback if Spotlight has no indexed match."
       }
     case .warmingLocalIndex:
       return "Spotlight is taking longer than usual; the local scanner is catching up."
@@ -119,7 +119,7 @@ public struct QuickFilePickerView: View {
 
         TextField("Go to file...", text: $searchQuery)
           .textFieldStyle(.plain)
-          .font(.system(size: 16))
+          .font(.geist(size: 16))
           .focused($isSearchFocused)
           .onSubmit { selectCurrentItem() }
 
@@ -135,7 +135,7 @@ public struct QuickFilePickerView: View {
         Spacer()
 
         Text("esc")
-          .font(.system(size: 11, design: .monospaced))
+          .font(.mono(size: 11))
           .foregroundColor(.secondary.opacity(0.6))
           .padding(.horizontal, 6)
           .padding(.vertical, 3)
@@ -153,7 +153,7 @@ public struct QuickFilePickerView: View {
         if showingRecent {
           HStack {
             Text("Recently Opened")
-              .font(.system(size: 11, weight: .medium))
+              .font(.geist(size: 11, weight: .medium))
               .foregroundColor(.secondary)
             Spacer()
           }
@@ -196,11 +196,11 @@ public struct QuickFilePickerView: View {
             .font(.system(size: 20))
             .foregroundColor(.secondary.opacity(0.5))
           Text("No files found for \"\(searchQuery)\"")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
           if lastSearchDiagnostics?.source == .localIndex {
             Text("Spotlight returned no indexed matches; local index scanned \(lastSearchDiagnostics?.localIndexedFileCount ?? 0) files.")
-              .font(.caption2)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary.opacity(0.7))
               .multilineTextAlignment(.center)
           }
@@ -215,10 +215,10 @@ public struct QuickFilePickerView: View {
             .font(.system(size: 20))
             .foregroundColor(.secondary.opacity(0.5))
           Text("No recently opened files")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
           Text("Start typing to search")
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary.opacity(0.6))
         }
         .frame(maxWidth: .infinity)
@@ -380,10 +380,10 @@ private struct QuickFileSearchProgressView: View {
 
       VStack(spacing: 4) {
         Text(phase.title)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.primary)
         Text(phase.detail)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary.opacity(0.75))
           .multilineTextAlignment(.center)
       }
@@ -446,10 +446,10 @@ private struct QuickFileSearchProgressStep: View {
 
       VStack(alignment: .leading, spacing: 1) {
         Text(title)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundColor(.primary)
         Text(statusText)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
           .contentTransition(.opacity)
       }
@@ -482,7 +482,7 @@ private struct QuickFileSearchDiagnosticsFooter: View {
           .accessibilityHidden(true)
 
         Text(message(for: diagnostics))
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
           .lineLimit(2)
 
@@ -539,12 +539,12 @@ private struct QuickFileResultRow: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text(result.name)
-          .font(.system(size: 13, weight: .semibold))
+          .font(.geist(size: 13, weight: .semibold))
           .foregroundColor(isSelected ? .white : .primary)
           .lineLimit(1)
 
         Text(result.relativePath)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
           .lineLimit(1)
       }

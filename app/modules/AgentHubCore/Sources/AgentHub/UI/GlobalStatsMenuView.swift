@@ -188,7 +188,7 @@ public struct GlobalStatsMenuView: View {
       Image(systemName: icon)
         .foregroundColor(.brandPrimary(for: provider))
       Text(title)
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
       Spacer()
     }
   }
@@ -268,7 +268,7 @@ public struct GlobalStatsMenuView: View {
   private var claudeTodaySection: some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("Today")
-        .font(.subheadline)
+        .font(.geist(size: 11))
         .fontWeight(.semibold)
         .foregroundColor(.secondary)
 
@@ -287,20 +287,20 @@ public struct GlobalStatsMenuView: View {
   private var claudeModelBreakdownSection: some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("By Model")
-        .font(.subheadline)
+        .font(.geist(size: 11))
         .fontWeight(.semibold)
         .foregroundColor(.secondary)
 
       ForEach(claudeService.modelStats, id: \.name) { model in
         HStack {
           Text(model.name)
-            .font(.caption)
+            .font(.geist(size: 10))
           Spacer()
           Text(formatTokenCount(model.usage.inputTokens + model.usage.outputTokens))
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
           Text(formatCost(model.cost))
-            .font(.caption)
+            .font(.geist(size: 10))
             .fontWeight(.medium)
         }
       }
@@ -312,24 +312,24 @@ public struct GlobalStatsMenuView: View {
   private func codexModelBreakdownSection(_ codex: CodexGlobalStatsService) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("By Model")
-        .font(.subheadline)
+        .font(.geist(size: 11))
         .fontWeight(.semibold)
         .foregroundColor(.secondary)
 
       ForEach(codex.sortedModelStats, id: \.name) { model in
         HStack {
           Text(model.name)
-            .font(.caption)
+            .font(.geist(size: 10))
           Spacer()
           Text(formatTokenCount(model.usage.totalTokens))
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
         }
       }
 
       if codex.sortedModelStats.isEmpty {
         Text("No model data")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
     }
@@ -347,10 +347,10 @@ public struct GlobalStatsMenuView: View {
           .foregroundColor(.orange)
           .frame(width: 16)
         Text("Orphaned Processes")
-          .font(.caption)
+          .font(.geist(size: 10))
         Spacer()
         Text("\(count)")
-          .font(.caption)
+          .font(.geist(size: 10))
           .fontWeight(.medium)
           .foregroundColor(.orange)
       }
@@ -360,7 +360,7 @@ public struct GlobalStatsMenuView: View {
           Image(systemName: "xmark.circle.fill")
             .foregroundColor(.red)
           Text("Kill All")
-            .font(.caption)
+            .font(.geist(size: 10))
         }
       }
       .buttonStyle(.plain)
@@ -373,7 +373,7 @@ public struct GlobalStatsMenuView: View {
     HStack {
       if let lastUpdated = lastUpdated {
         Text("Updated \(lastUpdated, style: .relative) ago")
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
 
@@ -395,7 +395,7 @@ public struct GlobalStatsMenuView: View {
       NSApplication.shared.terminate(nil)
     }
     .buttonStyle(.plain)
-    .font(.caption)
+    .font(.geist(size: 10))
   }
 
   // MARK: - Helpers
@@ -440,10 +440,10 @@ private struct StatRow: View {
         .foregroundColor(.brandPrimary(for: provider))
         .frame(width: 16)
       Text(label)
-        .font(.caption)
+        .font(.geist(size: 10))
       Spacer()
       Text(value)
-        .font(.caption)
+        .font(.geist(size: 10))
         .fontWeight(.medium)
     }
   }
@@ -458,10 +458,10 @@ private struct MiniStat: View {
   var body: some View {
     VStack(spacing: 2) {
       Text(value)
-        .font(.system(.caption, design: .monospaced))
+        .font(.mono(size: 10))
         .fontWeight(.semibold)
       Text(label)
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
   }

@@ -111,9 +111,9 @@ private struct StudioProjectRow: View {
               .rotationEffect(.degrees(isExpanded ? 90 : 0))
             VStack(alignment: .leading, spacing: 2) {
               Text(StudioSettingsViewModel.displayName(forProjectKey: project.projectKey))
-                .font(.body)
+                .font(.geist(size: 13))
               Text(project.projectKey)
-                .font(.caption2)
+                .font(.geist(size: 10))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.head)
@@ -125,7 +125,7 @@ private struct StudioProjectRow: View {
         Spacer()
 
         Text("\(project.artifacts.count) · \(ByteCountFormatter.string(fromByteCount: project.bytesOnDisk, countStyle: .file))")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
 
         Button(role: .destructive, action: onDeleteProject) {
@@ -143,9 +143,9 @@ private struct StudioProjectRow: View {
               .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
               Text(artifact.title)
-                .font(.callout)
+                .font(.geist(size: 12))
               Text(detail(for: artifact))
-                .font(.caption2)
+                .font(.geist(size: 10))
                 .foregroundStyle(.secondary)
             }
             Spacer()

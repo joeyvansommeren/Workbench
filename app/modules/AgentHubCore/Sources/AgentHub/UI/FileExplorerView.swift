@@ -87,7 +87,7 @@ public struct FileExplorerView: View {
         VStack(spacing: 12) {
           ProgressView()
           Text("Loading files…")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -188,13 +188,13 @@ public struct FileExplorerView: View {
           : (path as NSString).lastPathComponent
         HStack(spacing: 4) {
           Text(relPath)
-            .font(.system(.caption, design: .monospaced))
+            .font(.mono(size: 10))
             .foregroundColor(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
           if let badgeLabel = editorDisplayMode.badgeLabel, fileError == nil {
             Text(badgeLabel)
-              .font(.system(size: 10, weight: .medium))
+              .font(.geist(size: 10, weight: .medium))
               .foregroundColor(.secondary)
               .padding(.horizontal, 5)
               .padding(.vertical, 1)
@@ -205,7 +205,7 @@ public struct FileExplorerView: View {
           }
           if hasUnsavedChanges {
             Text("Modified")
-              .font(.system(size: 10, weight: .medium))
+              .font(.geist(size: 10, weight: .medium))
               .foregroundColor(.orange)
               .padding(.horizontal, 5)
               .padding(.vertical, 1)
@@ -217,7 +217,7 @@ public struct FileExplorerView: View {
         }
       } else {
         Text(URL(fileURLWithPath: projectPath).lastPathComponent)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
       }
 
@@ -226,7 +226,7 @@ public struct FileExplorerView: View {
       // Save error indicator
       if let saveError {
         Text(saveError)
-          .font(.system(size: 10))
+          .font(.geist(size: 10))
           .foregroundColor(.red)
           .lineLimit(1)
           .transition(.opacity)
@@ -264,7 +264,7 @@ public struct FileExplorerView: View {
     VStack(alignment: .leading, spacing: 0) {
       HStack {
         Text("Files")
-          .font(.system(size: 13, weight: .bold, design: .monospaced))
+          .font(.mono(size: 13, weight: .bold))
         Spacer()
       }
       .padding(.horizontal, DesignTokens.Spacing.sm)
@@ -280,7 +280,7 @@ public struct FileExplorerView: View {
               ProgressView()
                 .controlSize(.small)
               Text("Loading…")
-                .font(.caption)
+                .font(.geist(size: 10))
                 .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -325,10 +325,10 @@ public struct FileExplorerView: View {
           .font(.system(size: 36))
           .foregroundColor(.red.opacity(0.6))
         Text("Cannot display file")
-          .font(.headline)
+          .font(.geist(size: 13, weight: .bold))
           .foregroundColor(.secondary)
         Text(error)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
           .multilineTextAlignment(.center)
       }
@@ -338,7 +338,7 @@ public struct FileExplorerView: View {
       VStack(spacing: 12) {
         ProgressView()
         Text("Loading file…")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -348,7 +348,7 @@ public struct FileExplorerView: View {
           .font(.system(size: 40))
           .foregroundColor(.secondary.opacity(0.6))
         Text("Select a file to view")
-          .font(.callout)
+          .font(.geist(size: 12))
           .foregroundColor(.secondary)
         Text("Browse the file tree or use \(Image(systemName: "command"))  P")
           .font(.caption)
@@ -666,7 +666,7 @@ private struct FileTreeRowView: View {
 
           // Name
           Text(node.name)
-            .font(.system(.caption, design: .monospaced))
+            .font(.mono(size: 10))
             .fontWeight(node.isDirectory ? .medium : .regular)
             .lineLimit(1)
             .foregroundColor(isSelected ? .white : .primary)
@@ -691,7 +691,7 @@ private struct FileTreeRowView: View {
         ProgressView()
           .controlSize(.small)
         Text("Loading…")
-          .font(.system(size: 11))
+          .font(.geist(size: 11))
           .foregroundColor(.secondary)
       }
       .padding(.vertical, 4)

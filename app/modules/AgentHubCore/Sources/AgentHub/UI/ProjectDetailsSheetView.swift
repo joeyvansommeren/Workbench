@@ -410,7 +410,7 @@ private struct ProjectSessionGridCard: View {
         Circle()
           .fill(statusColor)
           .frame(width: 8, height: 8)
-          .shadow(color: statusColor.opacity(isWorking ? 0.55 : 0), radius: 4)
+          // Glow removed — state is shown by tone and text.
           .padding(.top, 5)
 
         VStack(alignment: .leading, spacing: 5) {

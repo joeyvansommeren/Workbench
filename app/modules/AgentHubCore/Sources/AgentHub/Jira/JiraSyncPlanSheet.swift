@@ -76,7 +76,7 @@ private struct JiraSyncChangeRow: View {
   var body: some View {
     HStack(alignment: .firstTextBaseline, spacing: DesignTokens.Spacing.md) {
       Text(change.key)
-        .font(.jetBrainsMono(size: 11, weight: .semibold))
+        .font(.mono(size: 11, weight: .semibold))
         .frame(width: 78, alignment: .leading)
       VStack(alignment: .leading, spacing: 3) {
         Text(change.summary)

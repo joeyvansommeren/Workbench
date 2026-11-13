@@ -459,7 +459,7 @@ private struct RegularTerminalPaneHeader: View {
           Text(activeTabTitle)
             .lineLimit(1)
             .truncationMode(.tail)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.geist(size: 12, weight: .semibold))
             .foregroundStyle(Color.primary)
             .padding(.leading, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -557,7 +557,7 @@ private struct RegularTerminalTabItem: View {
         Button("Close Tab", systemImage: "xmark", action: onClose)
           .labelStyle(.iconOnly)
           .buttonStyle(.plain)
-          .font(.system(size: 10, weight: .bold))
+          .font(.geist(size: 10, weight: .bold))
           .foregroundStyle(Color.secondary)
           .frame(width: 16, height: 16)
           .background {
@@ -631,7 +631,7 @@ private struct RegularTerminalToolbarButton: View {
     Button(title, systemImage: systemImage, action: action)
       .labelStyle(.iconOnly)
       .buttonStyle(.plain)
-      .font(.system(size: 13, weight: .medium))
+      .font(.geist(size: 13, weight: .medium))
       .foregroundStyle(isDisabled ? Color.secondary.opacity(0.45) : Color.secondary)
       .frame(width: 28, height: 28)
       .background {

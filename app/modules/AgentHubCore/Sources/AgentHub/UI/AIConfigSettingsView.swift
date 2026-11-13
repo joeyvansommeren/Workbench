@@ -223,7 +223,7 @@ struct ClaudeAIConfigView: View {
       MultilineSettingsEditor(text: text, placeholder: placeholder)
         .onChange(of: text.wrappedValue) { onChange() }
       Text("Use one tool pattern per line, or separate multiple values with commas.")
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
   }
@@ -257,7 +257,7 @@ struct CodexAIConfigView: View {
         .frame(maxWidth: 220, alignment: .leading)
 
         Text(viewModel.codexApprovalPolicyDescription)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
           .frame(maxWidth: 420, alignment: .leading)
@@ -276,7 +276,7 @@ struct CodexAIConfigView: View {
 
         if let description = viewModel.codexSelectedEffortDescription {
           Text(description)
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: 420, alignment: .leading)
@@ -345,7 +345,7 @@ private struct AIModelPickerRow: View {
         .frame(maxWidth: 320, alignment: .leading)
 
       Text(footnote)
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: 420, alignment: .leading)
@@ -408,7 +408,7 @@ private func settingsField<Content: View>(
 ) -> some View {
   VStack(alignment: .leading, spacing: 6) {
     Text(title)
-      .font(.caption)
+      .font(.geist(size: 10))
       .foregroundColor(.secondary)
     content()
   }
@@ -425,13 +425,13 @@ private struct MultilineSettingsEditor: View {
       TextEditor(text: $text)
         .scrollContentBackground(.hidden)
         .focused($isFocused)
-        .font(.system(size: 13))
+        .font(.geist(size: 13))
         .frame(minHeight: 84)
         .padding(6)
 
       if text.isEmpty {
         Text(placeholder)
-          .font(.system(size: 13))
+          .font(.geist(size: 13))
           .foregroundColor(.secondary)
           .padding(.horizontal, 11)
           .padding(.vertical, 14)

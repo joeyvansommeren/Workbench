@@ -242,7 +242,7 @@ struct ChatTranscriptView: View {
           .font(.secondaryDefault.weight(.semibold))
         if let detail = pendingApproval?.detail, !detail.isEmpty {
           Text(detail)
-            .font(.jetBrainsMono(size: 11))
+            .font(.mono(size: 11))
             .foregroundStyle(.secondary)
             .lineLimit(3)
         }
@@ -369,7 +369,7 @@ private struct ChatEmptyState: View {
         .frame(maxWidth: 420)
       if let detail {
         Text(detail)
-          .font(.jetBrainsMono(size: 10))
+          .font(.mono(size: 10))
           .foregroundStyle(.tertiary)
           .lineLimit(2)
           .truncationMode(.middle)
@@ -610,7 +610,7 @@ private struct ToolStepsView: View {
                 Text(name)
                   .font(.geist(size: 11, weight: .semibold))
                 Text(detail)
-                  .font(.jetBrainsMono(size: 11))
+                  .font(.mono(size: 11))
                   .foregroundStyle(.secondary)
                   .lineLimit(2)
               }
@@ -823,7 +823,7 @@ private struct CopyChip: View {
           .font(.system(size: 10, weight: .semibold))
         if let label {
           Text(label)
-            .font(monospaced ? .jetBrainsMono(size: 11) : .secondarySmall)
+            .font(monospaced ? .mono(size: 11) : .secondarySmall)
             .lineLimit(1)
         }
       }

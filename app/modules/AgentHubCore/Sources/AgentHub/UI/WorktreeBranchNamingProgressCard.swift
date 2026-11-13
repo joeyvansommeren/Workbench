@@ -128,7 +128,7 @@ struct WorktreeBranchNamingProgressCard: View {
               .foregroundStyle(accentColor.opacity(0.9))
 
             Text(branchName)
-              .font(.jetBrainsMono(size: 10, weight: .medium))
+              .font(.mono(size: 10, weight: .medium))
               .foregroundStyle(.primary)
               .lineLimit(1)
               .truncationMode(.middle)

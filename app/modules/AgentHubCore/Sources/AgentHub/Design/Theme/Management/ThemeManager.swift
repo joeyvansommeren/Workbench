@@ -76,6 +76,25 @@ public final class ThemeManager {
       expandedContentDark: "#080808"
   """
 
+  private static let bundledWorkbenchYAML = """
+  name: "Workbench"
+  version: "1.0"
+  author: "Workbench"
+  description: "Soft graphite dark theme with a calm periwinkle accent"
+
+  colors:
+    brand:
+      primary: "#93A4F8"
+      secondary: "#2A2E45"
+      tertiary: "#C3CCFB"
+
+    backgrounds:
+      dark: "#1C1D21"
+      expandedContentDark: "#18191C"
+      light: "#FAFAF9"
+      expandedContentLight: "#FFFFFF"
+  """
+
   private static let bundledSingularityYAML = """
   name: "Singularity"
   version: "1.0"
@@ -546,6 +565,7 @@ public final class ThemeManager {
   }
 
   private static let bundledThemes: [(name: String, fallbackYAML: String)] = [
+    ("workbench", bundledWorkbenchYAML),
     ("sentry", bundledSentryYAML),
     ("rigel", bundledRigelYAML),
     ("vela", bundledVelaYAML),
