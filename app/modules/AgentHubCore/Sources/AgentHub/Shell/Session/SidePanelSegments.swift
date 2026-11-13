@@ -10,6 +10,11 @@
 import Foundation
 
 /// One side panel a session can show.
+enum SidePanelSegmentIcon: Equatable, Sendable {
+  case system(String)
+  case pullRequest
+}
+
 enum SidePanelSegment: String, CaseIterable, Hashable, Sendable {
   case diff
   case plan
@@ -131,7 +136,13 @@ enum SidePanelSegments {
     }
   }
 
-  static func systemImage(for segment: SidePanelSegment) -> String {
+  /// The segment icon. GitHub draws `PullRequestGlyph`: SF Symbols has no
+  /// pull-request glyph (`arrow.triangle.pull` is a merge arrow).
+  static func icon(for segment: SidePanelSegment) -> SidePanelSegmentIcon {
+    segment == .gitHub ? .pullRequest : .system(systemImage(for: segment))
+  }
+
+  private static func systemImage(for segment: SidePanelSegment) -> String {
     switch segment {
     case .diff: return "plusminus"
     case .plan: return "checklist"
@@ -161,7 +172,7 @@ enum SidePanelSegments {
     }
   }
 
-  /// Legacy menu icons where they differ from the segment icon.
+  /// Legacy menu icons (flag off), unchanged from the old menu.
   static func legacyMenuSystemImage(for segment: SidePanelSegment) -> String {
     segment == .diff ? "arrow.left.arrow.right" : systemImage(for: segment)
   }

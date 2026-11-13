@@ -12,24 +12,22 @@
 import AgentHubGitDiff
 import SwiftUI
 
+/// What reloads the list: the project's diff summary, plus the session's
+/// activity, which catches changes the summary counts miss (staging, a
+/// re-edit with the same line counts). Reloads are throttled in the model.
+struct SidePanelDiffRefreshKey: Equatable {
+  var summary: LocalDiffSummary?
+  var lastActivity: Date?
+}
+
 struct SidePanelDiffView: View {
-  /// Changes when the project's diff changes; reloads the list.
-  let refreshKey: LocalDiffSummary?
+  /// Owned by the host (`SidePanelDiffModelCache`), so mode and selection
+  /// survive the full diff and back.
+  let model: SidePanelDiffModel
+  let refreshKey: SidePanelDiffRefreshKey
   let onShowFullDiff: () -> Void
 
-  @State private var model: SidePanelDiffModel
   @FocusState private var isListFocused: Bool
-
-  init(
-    projectPath: String,
-    refreshKey: LocalDiffSummary?,
-    service: any GitDiffServiceProtocol = GitDiffService(),
-    onShowFullDiff: @escaping () -> Void
-  ) {
-    self.refreshKey = refreshKey
-    self.onShowFullDiff = onShowFullDiff
-    _model = State(initialValue: SidePanelDiffModel(projectPath: projectPath, service: service))
-  }
 
   var body: some View {
     Group {
@@ -39,24 +37,25 @@ struct SidePanelDiffView: View {
           .controlSize(.small)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       case .failed(let message):
-        WBEmptyState(systemImage: "exclamationmark.triangle", isError: true, title: "Can't load the diff", description: message)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The header stays, so a mode that fails (Branch without a base) can
+        // be switched back, or the full diff opened.
+        VStack(spacing: 0) {
+          listHeader
+          WBEmptyState(systemImage: "exclamationmark.triangle", isError: true, title: "Can't load the diff", description: message)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
       case .loaded:
         loadedContent
       }
     }
-    .task(id: refreshKey) { await model.refresh() }
+    .task(id: refreshKey) { await model.refreshThrottled() }
     .task(id: model.fileLoadKey) { await model.loadSelectedFileDiff() }
   }
 
   private var loadedContent: some View {
     ScrollView(.vertical) {
       VStack(alignment: .leading, spacing: 0) {
-        SidePanelDiffListHeader(
-          mode: model.mode,
-          onSelectMode: { mode in Task { await model.setMode(mode) } },
-          onShowFullDiff: onShowFullDiff
-        )
+        listHeader
         if model.files.isEmpty {
           WBEmptyState(systemImage: "plusminus", title: "No changes")
             .frame(maxWidth: .infinity)
@@ -68,6 +67,14 @@ struct SidePanelDiffView: View {
       }
       .padding(.bottom, DesignTokens.Spacing.lg)
     }
+  }
+
+  private var listHeader: some View {
+    SidePanelDiffListHeader(
+      mode: model.mode,
+      onSelectMode: { mode in Task { await model.setMode(mode) } },
+      onShowFullDiff: onShowFullDiff
+    )
   }
 
   private var fileList: some View {
@@ -202,6 +209,13 @@ private struct SidePanelFileDiffBody: View {
         .padding(.top, DesignTokens.Spacing.lg)
     case .binary:
       note("Binary file")
+    case .tooLarge:
+      VStack(alignment: .leading, spacing: 0) {
+        note("This diff is too large to show here.")
+        fullDiffButton
+          .padding(.horizontal, DesignTokens.Spacing.lg)
+          .padding(.top, DesignTokens.Spacing.sm)
+      }
     case .failed(let message):
       note(message)
     case .loaded(let diff):
@@ -226,6 +240,14 @@ private struct SidePanelFileDiffBody: View {
       .padding(.top, DesignTokens.Spacing.md)
   }
 
+  private var fullDiffButton: some View {
+    Button(action: onShowFullDiff) {
+      Text("Show full diff")
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(WBSecondaryButtonStyle())
+  }
+
   private func truncationFooter(_ diff: SidePanelRenderedDiff) -> some View {
     HStack(spacing: DesignTokens.Spacing.sm) {
       Text("\(diff.renderedLineCount) of \(diff.totalLineCount) lines")
@@ -233,11 +255,7 @@ private struct SidePanelFileDiffBody: View {
         .monospacedDigit()
         .foregroundStyle(Color.wbTextSecondary)
       Spacer(minLength: 0)
-      Button(action: onShowFullDiff) {
-        Text("Show full diff")
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(WBSecondaryButtonStyle())
+      fullDiffButton
     }
     .padding(.horizontal, DesignTokens.Spacing.lg)
     .padding(.top, DesignTokens.Spacing.md)

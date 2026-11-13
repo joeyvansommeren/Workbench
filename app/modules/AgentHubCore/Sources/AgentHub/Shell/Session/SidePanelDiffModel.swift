@@ -27,6 +27,8 @@ enum SidePanelFileDiffState: Equatable {
   case loading
   case loaded(SidePanelRenderedDiff)
   case binary
+  /// Over the patch size limit; only the full diff can show it.
+  case tooLarge
   case failed(String)
 }
 
@@ -52,10 +54,11 @@ final class SidePanelDiffModel {
   /// Bumps after each list load, so the selected file's hunks reload too.
   private(set) var listRevision = 0
 
-  @ObservationIgnored private let projectPath: String
+  @ObservationIgnored let projectPath: String
   @ObservationIgnored private let service: any GitDiffServiceProtocol
   @ObservationIgnored private var loadGeneration = 0
   @ObservationIgnored private var fileGeneration = 0
+  @ObservationIgnored private var lastRefreshStart: ContinuousClock.Instant?
 
   init(projectPath: String, service: any GitDiffServiceProtocol) {
     self.projectPath = projectPath
@@ -69,6 +72,10 @@ final class SidePanelDiffModel {
   var additions: Int { files.reduce(0) { $0 + $1.additions } }
   var deletions: Int { files.reduce(0) { $0 + $1.deletions } }
 
+  /// The mode for "Show full diff": nil until a list has loaded, so the full
+  /// diff keeps its own auto-select instead of a mode that failed.
+  var loadedMode: DiffMode? { listState == .loaded ? mode : nil }
+
   /// Changes when the hunks below the list must (re)load.
   var fileLoadKey: String { "\(listRevision)|\(mode.rawValue)|\(selectedPath ?? "")" }
 
@@ -79,6 +86,7 @@ final class SidePanelDiffModel {
   /// `DiffMode` order): the header diffstat and "Commit N files…" count every
   /// mode, so an empty Branch list under them would read as wrong.
   func refresh() async {
+    lastRefreshStart = .now
     loadGeneration += 1
     let generation = loadGeneration
     if files.isEmpty { listState = .loading }
@@ -102,6 +110,19 @@ final class SidePanelDiffModel {
       fileDiff = .idle
       listState = .failed(error.localizedDescription)
     }
+  }
+
+  /// For frequent triggers (agent activity): refreshes start at most once per
+  /// `minimumInterval`. A newer trigger cancels this task and waits only for
+  /// the rest of the interval, so a steady stream still refreshes.
+  func refreshThrottled(minimumInterval: Duration = .seconds(2)) async {
+    if let lastRefreshStart {
+      let wait = minimumInterval - (ContinuousClock.now - lastRefreshStart)
+      if wait > .zero {
+        do { try await Task.sleep(for: wait) } catch { return }
+      }
+    }
+    await refresh()
   }
 
   func setMode(_ newMode: DiffMode) async {
@@ -186,6 +207,8 @@ final class SidePanelDiffModel {
       guard generation == fileGeneration, selectedPath == file.relativePath else { return }
       if case GitDiffError.binaryFile = error {
         fileDiff = .binary
+      } else if case GitDiffError.patchTooLarge = error {
+        fileDiff = .tooLarge
       } else {
         fileDiff = .failed(error.localizedDescription)
       }
@@ -208,5 +231,24 @@ final class SidePanelDiffModel {
       kept.append(hunk)
     }
     return SidePanelRenderedDiff(path: path, hunks: kept, totalLineCount: total)
+  }
+}
+
+/// Holds the compact diff's model in `SessionDetailContent`, so its mode and
+/// selection survive "Show full diff" and back. One model per project path.
+@MainActor
+final class SidePanelDiffModelCache {
+  private var model: SidePanelDiffModel?
+  private let makeService: () -> any GitDiffServiceProtocol
+
+  init(makeService: @escaping () -> any GitDiffServiceProtocol = { GitDiffService() }) {
+    self.makeService = makeService
+  }
+
+  func model(projectPath: String) -> SidePanelDiffModel {
+    if let model, model.projectPath == projectPath { return model }
+    let created = SidePanelDiffModel(projectPath: projectPath, service: makeService())
+    model = created
+    return created
   }
 }

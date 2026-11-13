@@ -191,7 +191,8 @@ enum LibGit2DiffBackend {
     let (patch, _) = try makePatch(for: file, in: diff)
     defer { git_patch_free(patch) }
 
-    return try patchString(from: patch, maxPatchBytes: renderPolicy.maxPatchBytes)
+    return try patchString(
+      from: patch, maxPatchBytes: renderPolicy.maxPatchBytes, throwingOversizedFor: file.relativePath)
   }
 }
 
@@ -454,12 +455,19 @@ private extension LibGit2DiffBackend {
     return (additions, deletions)
   }
 
-  static func patchString(from patch: OpaquePointer, maxPatchBytes: UInt64) throws -> String {
+  /// Above `maxPatchBytes`: a stand-in hunk for the full-file renderer, or
+  /// `patchTooLarge` when `throwingOversizedFor` names the file.
+  static func patchString(
+    from patch: OpaquePointer,
+    maxPatchBytes: UInt64,
+    throwingOversizedFor oversizedPath: String? = nil
+  ) throws -> String {
     var buffer = git_buf(ptr: nil, reserved: 0, size: 0)
     try check(git_patch_to_buf(&buffer, patch), operation: "render patch")
     defer { git_buf_dispose(&buffer) }
 
     guard UInt64(buffer.size) <= maxPatchBytes else {
+      if let oversizedPath { throw GitDiffError.patchTooLarge(oversizedPath) }
       return """
       @@ -0,0 +1,1 @@
       +Diff preview exceeds the 2 MB patch limit.

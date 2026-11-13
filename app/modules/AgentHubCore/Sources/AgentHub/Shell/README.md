@@ -224,10 +224,14 @@ GeometryReader.
   Automatic probes `DiffMode` order (branch → staged → unstaged) and takes the
   first mode with changes, because the header diffstat and "Commit N files…"
   count every mode. The legacy `GitDiffView` keeps its own rule.
-- **Refresh:** reloads when `localDiffSummary` changes; the selection survives
-  by relative path, else the first file.
-- **Cap:** 400 lines per file. "Show full diff" (also in the mode menu) expands
-  the side panel to the legacy `GitDiffView`; its Close returns to the compact
-  view.
+- **Refresh:** on appear, and when `localDiffSummary` or the session's
+  `lastActivityAt` changes (catches staging and same-count re-edits), at most
+  once per 2 s. The selection survives by relative path, else the first file.
+  The model lives in `SidePanelDiffModelCache` on `SessionDetailContent`, so
+  mode and selection survive the full diff and back.
+- **Cap:** 400 lines per file; patches over 2 MB (`GitDiffError.patchTooLarge`)
+  show a note. "Show full diff" (also in the mode menu, and above a load
+  error) expands the side panel to the legacy `GitDiffView`, opened on the
+  compact view's mode and file; its Close returns to the compact view.
 - **Keys and breadcrumbs:** ↑/↓ move the selection once the list has focus.
   `side panel diff: file <path>`, `side panel diff: mode <mode>`.

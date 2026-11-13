@@ -138,6 +138,86 @@ struct GitDiffServiceTests {
     #expect(untrackedPatch.contains("+new file"))
   }
 
+  @Test("unified patch for staged, branch and renamed files")
+  func unifiedPatchForStagedBranchAndRenamedFiles() async throws {
+    let fixture = try GitRepoFixture.create()
+    defer { fixture.cleanup() }
+    let service = GitDiffService()
+
+    try "staged".write(toFile: fixture.repoPath + "/README.md", atomically: true, encoding: .utf8)
+    try fixture.runGit("add", "README.md")
+    let staged = try await service.changedFiles(at: fixture.repoPath, mode: .staged, baseBranch: nil)
+    let stagedFile = try #require(staged.files.first(where: { $0.relativePath == "README.md" }))
+    let stagedPatch = try await service.unifiedPatch(for: stagedFile, at: fixture.repoPath, mode: .staged, baseBranch: nil)
+    #expect(stagedPatch.contains("-initial"))
+    #expect(stagedPatch.contains("+staged"))
+
+    try fixture.runGit("checkout", "-b", "feature/patch")
+    try fixture.runGit("commit", "-m", "branch change")
+    let branch = try await service.changedFiles(at: fixture.repoPath, mode: .branch, baseBranch: "main")
+    let branchFile = try #require(branch.files.first(where: { $0.relativePath == "README.md" }))
+    let branchPatch = try await service.unifiedPatch(for: branchFile, at: fixture.repoPath, mode: .branch, baseBranch: "main")
+    #expect(branchPatch.contains("diff --git a/README.md b/README.md"))
+    #expect(branchPatch.contains("+staged"))
+
+    try fixture.runGit("mv", "README.md", "Renamed.md")
+    let renamed = try await service.changedFiles(at: fixture.repoPath, mode: .staged, baseBranch: nil)
+    let renamedFile = try #require(renamed.files.first(where: { $0.relativePath == "Renamed.md" }))
+    let renamedPatch = try await service.unifiedPatch(for: renamedFile, at: fixture.repoPath, mode: .staged, baseBranch: nil)
+    #expect(renamedPatch.contains("rename from README.md"))
+    #expect(renamedPatch.contains("rename to Renamed.md"))
+  }
+
+  @Test("unified patch falls back to the git CLI when libgit2 fails")
+  func unifiedPatchFallsBackToCLI() async throws {
+    let fixture = try GitRepoFixture.create()
+    defer { fixture.cleanup() }
+    try "changed".write(toFile: fixture.repoPath + "/README.md", atomically: true, encoding: .utf8)
+
+    let service = GitDiffService(
+      renderPolicy: .default,
+      largeWorktreeIndexByteThreshold: GitDiffService.defaultLargeWorktreeIndexByteThreshold,
+      libGit2UnifiedPatch: { _, _, _, _, _ in throw GitDiffError.gitCommandFailed("forced libgit2 failure") }
+    )
+    let state = try await service.changedFiles(at: fixture.repoPath, mode: .unstaged, baseBranch: nil)
+    let file = try #require(state.files.first(where: { $0.relativePath == "README.md" }))
+    let patch = try await service.unifiedPatch(for: file, at: fixture.repoPath, mode: .unstaged, baseBranch: nil)
+
+    #expect(patch.hasPrefix("diff --git a/README.md b/README.md"))
+    #expect(patch.contains("+changed"))
+  }
+
+  @Test("unified patch over the size limit throws, from libgit2 and from the CLI")
+  func unifiedPatchTooLarge() async throws {
+    let fixture = try GitRepoFixture.create()
+    defer { fixture.cleanup() }
+    try String(repeating: "a long changed line\n", count: 200)
+      .write(toFile: fixture.repoPath + "/README.md", atomically: true, encoding: .utf8)
+    let policy = GitDiffRenderPolicy(maxFullContentBytes: 512 * 1024, maxPatchBytes: 1024)
+
+    let libgit2 = GitDiffService(renderPolicy: policy)
+    let state = try await libgit2.changedFiles(at: fixture.repoPath, mode: .unstaged, baseBranch: nil)
+    let file = try #require(state.files.first(where: { $0.relativePath == "README.md" }))
+    do {
+      _ = try await libgit2.unifiedPatch(for: file, at: fixture.repoPath, mode: .unstaged, baseBranch: nil)
+      Issue.record("expected patchTooLarge from libgit2")
+    } catch GitDiffError.patchTooLarge(let path) {
+      #expect(path == "README.md")
+    }
+
+    let cli = GitDiffService(
+      renderPolicy: policy,
+      largeWorktreeIndexByteThreshold: GitDiffService.defaultLargeWorktreeIndexByteThreshold,
+      libGit2UnifiedPatch: { _, _, _, _, _ in throw GitDiffError.gitCommandFailed("forced libgit2 failure") }
+    )
+    do {
+      _ = try await cli.unifiedPatch(for: file, at: fixture.repoPath, mode: .unstaged, baseBranch: nil)
+      Issue.record("expected patchTooLarge")
+    } catch GitDiffError.patchTooLarge(let path) {
+      #expect(path == "README.md")
+    }
+  }
+
   @Test("uses stable file ids across refreshes")
   func usesStableFileIdsAcrossRefreshes() async throws {
     let fixture = try GitRepoFixture.create()
