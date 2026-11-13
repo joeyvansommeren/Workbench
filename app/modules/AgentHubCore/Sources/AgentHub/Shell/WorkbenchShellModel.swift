@@ -6,6 +6,7 @@
 //  the sidebar and the session side panel are visible.
 //
 
+import AgentWorkflowJiraCLI
 import Foundation
 import SwiftUI
 
@@ -40,11 +41,16 @@ final class WorkbenchShellModel {
 
   @ObservationIgnored private let defaults: UserDefaults
 
-  init(defaults: UserDefaults = .standard) {
+  /// - Parameter isJiraCLIAvailable: asked only when no tracker is saved yet:
+  ///   Sprint opens on Jira when `acli` is installed, else on Linear.
+  init(
+    defaults: UserDefaults = .standard,
+    isJiraCLIAvailable: () -> Bool = JiraCLIProcessRunner.isInstalled
+  ) {
     self.defaults = defaults
     self.sprintTracker =
       defaults.string(forKey: AgentHubDefaults.sprintTracker)
-      .flatMap(SprintTracker.init(rawValue:)) ?? .jira
+      .flatMap(SprintTracker.init(rawValue:)) ?? (isJiraCLIAvailable() ? .jira : .linear)
   }
 
   func select(_ newDestination: ShellDestination) {

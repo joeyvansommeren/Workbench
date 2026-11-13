@@ -85,19 +85,23 @@ struct DetectedPullRequest: Sendable, Equatable {
   let url: String
   let state: GitHubPullRequestState
   let headBranch: String
+  /// Combined CI state, or `nil` when the lookup did not include checks.
+  let ciStatus: CIStatus?
 
   init(
     number: Int,
     title: String,
     url: String,
     state: GitHubPullRequestState,
-    headBranch: String
+    headBranch: String,
+    ciStatus: CIStatus? = nil
   ) {
     self.number = number
     self.title = title
     self.url = url
     self.state = state
     self.headBranch = headBranch
+    self.ciStatus = ciStatus
   }
 
   init(_ pullRequest: GitHubPullRequest) {
@@ -106,6 +110,7 @@ struct DetectedPullRequest: Sendable, Equatable {
     url = pullRequest.url
     state = pullRequest.stateKind
     headBranch = pullRequest.headRefName
+    ciStatus = pullRequest.statusCheckRollup == nil ? nil : pullRequest.ciStatus
   }
 }
 

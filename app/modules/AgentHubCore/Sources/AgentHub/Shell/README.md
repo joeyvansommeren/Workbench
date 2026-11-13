@@ -11,8 +11,8 @@ only its own slot:
 
 | Slot | View | Replaced by |
 |---|---|---|
-| sidebar | `ShellSidebarContainer` (nav rows + `ShellPlaceholderSessionList`) | P5 |
-| toolbar | `ShellToolbar` (`ShellSessionsToolbarContent` / titles / search) | P6 tabs, P8, P9 |
+| sidebar | `ShellSidebarContainer` (`Sidebar/`: nav rows, session tree, footer) | P5 |
+| toolbar | `ShellToolbar` (`SessionsToolbarContent` (P6), `SprintToolbarContent` (P9), titles, search) | P6 tabs, P8, P9 |
 | detail | `ShellDetailSlot` (one `case` per destination) | P6 Sessions, P8 Reviews, P9 Sprint |
 
 Per-window state lives in `ShellRoot`: `WorkbenchShellModel`,
@@ -42,10 +42,109 @@ Measured in an AppKit test host on macOS 27.
 
 No `NavigationSplitView`, `HSplitView`, `VSplitView` or `.inspector` in shell
 code. No `GeometryReader` widths. The sidebar collapses as a plain `HStack`
-child. `ShellLayout.windowMinWidth` is 1288 while the legacy Reviews view is
-hosted: its `NavigationSplitView` sidebar (min 260) + divider + PR `HSplitView`
-(350 + divider + 380) = 992, plus the 288 shell sidebar and the 8 pt panel
-inset. P8 lowers it to 900 when it replaces Reviews.
+child. `ShellLayout.windowMinWidth` is 900: no split view is hosted in the
+shell any more, and every destination's content minimum plus the 288 pt
+sidebar and the 8 pt panel inset fits it. `ReviewsLayoutTests` (Reviews) and
+`SessionTabsModelTests` (Sessions: `SessionDetailLayout`, content 260 + side
+panel 320) check it.
+
+## P6: session view (`Shell/Session/`)
+
+- **Tabs.** `SessionTabsModel` is per window (owned by `ShellRoot`, injected
+  with `.environment(sessionTabsModel)`). `SessionTabsSync` keeps it in step:
+  any `primarySessionId` change (sidebar, palette, router, launch) opens or
+  selects a tab, so callers only use `SessionNavigationModel.selectSession`.
+  Closing a tab never stops the session. Pending tabs take the resolved id in
+  place. Open tabs persist per provider in `session_workspace_state`
+  (`v17_add_open_session_tab_ids`, saved through `CLISessionsViewModel`'s
+  gated workspace-state write). Tabs whose session goes away are pruned;
+  restored ids that never resolved stay hidden.
+- **Toolbar.** `SessionsToolbarContent` → `SessionTabStrip`: tabs flex
+  120–204 pt, overflow goes to a chevron menu. The strip measures only its own
+  width (parent-driven, rounded, stored on change).
+- **Detail.** `SessionDetailView`: `SessionHeaderView`, the shared
+  `MonitoringCardContentArea` (terminal/chat/files/diffs, also used by the
+  legacy card) and `SessionSidePanel` in a `ResizablePanelContainer`
+  (400 default, 320–520). Effects run through `SessionCardEffects`, the same
+  modifier the legacy card uses. Panels come from `SidePanelContentView`
+  (shared with the legacy panel); availability from `SidePanelSegments`.
+- **Persistence across windows.** Each provider saves the ordered union of
+  every window's tabs (`OpenSessionTabsAggregate`). The first window to ask
+  after launch gets the saved tabs (`claimRestoredOpenSessionTabIds`); later
+  windows start empty. So no window drops another window's tabs, and a closed
+  tab stays saved only while another window has it open. A closed window's
+  tabs stay saved until relaunch.
+- **Selection.** While nothing is shown (launch, sessions loading), the first
+  restored tab is shown, else the newest session; never after the user closed
+  every tab this run (`SessionTabsModel.selectionUpkeep`).
+- **Parity with the legacy panel.** Edits/Plan auto-open with the legacy rules
+  (`SidePanelAutoOpenTracker`), CI-failure "Open GitHub panel" / "Fix CI"
+  notification actions (`CIFailureFixAction`, shared), Create PR
+  (`CreatePullRequestAction`, shared) and Commit (2 s per-session cooldown).
+- **No split views.** The legacy `MultiProviderMonitoringPanelView` is not in
+  this path. A workflow comparison opens both sessions as tabs.
+  `GitHubPRDetailView` uses a fixed `HStack` when the flag is on.
+- **Terminal palette.** With the flag on, `TerminalPaletteResolver` drives the
+  SwiftTerm colours (incl. 16 ANSI slots) and the Ghostty overlay from the
+  Workbench palette; a palette or appearance switch repaints open terminals.
+  Flag off: the legacy rules, unchanged.
+
+## Sidebar (P5)
+
+`Sidebar/` holds the prototype sidebar: `SidebarNavSection` (Reviews and
+Sprint with `SidebarNavCounts`), `SessionTreeView` and `SidebarFooter`.
+
+- **Tree.** `SessionTreeProjection` (P3) → `SessionTreeWorkflowMerge` (adds
+  tracked repos without sessions and empty rows for manual workflows) →
+  `SidebarTreeRows` (one flat list) → a `ScrollView` + `LazyVStack` of
+  `Equatable` rows. The projection runs in `SessionTreeContent.body` only;
+  selection is read in a child view, so selecting does not re-project.
+- **Workflows.** `BranchWorkflowDecorationIndex` adapts
+  `AgentWorkflowDashboardViewModel.detectedBranches` (archived ones dropped)
+  into branch-row decorations: PR number with CI state, roles, menu actions.
+  `WorkflowDiscoveryDriver` runs the dashboard's `load()` 3 s after launch and
+  a debounced `refreshDetectedWorkflows()`, since the Workflows view is gone.
+- **One entry point to open a session:** `SidebarTreeActions.open(_:)`
+  (workspace-owned sessions focus their workspace; others call
+  `SessionNavigationModel.selectSession`). P6 makes that open a tab.
+- **Approve pill:** `SessionNode.showsApprovePill` (Claude, pending tool use,
+  not an input question). The action is the single closure
+  `SidebarTreeActions.approve`, today `SidebarApproval.terminalApprove`
+  (types "1" into the agent terminal). P7 replaces that closure.
+- **Collapse state** is `SelectedRepository.isExpanded`, persisted in
+  `SessionWorkspaceState.expansionState` (SQLite) through
+  `CLISessionsViewModel.setRepositoryExpanded(path:isExpanded:)`.
+- **Icons** are the prototype's SVG paths (`SidebarIcons.swift`); SF Symbols
+  has no pull-request glyph, so use `PullRequestGlyph` (Design/Components).
+
+## P8: Reviews
+
+`ShellDetailSlot` `.reviews` shows `Reviews/ReviewsDestinationView`: a fixed
+list (`PullRequestRow`), a hairline and `PullRequestDetailView`, in a plain
+`HStack` (widths in `ReviewsLayout`). No split views; the search field sits in the Filters popover
+with project and view and never takes focus on appear. The scope (Requested /
+Mine / All) is `GitHubReviewsViewModel.reviewScope`, saved in
+`AgentHubDefaults.reviewsScope` only when the user picks it (a jump to a
+pull request outside the scope widens to All in memory); the "Review with" agent in
+`AgentHubDefaults.reviewsAgent`. The queue carries no CI data, so a row shows
+its checks icon once its detail has loaded (`checksByPullRequestID`).
+Breadcrumbs: `reviews scope: <x>`, `reviews pr: <repo>#<n>`, `reviews filters:
+open`, `reviews agent`, `reviews start review`, `reviews open session`.
+The legacy `GitHubReviewsView` is unchanged for the flag-off path.
+
+## P9: Sprint
+
+`.sprint` shows `SprintDestinationView` (`Jira/`), toolbar `SprintToolbarContent`
+(`Sprint/`): the sprint or cycle name and a days-left chip ("Sprint" when Linear
+has no active cycle). As in the prototype, Jira | Linear, All | Mine and Filters
+sit in the board's list head, not the toolbar. Jira and Linear map to the
+tracker-neutral `SprintColumnItem`s (`Sprint/SprintBoardItems.swift`), drawn by
+`SprintBoardView`: up to 4 equal columns, more scroll sideways with
+`containerRelativeFrame`; no GeometryReader. The ticket detail is a 380 pt
+trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
+`JiraTicketDetailView` / `LinearIssueDetailView`. With no saved tracker, Sprint
+opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
+`sprint tracker: …`, `sprint filter: …`, `sprint ticket: open|close|start …`.
 
 ## P10: overlays and settings
 

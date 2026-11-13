@@ -218,6 +218,45 @@ struct CLISessionsViewModelSidebarProjectionTests {
     #expect(viewModel.pullRequestReferences(for: session.id).isEmpty)
   }
 
+  @Test("The pending-tool projection follows the pending tool use and clears with it")
+  @MainActor
+  func pendingToolProjection() async throws {
+    let fileWatcher = ProjectionFileWatcher()
+    let viewModel = makeProjectionViewModel(fileWatcher: fileWatcher)
+    let session = CLISession(id: "session-1", projectPath: "/tmp/project")
+    viewModel.startMonitoring(session: session)
+    let pending = PendingToolUse(toolName: "Bash", toolUseId: "tool-1", timestamp: Date())
+
+    fileWatcher.send(
+      sessionId: session.id,
+      state: SessionMonitorState(status: .awaitingApproval(tool: "Bash"), pendingToolUse: pending)
+    )
+    try await waitUntil { viewModel.pendingToolName(for: session.id) == "Bash" }
+
+    var invalidated = false
+    withObservationTracking {
+      _ = viewModel.sessionPendingToolNames
+    } onChange: {
+      invalidated = true
+    }
+
+    // Same pending tool, more tokens: nothing the sidebar shows changed.
+    fileWatcher.send(
+      sessionId: session.id,
+      state: SessionMonitorState(
+        status: .awaitingApproval(tool: "Bash"), inputTokens: 500, pendingToolUse: pending)
+    )
+    try await waitUntil { viewModel.monitorStates[session.id]?.inputTokens == 500 }
+    #expect(!invalidated)
+
+    fileWatcher.send(sessionId: session.id, state: SessionMonitorState(status: .thinking))
+    try await waitUntil { viewModel.pendingToolName(for: session.id) == nil }
+    #expect(invalidated)
+
+    viewModel.stopMonitoring(session: session)
+    #expect(viewModel.sessionPendingToolNames[session.id] == nil)
+  }
+
   @Test("monitoredCLISessions mirrors monitoredSessions without carrying state")
   @MainActor
   func monitoredCLISessionsMirrorsMonitoredSessions() {

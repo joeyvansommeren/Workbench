@@ -39,6 +39,7 @@ private struct ShellRoot: View {
   @State private var shellModel = WorkbenchShellModel()
   @State private var sessionNavigationModel = SessionNavigationModel()
   @State private var sessionsActionCoordinator = SessionsActionCoordinator()
+  @State private var sessionTabsModel = SessionTabsModel()
   @State private var isResumingByID = false
   @State private var overlays = ShellOverlayModel()
 
@@ -64,6 +65,7 @@ private struct ShellRoot: View {
       .environment(overlays)
       .environment(\.sessionNavigationModel, sessionNavigationModel)
       .environment(\.sessionsActionCoordinator, sessionsActionCoordinator)
+      .environment(sessionTabsModel)
       .modifier(
         SessionsPresentationModifier(
           coordinator: sessionsActionCoordinator,
@@ -73,6 +75,14 @@ private struct ShellRoot: View {
           navigationModel: sessionNavigationModel,
           intelligenceViewModel: agentHub.intelligenceViewModel,
           contextProfileService: agentHub.contextProfileService
+        )
+      )
+      .modifier(
+        SessionTabsSync(
+          tabsModel: sessionTabsModel,
+          navigationModel: sessionNavigationModel,
+          claude: agentHub.claudeSessionsViewModel,
+          codex: agentHub.codexSessionsViewModel
         )
       )
       .modifier(

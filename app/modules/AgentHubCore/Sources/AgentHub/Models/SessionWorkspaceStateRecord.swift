@@ -17,6 +17,7 @@ public struct SessionWorkspaceStateRecord: Codable, Sendable, FetchableRecord, P
   public var archivedSessionIdsData: Data?
   public var ownedWorktreePathsData: Data?
   public var expansionStateData: Data
+  public var openSessionTabIdsData: Data?
   public var updatedAt: Date
 
   public init(
@@ -31,6 +32,7 @@ public struct SessionWorkspaceStateRecord: Codable, Sendable, FetchableRecord, P
     self.archivedSessionIdsData = try JSONEncoder().encode(state.archivedSessionIds)
     self.ownedWorktreePathsData = try JSONEncoder().encode(state.ownedWorktreePaths)
     self.expansionStateData = try JSONEncoder().encode(state.expansionState)
+    self.openSessionTabIdsData = try JSONEncoder().encode(state.openSessionTabIds)
     self.updatedAt = updatedAt
   }
 
@@ -50,7 +52,10 @@ public struct SessionWorkspaceStateRecord: Codable, Sendable, FetchableRecord, P
         try? JSONDecoder().decode([String].self, from: $0)
       } ?? [],
       expansionState: (try? JSONDecoder().decode([String: Bool].self, from: expansionStateData))
-        ?? [:]
+        ?? [:],
+      openSessionTabIds: openSessionTabIdsData.flatMap {
+        try? JSONDecoder().decode([String].self, from: $0)
+      } ?? []
     )
   }
 }

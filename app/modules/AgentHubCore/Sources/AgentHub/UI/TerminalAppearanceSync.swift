@@ -49,25 +49,32 @@ enum TerminalAppearanceSync {
   struct ColorFingerprint: Equatable {
     let isDark: Bool
     /// Resolved value of the theme's custom terminal background, if any.
-    /// Normalized to nil in light mode, where theme terminal colors never apply.
+    /// Nil whenever theme terminal colors do not apply (see init).
     let themeBackground: String?
     /// Resolved value of the theme's custom terminal cursor, if any.
-    /// Normalized to nil in light mode, where theme terminal colors never apply.
+    /// Nil whenever theme terminal colors do not apply (see init).
     let themeCursor: String?
+    /// Every resolved color of the new shell's terminal palette
+    /// (`TerminalPalette.signature`), or nil in the legacy shell.
+    let paletteSignature: String?
     let surfaceIDs: Set<UUID>
 
     init(
       isDark: Bool,
       themeBackground: String?,
       themeCursor: String?,
+      paletteSignature: String? = nil,
       surfaceIDs: Set<UUID>
     ) {
       self.isDark = isDark
-      // Theme terminal colors only apply in dark mode. Dropping them in light
-      // mode keeps the fingerprint aligned with the effective output, so a
-      // theme switch while in light mode does not force a redundant repaint.
-      self.themeBackground = isDark ? themeBackground : nil
-      self.themeCursor = isDark ? themeCursor : nil
+      self.paletteSignature = paletteSignature
+      // Legacy shell: theme terminal colors only apply in dark mode, so they
+      // are dropped in light mode and a theme switch there does not force a
+      // redundant repaint. New shell: the palette drives both modes and theme
+      // colors never apply, so the palette signature alone decides.
+      let themeColorsApply = paletteSignature == nil && isDark
+      self.themeBackground = themeColorsApply ? themeBackground : nil
+      self.themeCursor = themeColorsApply ? themeCursor : nil
       self.surfaceIDs = surfaceIDs
     }
   }

@@ -179,6 +179,36 @@ public final class CLISessionsViewModel {
   /// workflow and review links from silently restoring a closed session.
   public private(set) var archivedSessionIds: Set<String> = []
 
+  /// Session tabs saved at the last run, for this provider. Nil until the
+  /// persisted workspace state has been read this run, so a window never
+  /// mistakes "not read yet" for "no tabs". Windows take it through
+  /// `claimRestoredOpenSessionTabIds()`.
+  private(set) var restoredOpenSessionTabIds: [String]?
+  @ObservationIgnored private var hasClaimedRestoredOpenSessionTabIds = false
+  /// The ids saved with the workspace state: the ordered union of every
+  /// window's tabs (`OpenSessionTabsAggregate`).
+  @ObservationIgnored private var openSessionTabIds: [String] = []
+  @ObservationIgnored private var openSessionTabsAggregate = OpenSessionTabsAggregate()
+
+  /// The saved tabs, handed to the first window that asks after the read.
+  /// Later windows get an empty list, so they never reopen tabs another
+  /// window has since closed. Nil while the read is still pending.
+  func claimRestoredOpenSessionTabIds() -> [String]? {
+    guard let restoredOpenSessionTabIds else { return nil }
+    guard !hasClaimedRestoredOpenSessionTabIds else { return [] }
+    hasClaimedRestoredOpenSessionTabIds = true
+    return restoredOpenSessionTabIds
+  }
+
+  /// Stores one window's open tab ids for this provider and saves the union
+  /// of all windows (gated on a successful read, like every workspace-state save).
+  func updateOpenSessionTabIds(_ ids: [String], window: UUID) {
+    let union = openSessionTabsAggregate.update(window: window, ids: ids)
+    guard union != openSessionTabIds else { return }
+    openSessionTabIds = union
+    persistWorkspaceState()
+  }
+
   /// Maps session IDs to prompts that should be sent to the terminal when it becomes ready.
   ///
   /// This acts as a bridge between GitDiffView (where users submit inline edit requests) and
@@ -1953,6 +1983,10 @@ public final class CLISessionsViewModel {
   public private(set) var sessionPullRequestReferences: [String: [GitHubPullRequestURLReference]] =
     [:]
 
+  /// Tool name of the pending tool use per monitored session, if any. The new
+  /// sidebar's Approve pill reads this instead of the whole monitor state.
+  public private(set) var sessionPendingToolNames: [String: String] = [:]
+
   /// Status for a monitored session, or `nil` if it has not reported yet.
   public func sessionStatus(for sessionId: String) -> SessionStatus? {
     sessionStatuses[sessionId]
@@ -1965,6 +1999,11 @@ public final class CLISessionsViewModel {
   /// PR references detected for a monitored session.
   public func pullRequestReferences(for sessionId: String) -> [GitHubPullRequestURLReference] {
     sessionPullRequestReferences[sessionId] ?? []
+  }
+
+  /// Name of the tool waiting for approval, or `nil` when nothing is pending.
+  public func pendingToolName(for sessionId: String) -> String? {
+    sessionPendingToolNames[sessionId]
   }
 
   /// Cached project-level preview eligibility keyed by normalized project path.
@@ -2794,6 +2833,10 @@ public final class CLISessionsViewModel {
       }
       canPersistWorkspaceState = true
       selectedFolderPaths = workspaceState.selectedFolderPaths
+      // Tabs a window opened before this read finished are merged by the
+      // tabs model when it sees the restored list.
+      openSessionTabIds = workspaceState.openSessionTabIds
+      restoredOpenSessionTabIds = workspaceState.openSessionTabIds
       let paths = await restoredRepositoryPaths(from: workspaceState)
       // Retain every saved session ID before any restore step can fail. Even if
       // repositories or worktrees are unavailable this launch, the IDs keep
@@ -3089,7 +3132,8 @@ public final class CLISessionsViewModel {
       monitoredSessionIds: Array(sessionIdsToPersist).sorted(),
       archivedSessionIds: Array(archivedSessionIds).sorted(),
       ownedWorktreePaths: Array(ownedWorktreePaths).sorted(),
-      expansionState: state
+      expansionState: state,
+      openSessionTabIds: openSessionTabIds
     )
   }
 
@@ -3856,6 +3900,23 @@ public final class CLISessionsViewModel {
       return
     }
     selectedRepositories[index].isExpanded.toggle()
+    persistWorkspaceState()
+  }
+
+  /// Sets the expanded state of the repository at `path`, if it is tracked.
+  /// The new sidebar sets both providers to the same value so their copies of a
+  /// shared repository never disagree.
+  public func setRepositoryExpanded(path: String, isExpanded: Bool) {
+    let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(path)
+    guard
+      let index = selectedRepositories.firstIndex(where: {
+        WorktreeModuleResolver.normalizedDirectoryPath($0.path) == normalizedPath
+      }),
+      selectedRepositories[index].isExpanded != isExpanded
+    else {
+      return
+    }
+    selectedRepositories[index].isExpanded = isExpanded
     persistWorkspaceState()
   }
 
@@ -5111,6 +5172,10 @@ public final class CLISessionsViewModel {
     if sessionPullRequestReferences[sessionId] != references {
       sessionPullRequestReferences[sessionId] = references
     }
+    let pendingToolName = state.pendingToolUse?.toolName
+    if sessionPendingToolNames[sessionId] != pendingToolName {
+      sessionPendingToolNames[sessionId] = pendingToolName
+    }
 
     monitorStateModels[sessionId]?.update(state)
   }
@@ -5120,6 +5185,7 @@ public final class CLISessionsViewModel {
     sessionStatuses.removeValue(forKey: sessionId)
     sessionLastAssistantMessages.removeValue(forKey: sessionId)
     sessionPullRequestReferences.removeValue(forKey: sessionId)
+    sessionPendingToolNames.removeValue(forKey: sessionId)
     monitorStateModels[sessionId]?.update(nil)
     monitorStateModels.removeValue(forKey: sessionId)
   }

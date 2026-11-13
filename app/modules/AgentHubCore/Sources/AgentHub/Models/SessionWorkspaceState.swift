@@ -13,6 +13,10 @@ public struct SessionWorkspaceState: Codable, Equatable, Sendable {
   public var archivedSessionIds: [String]
   public var ownedWorktreePaths: [String]
   public var expansionState: [String: Bool]
+  /// Session tabs open in the new shell, as sidebar item ids
+  /// (`SidebarSessionItemID.monitored`) of this provider, in tab order.
+  /// Pending sessions are never stored: they do not survive a relaunch.
+  public var openSessionTabIds: [String]
 
   public init(
     selectedRepositoryPaths: [String] = [],
@@ -20,7 +24,8 @@ public struct SessionWorkspaceState: Codable, Equatable, Sendable {
     monitoredSessionIds: [String] = [],
     archivedSessionIds: [String] = [],
     ownedWorktreePaths: [String] = [],
-    expansionState: [String: Bool] = [:]
+    expansionState: [String: Bool] = [:],
+    openSessionTabIds: [String] = []
   ) {
     self.selectedRepositoryPaths = selectedRepositoryPaths
     self.selectedFolderPaths = selectedFolderPaths
@@ -28,5 +33,6 @@ public struct SessionWorkspaceState: Codable, Equatable, Sendable {
     self.archivedSessionIds = archivedSessionIds
     self.ownedWorktreePaths = ownedWorktreePaths
     self.expansionState = expansionState
+    self.openSessionTabIds = openSessionTabIds
   }
 }
