@@ -37,12 +37,14 @@ struct WorkspaceSwitcher: View {
           isSelected: selection == item.section,
           namespace: selectionNamespace
         ) {
-          withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-            selection = item.section
-          }
+          selection = item.section
         }
       }
     }
+    // Animate the selection pill only. An animated switch keeps the old and the
+    // new workspace in the window together until it ends, and their split views
+    // then never settle: AppKit quits the app (CLAUDE.md › "Layout-Loop Crash").
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: selection)
     .padding(3)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
