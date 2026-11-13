@@ -120,6 +120,7 @@ extension DesignTokens {
 /// a single source of truth.
 public struct WorkbenchElevationModifier: ViewModifier {
   let level: DesignTokens.Shadow
+  let overrideCornerRadius: CGFloat?
   @Environment(\.colorScheme) private var colorScheme
 
   public func body(content: Content) -> some View {
@@ -145,6 +146,7 @@ public struct WorkbenchElevationModifier: ViewModifier {
   }
 
   private var cornerRadius: CGFloat {
+    if let overrideCornerRadius { return overrideCornerRadius }
     switch level {
     case .raised: return DesignTokens.Radius.row
     case .panel: return DesignTokens.Radius.container
@@ -212,6 +214,11 @@ public struct WorkbenchElevationModifier: ViewModifier {
 extension View {
   /// Apply the workbench elevation shadow for the given level.
   public func wbElevation(_ level: DesignTokens.Shadow) -> some View {
-    modifier(WorkbenchElevationModifier(level: level))
+    modifier(WorkbenchElevationModifier(level: level, overrideCornerRadius: nil))
+  }
+
+  /// Apply the workbench elevation shadow with an explicit corner radius.
+  public func wbElevation(_ level: DesignTokens.Shadow, cornerRadius: CGFloat) -> some View {
+    modifier(WorkbenchElevationModifier(level: level, overrideCornerRadius: cornerRadius))
   }
 }
