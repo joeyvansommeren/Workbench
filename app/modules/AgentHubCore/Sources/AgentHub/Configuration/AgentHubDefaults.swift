@@ -275,6 +275,21 @@ public enum AgentHubDefaults {
   /// Whether agent sessions get the Studio system-prompt nudge (default on).
   public static let studioAgentGuidanceEnabled = "\(keyPrefix)features.studioAgentGuidanceEnabled"
 
+  /// Whether the new Apple-style shell is enabled.
+  /// Read once at launch; changing requires a relaunch.
+  /// Type: Bool (default: false)
+  public static let appleShellEnabled = "\(keyPrefix)features.appleShell"
+
+  // MARK: - Appearance
+
+  /// User appearance preference: `system`, `light` or `dark`.
+  /// Type: String (default: "system")
+  public static let appearance = "\(keyPrefix)appearance"
+
+  /// User palette preference: `standard` or `warm`.
+  /// Type: String (default: "standard")
+  public static let palette = "\(keyPrefix)palette"
+
   /// Inspector payload level used by debug web preview inspect flows
   /// Type: String (default: "regular")
   public static let webPreviewInspectorDataLevel =
