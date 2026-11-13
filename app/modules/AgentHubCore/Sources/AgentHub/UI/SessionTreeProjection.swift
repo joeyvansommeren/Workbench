@@ -48,6 +48,13 @@ struct SessionNode: Identifiable, Equatable {
     guard providerKind == .claude, !isPending, let pendingToolName else { return false }
     return !SessionInteractiveInputTool.matches(pendingToolName)
   }
+
+  /// Whether the row shows the Answer pill: the agent asked the user a
+  /// question (any provider). The pill only opens the session.
+  var showsAnswerPill: Bool {
+    guard !isPending, case .awaitingApproval(let tool) = status else { return false }
+    return SessionInteractiveInputTool.matches(tool)
+  }
 }
 
 /// One branch row in the tree.

@@ -257,6 +257,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   private var lastWorkspaceSnapshot: TerminalWorkspaceSnapshot?
   public var onUserInteraction: (() -> Void)?
   public var onRequestShowEditor: (() -> Void)?
+  public var approvalShortcutHandler: (() -> Void)?
   public var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)?
   public var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)?
   public var onCLILaunchFailed: (() -> Void)?
@@ -510,6 +511,13 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
     return true
   }
 
+  /// Escape to the agent tab only: denies Claude's permission menu.
+  public func sendEscapeToAgentSession() -> Bool {
+    guard let terminal = protectedAgentTab?.terminalView else { return false }
+    terminal.send([0x1B])
+    return true
+  }
+
   /// The bottom rows of the agent tab's visible screen, verbatim. Bounded by
   /// `maxRows`; reads the buffer SwiftTerm already holds, no new process or I/O.
   public func agentScreenTail(maxRows: Int) -> [String]? {
@@ -671,22 +679,31 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
 
         // Typing shortcuts (require terminal to be first responder)
         guard terminalTextInputActive else { break }
-        guard isProtectedAgentTab(focusedTab) else {
-          self.onUserInteraction?()
-          break
-        }
 
         let shortcut = NewlineShortcut(
           rawValue: UserDefaults.standard.integer(forKey: AgentHubDefaults.terminalNewlineShortcut)
         ) ?? .system
 
-        let isReturn = event.keyCode == 36
+        let isReturn = event.keyCode == ApprovalShortcutRouting.returnKeyCode
 
-        let action = TerminalSubmitInterception.keyAction(
+        // While an approval banner shows, ⌘↩ approves from any tab; the
+        // responder still types into the agent tab only.
+        let route = ApprovalShortcutRouting.route(
           shortcut: shortcut,
           isReturn: isReturn,
-          flags: flags
+          flags: flags,
+          isApprovalBannerVisible: self.approvalShortcutHandler != nil
         )
+        guard case .terminal(let action) = route else {
+          self.approvalShortcutHandler?()
+          self.onUserInteraction?()
+          return nil
+        }
+
+        guard isProtectedAgentTab(focusedTab) else {
+          self.onUserInteraction?()
+          break
+        }
         let queuedContextPrompt: String?
         switch action {
         case .submit, .systemSubmit:

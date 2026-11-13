@@ -550,7 +550,10 @@ public final class VoiceToolCatalog: VoiceToolCataloging {
       description: """
         Approve or deny a pending Claude tool. First call without confirmed,
         read the returned tool and detail aloud, ask the user, then call again
-        with confirmed true. Codex approvals are not supported.
+        with confirmed true. Approve allows the call once. Deny stops it and
+        Claude asks what to do instead. Status answer_in_terminal means the app
+        could not confirm the permission menu: tell the user to answer in the
+        terminal. Codex approvals are not supported.
         """,
       parameters: objectSchema(
         properties: [

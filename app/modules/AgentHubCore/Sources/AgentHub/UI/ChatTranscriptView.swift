@@ -249,7 +249,8 @@ struct ChatTranscriptView: View {
       }
       Spacer()
       if pendingApproval != nil, let onApprove {
-        Button("Approve") { _ = onApprove() }
+        // Fails closed when the menu can't be confirmed: answer in the terminal.
+        Button("Approve") { if !onApprove() { onShowTerminal() } }
           .buttonStyle(.borderedProminent)
           .tint(.orange)
           .controlSize(.small)

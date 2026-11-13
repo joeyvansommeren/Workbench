@@ -4,7 +4,7 @@
 //
 //  Session row in the sidebar tree (`.session-row`): the status glyph sits on
 //  a guide line, then the agent mark, the title, an optional workflow role and
-//  the Approve pill. The guide line is an overlay `Path`, outside layout.
+//  the Approve or Answer pill. The guide line is an overlay `Path`, outside layout.
 //
 
 import AgentHubGitHub
@@ -35,8 +35,15 @@ struct SessionTreeRow: View, Equatable {
       Button { actions.open(node) } label: { label }
         .buttonStyle(.plain)
       if node.showsApprovePill {
-        ApprovePill(toolName: node.pendingToolName) { actions.approve(node) }
+        SessionApprovePill(node: node, actions: actions)
           .padding(.leading, DesignTokens.Spacing.xs)
+      } else if node.showsAnswerPill {
+        AttentionPill(
+          title: "Answer",
+          help: "Open the session to answer",
+          accessibilityLabel: "Answer \(model.title)"
+        ) { actions.open(node) }
+        .padding(.leading, DesignTokens.Spacing.xs)
       }
     }
     .padding(.trailing, DesignTokens.Spacing.xs)
@@ -142,19 +149,52 @@ private struct SessionGuideLine: View {
 
 // MARK: - Approve pill
 
-/// `.approve-pill`: attention tint, 24 pt high.
-struct ApprovePill: View {
-  let toolName: String?
+/// The Approve pill with the progress of the last click. Reads the approval
+/// tracker in its own body, so only the pill redraws when the phase changes.
+private struct SessionApprovePill: View {
+  let node: SessionNode
+  let actions: SidebarTreeActions
+
+  var body: some View {
+    let phase = actions.approvalPhase(for: node)
+    let toolName = node.pendingToolName
+    AttentionPill(
+      title: "Approve",
+      isBusy: phase.map { if case .sending = $0 { true } else { false } } ?? false,
+      help: phase == .answerInTerminal
+        ? "Claude did not respond. Answer in the terminal."
+        : (toolName.map { "Allow \($0) once" } ?? "Allow once"),
+      accessibilityLabel: toolName.map { "Approve \($0)" } ?? "Approve"
+    ) { actions.approve(node) }
+  }
+}
+
+/// `.approve-pill`: attention tint, 24 pt high. While busy, a spinner covers
+/// the title, which stays in layout so the pill keeps its width.
+struct AttentionPill: View {
+  let title: String
+  var isBusy = false
+  let help: String
+  let accessibilityLabel: String
   let action: () -> Void
 
   @State private var isHovered = false
 
   var body: some View {
-    Button(action: action) {
-      Text("Approve")
+    // Taps are ignored while busy; `.disabled` would dim the spinner.
+    Button { if !isBusy { action() } } label: {
+      Text(title)
         .wbText(.subheadline)
         .fontWeight(.semibold)
         .foregroundStyle(Color.wbStatusAttentionText)
+        .opacity(isBusy ? 0 : 1)
+        .overlay {
+          if isBusy {
+            ProgressView()
+              .controlSize(.mini)
+              .tint(Color.wbStatusAttentionText)
+          }
+        }
         .padding(.horizontal, DesignTokens.Spacing.sm)
         .frame(height: DesignTokens.Size.controlSmall)
         .contentShape(Capsule())
@@ -164,12 +204,13 @@ struct ApprovePill: View {
     .overlay {
       Capsule()
         .strokeBorder(Color.wbStatusAttentionFill, lineWidth: 1)
-        .opacity(isHovered ? 1 : 0)
+        .opacity(isHovered && !isBusy ? 1 : 0)
     }
     .onHover { isHovered = $0 }
     .fixedSize()
-    .help(toolName.map { "Allow \($0) once" } ?? "Allow once")
-    .accessibilityLabel(toolName.map { "Approve \($0)" } ?? "Approve")
+    .help(help)
+    .accessibilityLabel(accessibilityLabel)
+    .accessibilityValue(isBusy ? "Sending" : "")
   }
 }
 

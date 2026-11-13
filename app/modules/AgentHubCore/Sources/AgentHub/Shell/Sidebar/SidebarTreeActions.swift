@@ -18,9 +18,9 @@ final class SidebarTreeActions {
   let navigationModel: SessionNavigationModel
   let coordinator: SessionsActionCoordinator
 
-  /// What the Approve pill does. One closure on purpose: P7 swaps it for the
-  /// in-app approval flow without touching the rows.
-  var approve: (SessionNode) -> Void
+  /// What the Approve pill does: allow once through the shared responder
+  /// (`SidebarApproval.respond`). One closure, so rows stay unaware of it.
+  var approve: (SessionNode) -> Void = { _ in }
 
   /// Called when `open(_:)` focuses a workspace pane, which clears
   /// `primarySessionId`; the tree keeps the row highlighted with it.
@@ -36,7 +36,17 @@ final class SidebarTreeActions {
     self.shellModel = shellModel
     self.navigationModel = navigationModel
     self.coordinator = coordinator
-    self.approve = SidebarApproval.terminalApprove(agentHub: agentHub)
+    self.approve = SidebarApproval.respond(agentHub: agentHub) { [weak self] node in
+      self?.open(node)
+    }
+  }
+
+  /// Progress of the last approval click on `node`'s current request.
+  func approvalPhase(for node: SessionNode) -> ApprovalResponsePhase? {
+    let viewModel = viewModel(for: node.providerKind)
+    return viewModel.approvalTracker.phase(
+      for: node.session.id,
+      current: ApprovalSignature(state: viewModel.monitorStates[node.session.id]))
   }
 
   private var claude: CLISessionsViewModel { agentHub.claudeSessionsViewModel }
@@ -283,20 +293,22 @@ final class SidebarTreeActions {
   }
 }
 
-// MARK: - Approve (temporary, P7 replaces)
+// MARK: - Approve
 
 @MainActor
 enum SidebarApproval {
-  /// Approves through the session's own agent terminal: Claude's permission
-  /// menu picks option 1 ("Yes") on its digit key, the same path the chat
-  /// banner uses. Beeps when the agent has no live terminal to type into.
-  static func terminalApprove(agentHub: AgentHubProvider) -> (SessionNode) -> Void {
+  /// Allows the pending call once through `CLISessionsViewModel.respondToApproval`.
+  /// When the app can't confirm Claude's menu, it opens the session so the
+  /// user answers in its terminal (the banner there says so).
+  static func respond(
+    agentHub: AgentHubProvider,
+    openSession: @escaping (SessionNode) -> Void
+  ) -> (SessionNode) -> Void {
     { node in
-      MainThreadStallMonitor.breadcrumb("approval: approve \(node.pendingToolName ?? "?")")
       let viewModel =
         node.providerKind == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
-      if !viewModel.typeTextInAgentTerminal(forKey: node.session.id, text: "1") {
-        NSSound.beep()
+      if viewModel.respondToApproval(sessionId: node.session.id, decision: .approveOnce) != .sent {
+        openSession(node)
       }
     }
   }

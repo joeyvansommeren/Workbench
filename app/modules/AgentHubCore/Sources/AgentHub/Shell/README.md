@@ -109,8 +109,7 @@ Sprint with `SidebarNavCounts`), `SessionTreeView` and `SidebarFooter`.
   `SessionNavigationModel.selectSession`). P6 makes that open a tab.
 - **Approve pill:** `SessionNode.showsApprovePill` (Claude, pending tool use,
   not an input question). The action is the single closure
-  `SidebarTreeActions.approve`, today `SidebarApproval.terminalApprove`
-  (types "1" into the agent terminal). P7 replaces that closure.
+  `SidebarTreeActions.approve`, now `SidebarApproval.respond` (P7, below).
 - **Collapse state** is `SelectedRepository.isExpanded`, persisted in
   `SessionWorkspaceState.expansionState` (SQLite) through
   `CLISessionsViewModel.setRepositoryExpanded(path:isExpanded:)`.
@@ -145,3 +144,35 @@ trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
 `JiraTicketDetailView` / `LinearIssueDetailView`. With no saved tracker, Sprint
 opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
 `sprint tracker: …`, `sprint filter: …`, `sprint ticket: open|close|start …`.
+
+## P7: Approvals (Claude only)
+
+Approve and Deny work in the app. There is no programmatic channel (the hook
+only observes, no hook changes), so the answer is a keystroke into the agent
+tab, behind `ApprovalResponding` (`Services/ApprovalResponder.swift`).
+
+- **One path:** `CLISessionsViewModel.respondToApproval(sessionId:decision:)`
+  serves the banner, the tree pill, the chat `onApprove` and voice. Allow once
+  types "1"; "Always allow" types "2"; Deny sends Escape (the "No" number is
+  not stable across tools).
+- **Fail closed.** It only types when `pendingToolUse != nil`, the tool is not
+  an input question, and either the agent tab's screen tail shows Claude's
+  menu (`ClaudePermissionMenu`; wording pinned in the test fixture
+  `ClaudePermissionMenuFixtures`) or, on backends without screen text
+  (Ghostty), the sidecar has an open `pending` line. "Always allow" also needs
+  option 2 to read "Yes" on screen, so it is refused on Ghostty. Otherwise:
+  "Answer in the terminal".
+- **Progress.** `ApprovalResponseTracker` (on the view model) keeps the click
+  until the session's `ApprovalSignature` (tool use id + last activity) moves;
+  after 3 s with no change it points to the terminal. Banner and pill share it.
+- **Banner** (`Session/ApprovalBanner.swift`): an overlay on the terminal
+  content in `SessionDetailView`, never a sibling, so the PTY never resizes.
+  "Show in terminal" swaps it for a top-corner "Show approval" chip.
+- **⌘↩.** The terminal's key monitor eats ⌘↩ (newline or submit). While the
+  banner shows, the surface's `approvalShortcutHandler` is set and
+  `ApprovalShortcutRouting` sends ⌘↩ to Approve, on both backends; without a
+  banner, nothing changes for any `NewlineShortcut`. When the terminal is not
+  first responder, the Approve button's own ⌘↩ shortcut handles it.
+- **Tree:** Approve pill (spinner while sending; on refusal it opens the
+  session) and an Answer pill for input questions, which only opens the session.
+- Breadcrumbs: `approval: shown|approve|deny <tool>`.
