@@ -163,6 +163,36 @@ enum LibGit2DiffBackend {
 
     return payload
   }
+
+  static func unifiedPatch(
+    for file: GitDiffFileEntry,
+    atGitRoot gitRoot: String,
+    mode: DiffMode,
+    baseBranch: String?,
+    renderPolicy: GitDiffRenderPolicy
+  ) throws -> String {
+    Self.initialize()
+
+    let repo = try openRepository(at: gitRoot)
+    defer { git_repository_free(repo) }
+
+    let diff = try makeDiff(
+      repo: repo,
+      mode: mode,
+      baseBranch: baseBranch,
+      paths: pathspecs(for: file),
+      renderPolicy: renderPolicy,
+      includeUntrackedContent: true
+    )
+    defer { git_diff_free(diff) }
+
+    try findRenames(in: diff, mode: mode)
+
+    let (patch, _) = try makePatch(for: file, in: diff)
+    defer { git_patch_free(patch) }
+
+    return try patchString(from: patch, maxPatchBytes: renderPolicy.maxPatchBytes)
+  }
 }
 
 private extension LibGit2DiffBackend {

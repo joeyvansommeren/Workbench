@@ -635,12 +635,25 @@ private struct SessionDetailContent: View {
   @ViewBuilder
   private var sidePanelBody: some View {
     let segment = segmentBinding.wrappedValue
-    if let content = sidePanelContent(for: segment) {
+    if segment == .diff, !isSidePanelExpanded {
+      // Compact diff at panel width; "Show full diff" expands to `GitDiffView`.
+      SidePanelDiffView(
+        projectPath: session.projectPath,
+        refreshKey: viewModel.localDiffSummary(for: session.projectPath),
+        onShowFullDiff: { isSidePanelExpanded = true }
+      )
+      .id("\(item.id)|\(segment.rawValue)")
+    } else if let content = sidePanelContent(for: segment) {
       SidePanelContentView(
         content: content,
         providerKind: providerKind,
         viewModel: viewModel,
         onDismiss: {
+          // The expanded full diff closes back to the compact diff.
+          if segment == .diff, isSidePanelExpanded {
+            isSidePanelExpanded = false
+            return
+          }
           isSidePanelExpanded = false
           if shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
         },

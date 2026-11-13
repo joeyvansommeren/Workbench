@@ -168,3 +168,26 @@ opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
   Standard / Warm when the flag is on (YAML theme picker hidden), applied live
   by `WorkbenchAppearanceController`. The stored appearance is applied when a
   shell window opens.
+
+## P6b: compact side panel Diff
+
+With the flag on, the side panel's Diff segment shows `SidePanelDiffView`
+instead of the legacy `GitDiffView`: a flat file list (mono path, +n −m), then
+the selected file's hunks at full panel width. Only the code scrolls sideways
+(one horizontal `ScrollView` per hunk); tints and line numbers stay put. No
+GeometryReader.
+
+- **Data:** `SidePanelDiffModel` lists files with `GitDiffServiceProtocol` and
+  fetches the selected file's patch with the new `unifiedPatch(for:…)` (libgit2
+  first, git CLI fallback). `SidePanelDiffParser` (pure) turns it into hunks.
+- **Mode:** automatic until the user picks one in the compact "Branch ▾" menu.
+  Automatic probes `DiffMode` order (branch → staged → unstaged) and takes the
+  first mode with changes, because the header diffstat and "Commit N files…"
+  count every mode. The legacy `GitDiffView` keeps its own rule.
+- **Refresh:** reloads when `localDiffSummary` changes; the selection survives
+  by relative path, else the first file.
+- **Cap:** 400 lines per file. "Show full diff" (also in the mode menu) expands
+  the side panel to the legacy `GitDiffView`; its Close returns to the compact
+  view.
+- **Keys and breadcrumbs:** ↑/↓ move the selection once the list has focus.
+  `side panel diff: file <path>`, `side panel diff: mode <mode>`.

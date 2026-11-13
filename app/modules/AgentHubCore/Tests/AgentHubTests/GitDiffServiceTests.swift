@@ -115,6 +115,29 @@ struct GitDiffServiceTests {
     #expect(file.status == .untracked)
   }
 
+  @Test("unified patch for modified and untracked files")
+  func unifiedPatchForModifiedAndUntrackedFiles() async throws {
+    let fixture = try GitRepoFixture.create()
+    defer { fixture.cleanup() }
+
+    try "changed".write(toFile: fixture.repoPath + "/README.md", atomically: true, encoding: .utf8)
+    try "new file".write(toFile: fixture.repoPath + "/NewFile.txt", atomically: true, encoding: .utf8)
+
+    let service = GitDiffService()
+    let state = try await service.changedFiles(at: fixture.repoPath, mode: .unstaged, baseBranch: nil)
+    let modified = try #require(state.files.first(where: { $0.relativePath == "README.md" }))
+    let untracked = try #require(state.files.first(where: { $0.relativePath == "NewFile.txt" }))
+
+    let modifiedPatch = try await service.unifiedPatch(for: modified, at: fixture.repoPath, mode: .unstaged, baseBranch: nil)
+    #expect(modifiedPatch.contains("diff --git a/README.md b/README.md"))
+    #expect(modifiedPatch.contains("-initial"))
+    #expect(modifiedPatch.contains("+changed"))
+
+    let untrackedPatch = try await service.unifiedPatch(for: untracked, at: fixture.repoPath, mode: .unstaged, baseBranch: nil)
+    #expect(untrackedPatch.contains("@@ -0,0 +1"))
+    #expect(untrackedPatch.contains("+new file"))
+  }
+
   @Test("uses stable file ids across refreshes")
   func usesStableFileIdsAcrossRefreshes() async throws {
     let fixture = try GitRepoFixture.create()

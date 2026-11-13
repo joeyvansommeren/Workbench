@@ -41,6 +41,14 @@ public protocol GitDiffServiceProtocol: Sendable {
     mode: DiffMode,
     baseBranch: String?
   ) async throws -> GitDiffRenderPayload
+  /// The file's unified diff text (`diff --git` header plus hunks), for views
+  /// that draw hunks themselves instead of the full-file renderer.
+  func unifiedPatch(
+    for file: GitDiffFileEntry,
+    at repoPath: String,
+    mode: DiffMode,
+    baseBranch: String?
+  ) async throws -> String
   func detectBaseBranch(at repoPath: String) async throws -> String
   func findGitRoot(at path: String) async throws -> String
 }
@@ -495,7 +503,7 @@ public actor GitDiffService: GitDiffServiceProtocol {
     mode: DiffMode,
     baseBranch: String?
   ) async throws -> GitDiffRenderPayload {
-    let patch = try await unifiedPatch(for: file, at: repoPath, mode: mode, baseBranch: baseBranch)
+    let patch = try await cliUnifiedPatch(for: file, at: repoPath, mode: mode, baseBranch: baseBranch)
     guard let payload = GitDiffPatchRenderAdapter.renderedPayload(
       from: patch,
       limitedContextReason: Self.limitedContextReason
@@ -505,7 +513,36 @@ public actor GitDiffService: GitDiffServiceProtocol {
     return payload
   }
 
-  private func unifiedPatch(
+  public func unifiedPatch(
+    for file: GitDiffFileEntry,
+    at repoPath: String,
+    mode: DiffMode,
+    baseBranch: String? = nil
+  ) async throws -> String {
+    if Task.isCancelled {
+      throw CancellationError()
+    }
+
+    // libgit2 first (same backend as the file list, so renames and untracked
+    // files match); the git CLI is the fallback, as in `renderPayload`.
+    do {
+      let gitRoot = try await findGitRoot(at: repoPath)
+      let branch = mode == .branch ? try await resolvedBaseBranch(baseBranch, repoPath: repoPath) : nil
+      return try LibGit2DiffBackend.unifiedPatch(
+        for: file,
+        atGitRoot: gitRoot,
+        mode: mode,
+        baseBranch: branch,
+        renderPolicy: renderPolicy
+      )
+    } catch {
+      Self.logger.warning("libgit2 unifiedPatch fallback for \(file.relativePath): \(error.localizedDescription)")
+    }
+
+    return try await cliUnifiedPatch(for: file, at: repoPath, mode: mode, baseBranch: baseBranch)
+  }
+
+  private func cliUnifiedPatch(
     for file: GitDiffFileEntry,
     at repoPath: String,
     mode: DiffMode,
