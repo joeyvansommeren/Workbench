@@ -275,6 +275,19 @@ struct SessionNavigationModelTests {
     #expect(model.selectedWorkspaceID == nil)
   }
 
+  @Test("Select session clears module landing and workspace")
+  func selectSessionClearsOtherSelections() {
+    let model = SessionNavigationModel()
+    model.selectedModuleLandingPath = "/tmp/Repo"
+    model.selectedWorkspaceID = "workspace-1"
+
+    model.selectSession("claude-abc")
+
+    #expect(model.primarySessionId == "claude-abc")
+    #expect(model.selectedModuleLandingPath == nil)
+    #expect(model.selectedWorkspaceID == nil)
+  }
+
   // MARK: - Consume Global Session Selection
 
   @Test("Consume session selection routes and marks consumed")

@@ -337,6 +337,15 @@ final class SessionNavigationModel {
     primarySessionId = nil
   }
 
+  /// Select a session row, clearing the module landing and workspace focus.
+  func selectSession(_ itemID: String) {
+    MainThreadStallMonitor.breadcrumb("nav: select \(itemID.prefix(20))")
+    workflowComparisonState.showStandaloneContent()
+    selectedWorkspaceID = nil
+    selectedModuleLandingPath = nil
+    primarySessionId = itemID
+  }
+
   /// React to a newly created pending session.
   func selectPendingSession(provider: SessionProviderKind, pendingID: UUID) {
     MainThreadStallMonitor.breadcrumb("nav: selectPending \(provider.rawValue)")

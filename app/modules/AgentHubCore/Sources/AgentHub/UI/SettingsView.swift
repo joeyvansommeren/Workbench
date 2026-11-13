@@ -23,6 +23,7 @@ public struct SettingsView: View {
   @State private var githubPromptLibrary = GitHubPromptLibrary.shared
 
   @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
+  @AppStorage(AgentHubDefaults.appleShellEnabled) private var appleShellEnabled = false
   @AppStorage(AgentHubDefaults.smartModeEnabled)
   private var smartModeEnabled: Bool = false
 
@@ -238,6 +239,18 @@ public struct SettingsView: View {
 
   private var generalSettingsForm: some View {
     Form {
+      Section("Interface") {
+        // The shell is chosen once at launch (AgentHubApp), so a change needs a relaunch.
+        HStack {
+          settingsToggle(
+            title: "New interface",
+            description: "Relaunch to apply",
+            isOn: $appleShellEnabled
+          )
+          Spacer()
+          Button("Relaunch") { agentHub?.relaunchApplication() }
+        }
+      }
       Section("Sessions") {
         settingsToggle(
           title: "Enable Chat",
