@@ -123,14 +123,14 @@ private struct ShellSprintToolbarContent: View {
   }
 }
 
-/// The toolbar search field (`.toolbar-search`). Opens the palette (P10).
+/// The toolbar search field (`.toolbar-search`). Opens the palette.
 private struct ShellSearchButton: View {
+  @Environment(ShellOverlayModel.self) private var overlays
   @State private var isHovered = false
 
   var body: some View {
     Button {
-      // TODO(P10): open the new command palette.
-      MainThreadStallMonitor.breadcrumb("palette: open")
+      overlays.openPalette()
     } label: {
       HStack(spacing: DesignTokens.Spacing.sm) {
         Image(systemName: "magnifyingglass")

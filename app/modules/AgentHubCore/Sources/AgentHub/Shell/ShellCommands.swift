@@ -18,6 +18,7 @@ struct ShellCommandTarget {
   let model: WorkbenchShellModel
   let startNewSession: () -> Void
   let resumeSessionByID: () -> Void
+  let togglePalette: () -> Void
   let archiveCurrentSession: () -> Void
 }
 
@@ -62,11 +63,11 @@ public struct ShellCommands: Commands {
 
       Divider()
 
-      // TODO(P10): open the new command palette. The legacy palette lives
-      // inside the legacy Sessions view and is not reachable from here.
-      Button("Search…") {}
-        .keyboardShortcut("k", modifiers: .command)
-        .disabled(true)
+      Button("Search…") {
+        shell?.togglePalette()
+      }
+      .keyboardShortcut("k", modifiers: .command)
+      .disabled(shell == nil)
 
       Button("Resume Session by ID…") {
         shell?.resumeSessionByID()

@@ -18,18 +18,30 @@ struct ShellSessionActions {
   private var claude: CLISessionsViewModel { agentHub.claudeSessionsViewModel }
   private var codex: CLISessionsViewModel { agentHub.codexSessionsViewModel }
 
-  /// ⌘N: a new session in the focused project, or the picker when nothing is focused.
+  /// ⌘N: a new session in the focused project (the first project when nothing is focused).
   func startFocusedSession() {
-    startSession(preferredRepositoryPath: focusedLaunchPath)
+    startNewSession(preferredRepositoryPath: focusedLaunchPath)
   }
 
   func startSession(preferredRepositoryPath: String?) {
+    startNewSession(preferredRepositoryPath: preferredRepositoryPath)
+  }
+
+  /// Shows the New session sheet. Pass `preselectedWorktree` from a branch
+  /// row's "+": the sheet opens on that worktree's project with the worktree
+  /// chosen (or "No worktree" for the main checkout).
+  func startNewSession(
+    preselectedWorktree: WorktreeBranch? = nil,
+    preferredRepositoryPath: String? = nil
+  ) {
     MainThreadStallMonitor.breadcrumb("sheet: new session")
-    coordinator.triggerNewSessionFlow(
+    let model = NewSessionSheetModel(
+      launchViewModel: makeLaunchViewModel(),
+      repositories: ShellSessionItems.repositories(claude: claude, codex: codex),
       preferredRepositoryPath: preferredRepositoryPath,
-      fallsBackToRepositoryPicker: true,
-      makeLaunchViewModel: makeLaunchViewModel
+      preselectedWorktree: preselectedWorktree
     )
+    coordinator.newSessionSheetRequest = NewSessionSheetRequest(model: model)
   }
 
   func forkSession(_ session: CLISession, targetProvider: SessionProviderKind) {
