@@ -59,7 +59,7 @@ struct BranchRow: View, Equatable {
         glyph: .plus,
         accessibilityLabel: "New session on \(model.name)"
       ) {
-        actions.startSession(at: model.launchPath)
+        actions.startSession(onBranch: model)
       }
     } else if let pullRequest = model.decoration?.pullRequest {
       BranchPullRequestBadge(pullRequest: pullRequest)
@@ -139,7 +139,7 @@ private struct BranchRowMenu: View {
 
   var body: some View {
     Button("New Session on This Branch", systemImage: "plus") {
-      actions.startSession(at: model.launchPath)
+      actions.startSession(onBranch: model)
     }
     if let decoration = model.decoration {
       workflowItems(decoration)

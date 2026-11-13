@@ -18,6 +18,7 @@ struct ShellCommandTarget {
   let model: WorkbenchShellModel
   let startNewSession: () -> Void
   let resumeSessionByID: () -> Void
+  let togglePalette: () -> Void
   let archiveCurrentSession: () -> Void
 }
 
@@ -35,13 +36,13 @@ public struct ShellCommands: Commands {
       Button(shell?.model.sidebarVisible == false ? "Show Sidebar" : "Hide Sidebar") {
         shell?.model.toggleSidebar()
       }
-      .keyboardShortcut("s", modifiers: [.control, .command])
+      .keyboardShortcut(ShellShortcut.toggleSidebar)
       .disabled(shell == nil)
 
       Button(shell?.model.sidePanelVisible == false ? "Show Side Panel" : "Hide Side Panel") {
         shell?.model.toggleSidePanel()
       }
-      .keyboardShortcut("0", modifiers: [.option, .command])
+      .keyboardShortcut(ShellShortcut.toggleSidePanel)
       .disabled(shell == nil)
     }
 
@@ -51,45 +52,41 @@ public struct ShellCommands: Commands {
         shell?.model.select(.sessions)
         shell?.startNewSession()
       }
-      .keyboardShortcut("n", modifiers: .command)
+      .keyboardShortcut(ShellShortcut.newSession)
       .disabled(shell == nil)
     }
 
     CommandMenu("Navigate") {
-      destinationButton("Sessions", .sessions, key: "1")
-      destinationButton("Reviews", .reviews, key: "2")
-      destinationButton("Sprint", .sprint, key: "3")
+      ForEach(ShellDestination.allCases, id: \.self) { destination in
+        destinationButton(destination)
+      }
 
       Divider()
 
-      // TODO(P10): open the new command palette. The legacy palette lives
-      // inside the legacy Sessions view and is not reachable from here.
-      Button("Search…") {}
-        .keyboardShortcut("k", modifiers: .command)
-        .disabled(true)
+      Button("Search…") {
+        shell?.togglePalette()
+      }
+      .keyboardShortcut(ShellShortcut.search)
+      .disabled(shell == nil)
 
       Button("Resume Session by ID…") {
         shell?.resumeSessionByID()
       }
-      .keyboardShortcut("r", modifiers: [.command, .shift])
+      .keyboardShortcut(ShellShortcut.resumeSessionByID)
       .disabled(shell == nil)
 
       // Archive acts on the session shown in Sessions, as in the legacy view.
       Button("Archive Current Session") {
         shell?.archiveCurrentSession()
       }
-      .keyboardShortcut("a", modifiers: [.command, .option])
+      .keyboardShortcut(ShellShortcut.archiveCurrentSession)
       .disabled(shell?.model.destination != .sessions)
     }
   }
 
-  private func destinationButton(
-    _ title: String,
-    _ destination: ShellDestination,
-    key: KeyEquivalent
-  ) -> some View {
-    Button(title) { shell?.model.select(destination) }
-      .keyboardShortcut(key, modifiers: .command)
+  private func destinationButton(_ destination: ShellDestination) -> some View {
+    Button(destination.title) { shell?.model.select(destination) }
+      .keyboardShortcut(destination.shortcut)
       .disabled(shell == nil)
   }
 }
