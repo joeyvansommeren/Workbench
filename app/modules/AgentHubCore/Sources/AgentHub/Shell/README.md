@@ -60,4 +60,3 @@ trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
 `JiraTicketDetailView` / `LinearIssueDetailView`. With no saved tracker, Sprint
 opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
 `sprint tracker: …`, `sprint filter: …`, `sprint ticket: open|close|start …`.
-`SprintTracker.myOpenCount(jira:linear:)` is the Sprint sidebar count (P5).

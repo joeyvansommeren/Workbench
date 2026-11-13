@@ -85,7 +85,12 @@ struct LinearSprintDestination: View {
         onOpen: open,
         onStart: { start($0, provider: nil) },
         onOpenSession: { id in
-          if let session = preferredSession(forIssueID: id) { onOpenSession(session) }
+          guard let identifier = viewModel.issues.first(where: { $0.id == id })?.identifier else {
+            return
+          }
+          if let session = SprintBoardItems.sessionToOpen(linkedSessions[identifier] ?? []) {
+            onOpenSession(session)
+          }
         },
         onMove: nil,
         browseURL: { id in
@@ -135,12 +140,9 @@ struct LinearSprintDestination: View {
   // MARK: List head
 
   private var scope: Binding<SprintAssigneeScope> {
-    Binding(
-      get: { viewModel.assigneeFilter == .me ? .mine : .all },
-      set: { scope in
-        viewModel.assigneeFilter = scope == .mine ? .me : .everyone
-        MainThreadStallMonitor.breadcrumb("sprint filter: \(scope.rawValue)")
-      }
+    SprintAssigneeScope.binding(
+      isMine: { viewModel.assigneeFilter == .me },
+      setMine: { viewModel.assigneeFilter = $0 ? .me : .everyone }
     )
   }
 
@@ -185,28 +187,25 @@ struct LinearSprintDestination: View {
     MainThreadStallMonitor.breadcrumb("sprint ticket: close")
   }
 
-  private func preferredSession(forIssueID id: String) -> LinearLinkedSession? {
-    guard let identifier = viewModel.issues.first(where: { $0.id == id })?.identifier else { return nil }
-    let sessions = linkedSessions[identifier] ?? []
-    return sessions.first { $0.isMonitored && !$0.isPending }
-      ?? sessions.filter { !$0.isPending }.max { $0.lastActivityAt < $1.lastActivityAt }
-  }
-
   /// Starts a session, or opens the detail when no project or agent is picked yet.
   private func start(_ id: String, provider: SessionProviderKind?) {
     guard
       let issue = viewModel.selectedIssue?.id == id
         ? viewModel.selectedIssue : viewModel.issues.first(where: { $0.id == id }),
       let path = viewModel.repositoryPath,
-      let provider = provider
-        ?? SprintStartProvider.preferred(
-          isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
+      let provider = SprintStartProvider.resolve(
+        provider, isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
     else {
       open(id)
       return
     }
+    // A double-click on Start must not launch two sessions.
+    guard viewModel.beginStartingSession(for: id) else { return }
     MainThreadStallMonitor.breadcrumb("sprint ticket: start \(issue.identifier)")
-    Task { await onStart(issue, provider, path) }
+    Task {
+      defer { viewModel.endStartingSession(for: id) }
+      await onStart(issue, provider, path)
+    }
   }
 }
 

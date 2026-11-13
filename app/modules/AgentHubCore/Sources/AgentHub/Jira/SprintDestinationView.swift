@@ -79,8 +79,6 @@ struct JiraSprintDestination: View {
   let sessionStatus: (SessionProviderKind, String) -> SessionStatus?
   let onStart: (JiraTicketSnapshot, SessionProviderKind, String) async -> Void
   let onOpenSession: (JiraLinkedSession) -> Void
-  /// Shows one card hovered, for renders.
-  var previewHoveredTicketID: String?
 
   @State private var isFiltersOpen = false
   @FocusState private var isBoardFocused: Bool
@@ -154,7 +152,9 @@ struct JiraSprintDestination: View {
         onOpen: open,
         onStart: { start($0, provider: nil) },
         onOpenSession: { key in
-          if let session = preferredSession(for: key) { onOpenSession(session) }
+          if let session = SprintBoardItems.sessionToOpen(linkedSessions[key] ?? []) {
+            onOpenSession(session)
+          }
         },
         onMove: { key, columnID in
           let category = viewModel.columns.first { $0.id == columnID }?.category
@@ -163,8 +163,7 @@ struct JiraSprintDestination: View {
         browseURL: { key in
           viewModel.sprintTickets.first { $0.key == key }.flatMap(viewModel.browseURL(for:))
         }
-      ),
-      previewHoveredTicketID: previewHoveredTicketID
+      )
     )
     .focusable()
     .focused($isBoardFocused)
@@ -217,12 +216,9 @@ struct JiraSprintDestination: View {
   // MARK: List head
 
   private var scope: Binding<SprintAssigneeScope> {
-    Binding(
-      get: { viewModel.assigneeFilter == .me ? .mine : .all },
-      set: { scope in
-        viewModel.assigneeFilter = scope == .mine ? .me : .everyone
-        MainThreadStallMonitor.breadcrumb("sprint filter: \(scope.rawValue)")
-      }
+    SprintAssigneeScope.binding(
+      isMine: { viewModel.assigneeFilter == .me },
+      setMine: { viewModel.assigneeFilter = $0 ? .me : .everyone }
     )
   }
 
@@ -295,21 +291,14 @@ struct JiraSprintDestination: View {
     return .handled
   }
 
-  private func preferredSession(for key: String) -> JiraLinkedSession? {
-    let sessions = linkedSessions[key] ?? []
-    return sessions.first { $0.isMonitored && !$0.isPending }
-      ?? sessions.filter { !$0.isPending }.max { $0.lastActivityAt < $1.lastActivityAt }
-  }
-
   /// Starts a session, or opens the detail when no project or agent is picked yet.
   private func start(_ key: String, provider: SessionProviderKind?) {
     guard
       let ticket = viewModel.selectedTicket?.key == key
         ? viewModel.selectedTicket : viewModel.sprintTickets.first(where: { $0.key == key }),
       let path = viewModel.repositoryPath,
-      let provider = provider
-        ?? SprintStartProvider.preferred(
-          isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
+      let provider = SprintStartProvider.resolve(
+        provider, isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
     else {
       open(key)
       return

@@ -26,8 +26,6 @@ struct SprintBoardView: View {
   let columns: [SprintColumnItem]
   let selectedTicketID: String?
   let actions: SprintBoardActions
-  /// Shows one card in its hover state, for renders and previews.
-  var previewHoveredTicketID: String?
 
   static let visibleColumnCount = 4
 
@@ -52,12 +50,7 @@ struct SprintBoardView: View {
   private var columnStack: some View {
     HStack(alignment: .top, spacing: DesignTokens.Spacing.md) {
       ForEach(columns) { column in
-        SprintColumnView(
-          column: column,
-          selectedTicketID: selectedTicketID,
-          actions: actions,
-          previewHoveredTicketID: previewHoveredTicketID
-        )
+        SprintColumnView(column: column, selectedTicketID: selectedTicketID, actions: actions)
           .modifier(SprintColumnWidth(isScrolling: columns.count > Self.visibleColumnCount))
       }
     }
@@ -87,7 +80,6 @@ struct SprintColumnView: View {
   let column: SprintColumnItem
   let selectedTicketID: String?
   let actions: SprintBoardActions
-  var previewHoveredTicketID: String?
 
   @State private var isDropTargeted = false
 
@@ -144,8 +136,7 @@ struct SprintColumnView: View {
       isSelected: ticket.id == selectedTicketID,
       onOpen: { actions.onOpen(ticket.id) },
       onStart: { actions.onStart(ticket.id) },
-      onOpenSession: { actions.onOpenSession(ticket.id) },
-      forceHover: ticket.id == previewHoveredTicketID
+      onOpenSession: { actions.onOpenSession(ticket.id) }
     )
     .contextMenu { contextMenu(for: ticket) }
     if actions.onMove != nil {

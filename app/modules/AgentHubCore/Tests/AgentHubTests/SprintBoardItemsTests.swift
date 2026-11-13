@@ -1,5 +1,6 @@
 import AgentHubGitHub
 import AgentWorkflowJiraCLI
+import AgentWorkflowLinear
 import Foundation
 import Testing
 
@@ -61,6 +62,77 @@ struct SprintBoardItemsTests {
         == nil)
   }
 
+  @Test("A merged PR shows as Merged; a single closed PR gets no footer")
+  func mergedAndClosedPullRequests() {
+    let merged = SprintBoardItems.footer(
+      isDone: false, sessions: [],
+      pullRequests: [Self.pullRequest(3, state: "CLOSED"), Self.pullRequest(4, state: "MERGED")],
+      status: Self.noStatus)
+    #expect(merged == .pullRequest(number: 4, isMerged: true))
+
+    let closed = SprintBoardItems.footer(
+      isDone: false, sessions: [], pullRequests: [Self.pullRequest(5, state: "CLOSED")],
+      status: Self.noStatus)
+    #expect(closed == nil)
+  }
+
+  @Test("Linear columns map issues to cards; completed is Done, linked sessions show")
+  func linearMapping() {
+    let started = LinearWorkflowState(
+      id: "s", name: "In Progress", type: "started", position: 1, color: "#f2c94c")
+    let completed = LinearWorkflowState(
+      id: "c", name: "Done", type: "completed", position: 2, color: "#5e6ad2")
+    let open = LinearIssue(
+      id: "issue-1", identifier: "WB-12", title: "Sprint board", state: started,
+      assignee: LinearUser(id: "u", name: "Ann Maes"))
+    let done = LinearIssue(id: "issue-2", identifier: "WB-9", title: "Old work", state: completed)
+    let link = LinearLinkedSession(
+      provider: .codex, itemID: "item", title: "WB-12", branchName: nil, lastActivityAt: .now,
+      isPending: false, isMonitored: true, session: CLISession(id: "s1", projectPath: "/tmp"))
+
+    let items = SprintBoardItems.linear(
+      columns: [
+        LinearViewModel.BoardColumn(state: started, issues: [open]),
+        LinearViewModel.BoardColumn(state: completed, issues: [done]),
+      ],
+      linkedSessions: ["WB-12": [link]],
+      status: { provider, id in provider == .codex && id == "s1" ? .waitingForUser : nil })
+
+    #expect(items.map(\.id) == ["s", "c"])
+    #expect(items.map(\.title) == ["In Progress", "Done"])
+    let openCard = items[0].tickets[0]
+    #expect(openCard.id == "issue-1")
+    #expect(openCard.key == "WB-12")
+    #expect(openCard.title == "Sprint board")
+    #expect(openCard.assigneeInitials == "AM")
+    #expect(
+      openCard.footer
+        == .session(
+          providerName: "Codex", presentation: SessionStatusPresentation(status: .waitingForUser)))
+    let doneCard = items[1].tickets[0]
+    #expect(doneCard.key == "WB-9")
+    #expect(doneCard.isDone)
+    #expect(doneCard.footer == .done)
+    #expect(doneCard.assigneeInitials == nil)
+  }
+
+  @Test("A footer click opens a monitored session, else the newest; never one still starting")
+  func sessionToOpen() {
+    func link(_ id: String, monitored: Bool, pending: Bool, minutesAgo: Double) -> JiraLinkedSession {
+      JiraLinkedSession(
+        provider: .claude, itemID: id, title: id, branchName: nil,
+        lastActivityAt: Date(timeIntervalSince1970: 1_000_000 - minutesAgo * 60),
+        isPending: pending, isMonitored: monitored, session: nil)
+    }
+    let monitored = link("monitored", monitored: true, pending: false, minutesAgo: 60)
+    let newest = link("newest", monitored: false, pending: false, minutesAgo: 1)
+    let starting = link("starting", monitored: true, pending: true, minutesAgo: 0)
+
+    #expect(SprintBoardItems.sessionToOpen([newest, monitored, starting])?.id == "monitored")
+    #expect(SprintBoardItems.sessionToOpen([newest, starting])?.id == "newest")
+    #expect(SprintBoardItems.sessionToOpen([starting]) == nil)
+  }
+
   @Test("Jira columns map to cards with initials; Start hides on done tickets")
   func jiraMapping() {
     let columns = [
@@ -103,5 +175,10 @@ struct SprintBoardItemsTests {
     #expect(SprintStartProvider.preferred(isClaudeAvailable: true, isCodexAvailable: true) == .claude)
     #expect(SprintStartProvider.preferred(isClaudeAvailable: false, isCodexAvailable: true) == .codex)
     #expect(SprintStartProvider.preferred(isClaudeAvailable: false, isCodexAvailable: false) == nil)
+    // The detail panel's explicit choice wins.
+    #expect(
+      SprintStartProvider.resolve(.codex, isClaudeAvailable: true, isCodexAvailable: true) == .codex)
+    #expect(
+      SprintStartProvider.resolve(nil, isClaudeAvailable: true, isCodexAvailable: true) == .claude)
   }
 }

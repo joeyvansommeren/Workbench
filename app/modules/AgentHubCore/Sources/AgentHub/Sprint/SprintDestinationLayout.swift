@@ -94,4 +94,11 @@ enum SprintStartProvider {
     if isCodexAvailable { return .codex }
     return nil
   }
+
+  /// The detail panel names the agent; a card's Start leaves it to `preferred`.
+  static func resolve(
+    _ explicit: SessionProviderKind?, isClaudeAvailable: Bool, isCodexAvailable: Bool
+  ) -> SessionProviderKind? {
+    explicit ?? preferred(isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
+  }
 }

@@ -10,6 +10,7 @@ import AgentHubGitHub
 import AgentWorkflowJiraCLI
 import AgentWorkflowLinear
 import Foundation
+import SwiftUI
 
 /// The one line under a ticket title (`.ticket-foot` in the prototype).
 enum SprintTicketFooter: Equatable {
@@ -88,12 +89,29 @@ enum SprintBoardItems {
         presentation: SessionStatusPresentation(status: sessionStatus, isPending: best.isPending)
       )
     }
-    if let pullRequest = pullRequests?.first(where: { $0.state.lowercased() == "open" })
-      ?? pullRequests?.first
-    {
-      return .pullRequest(number: pullRequest.number, isMerged: pullRequest.state.lowercased() == "merged")
+    // An open PR first, then a merged one. A closed, unmerged PR is not work
+    // in review, so it gets no footer.
+    let pullRequests = pullRequests ?? []
+    if let open = pullRequests.first(where: { $0.state.lowercased() == "open" }) {
+      return .pullRequest(number: open.number, isMerged: false)
+    }
+    if let merged = pullRequests.first(where: { $0.state.lowercased() == "merged" }) {
+      return .pullRequest(number: merged.number, isMerged: true)
     }
     return nil
+  }
+
+  /// The session a footer click opens: a monitored one, else the most recent.
+  /// Sessions still starting cannot be opened yet.
+  static func sessionToOpen<Link: SprintLinkedSession>(_ links: [Link]) -> Link? {
+    let openable = links.filter { !$0.isPending }
+    return openable.first(where: \.isMonitored) ?? openable.max { $0.lastActivityAt < $1.lastActivityAt }
+  }
+
+  static func summary(_ link: some SprintLinkedSession) -> SprintLinkedSessionSummary {
+    SprintLinkedSessionSummary(
+      provider: link.provider, sessionID: link.session?.id, isPending: link.isPending,
+      isMonitored: link.isMonitored, lastActivityAt: link.lastActivityAt)
   }
 
   // MARK: - Jira
@@ -118,7 +136,7 @@ enum SprintBoardItems {
             isDone: isDone,
             footer: footer(
               isDone: isDone,
-              sessions: (linkedSessions[ticket.key] ?? []).map(summary),
+              sessions: (linkedSessions[ticket.key] ?? []).map { summary($0) },
               pullRequests: pullRequests[ticket.key],
               status: status
             )
@@ -126,12 +144,6 @@ enum SprintBoardItems {
         }
       )
     }
-  }
-
-  static func summary(_ link: JiraLinkedSession) -> SprintLinkedSessionSummary {
-    SprintLinkedSessionSummary(
-      provider: link.provider, sessionID: link.session?.id, isPending: link.isPending,
-      isMonitored: link.isMonitored, lastActivityAt: link.lastActivityAt)
   }
 
   // MARK: - Linear
@@ -155,7 +167,7 @@ enum SprintBoardItems {
             isDone: isDone,
             footer: footer(
               isDone: isDone,
-              sessions: (linkedSessions[issue.identifier] ?? []).map(summary),
+              sessions: (linkedSessions[issue.identifier] ?? []).map { summary($0) },
               pullRequests: nil,
               status: status
             )
@@ -165,14 +177,23 @@ enum SprintBoardItems {
     }
   }
 
-  static func summary(_ link: LinearLinkedSession) -> SprintLinkedSessionSummary {
-    SprintLinkedSessionSummary(
-      provider: link.provider, sessionID: link.session?.id, isPending: link.isPending,
-      isMonitored: link.isMonitored, lastActivityAt: link.lastActivityAt)
-  }
 }
 
-// MARK: - Assignee scope and counts
+// MARK: - Linked sessions
+
+/// What the board reads from a Jira or a Linear session link.
+protocol SprintLinkedSession {
+  var provider: SessionProviderKind { get }
+  var isPending: Bool { get }
+  var isMonitored: Bool { get }
+  var lastActivityAt: Date { get }
+  var session: CLISession? { get }
+}
+
+extension JiraLinkedSession: SprintLinkedSession {}
+extension LinearLinkedSession: SprintLinkedSession {}
+
+// MARK: - Assignee scope
 
 /// The All | Mine switch. Finer filters (a person, unassigned) live in Filters.
 enum SprintAssigneeScope: String, CaseIterable, CustomStringConvertible {
@@ -185,15 +206,18 @@ enum SprintAssigneeScope: String, CaseIterable, CustomStringConvertible {
     case .mine: return "Mine"
     }
   }
-}
 
-extension SprintTracker {
-  /// Your open tickets on this tracker: the Sidebar's Sprint count.
-  @MainActor
-  func myOpenCount(jira: JiraSprintViewModel, linear: LinearViewModel) -> Int {
-    switch self {
-    case .jira: return jira.myOpenTicketCount
-    case .linear: return linear.myOpenIssueCount
-    }
+  /// Binds the switch to a tracker's "only mine" filter and leaves a breadcrumb.
+  static func binding(
+    isMine: @escaping () -> Bool,
+    setMine: @escaping (Bool) -> Void
+  ) -> Binding<SprintAssigneeScope> {
+    Binding(
+      get: { isMine() ? .mine : .all },
+      set: { scope in
+        setMine(scope == .mine)
+        MainThreadStallMonitor.breadcrumb("sprint filter: \(scope.rawValue)")
+      }
+    )
   }
 }
