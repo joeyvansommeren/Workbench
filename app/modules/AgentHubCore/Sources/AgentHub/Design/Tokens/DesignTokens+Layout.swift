@@ -1,0 +1,217 @@
+//
+//  DesignTokens+Layout.swift
+//  AgentHub
+//
+//  Extended spacing, radius, size, width, inset, motion and shadow tokens
+//  for the new shell. Values match the CSS `:root` block in the prototype.
+//
+
+import SwiftUI
+
+// MARK: - Spacing additions
+
+extension DesignTokens.Spacing {
+  public static let xxs: CGFloat = 2
+  public static let xsPlus: CGFloat = 6
+  public static let smPlus: CGFloat = 10
+  public static let xxl: CGFloat = 24
+  public static let xxxl: CGFloat = 32
+}
+
+// MARK: - Radius (extended)
+
+extension DesignTokens.Radius {
+  /// Content panel, sheet, popover, palette, board column, card.
+  public static let container: CGFloat = 14
+  /// Sidebar row, tab, list row.
+  public static let row: CGFloat = 10
+  /// Menu item, board card, button, field.
+  public static let item: CGFloat = 8
+  /// Segment inside a control, chip.
+  public static let segment: CGFloat = 6
+  /// Key cap, letter tile.
+  public static let small: CGFloat = 5
+  /// Pill shape.
+  public static let full: CGFloat = 999
+}
+
+// MARK: - Inset
+
+extension DesignTokens {
+  public enum Inset {
+    /// Content panel inset from the window edge.
+    public static let panel: CGFloat = 8
+    /// Sidebar content inset.
+    public static let sidebar: CGFloat = 12
+    /// Inner container inset.
+    public static let container: CGFloat = 6
+    /// Control padding (segment inside a segmented control).
+    public static let control: CGFloat = 2
+  }
+}
+
+// MARK: - Size
+
+extension DesignTokens {
+  public enum Size {
+    public static let titlebar: CGFloat = 52
+    public static let control: CGFloat = 28
+    public static let controlSmall: CGFloat = 24
+    public static let row: CGFloat = 30
+    public static let tab: CGFloat = 32
+    public static let icon: CGFloat = 16
+    public static let iconSmall: CGFloat = 12
+    public static let tile: CGFloat = 18
+    public static let status: CGFloat = 12
+  }
+}
+
+// MARK: - Width
+
+extension DesignTokens {
+  public enum Width {
+    public static let sidebar: CGFloat = 288
+    public static let sidePanel: CGFloat = 400
+    public static let sheet: CGFloat = 560
+    public static let palette: CGFloat = 640
+    public static let popover: CGFloat = 300
+  }
+}
+
+// MARK: - Motion
+
+extension DesignTokens {
+  public enum Motion {
+    /// Standard critically-damped spring (response 0.3 s, damping 1.0).
+    public static let standard: Animation = .spring(response: 0.3, dampingFraction: 1)
+    /// Fast interaction feedback.
+    public static let fast: Animation = .spring(response: 0.12, dampingFraction: 1)
+    /// Medium transition (sidebar toggle, panel resize).
+    public static let medium: Animation = .spring(response: 0.24, dampingFraction: 1)
+  }
+}
+
+/// Resolve an animation, returning `nil` under Reduce Motion.
+extension Animation {
+  /// Returns the animation or `nil` when the user has enabled Reduce Motion.
+  public static func wbAnimation(_ animation: Animation) -> Animation? {
+    if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      return nil
+    }
+    return animation
+  }
+}
+
+// MARK: - Shadow
+
+extension DesignTokens {
+  /// Shadow level applied through the `.wbElevation(_:in:)` modifier.
+  public enum Shadow: Sendable {
+    case raised
+    case panel
+    case overlay
+    case control
+  }
+}
+
+/// Applies the workbench elevation treatment: a 0.5 pt ring plus an
+/// optional blur layer (light), or a 0.5 pt ring plus an inner top
+/// highlight (dark). All in one modifier so the shadow definition is
+/// a single source of truth.
+public struct WorkbenchElevationModifier: ViewModifier {
+  let level: DesignTokens.Shadow
+  @Environment(\.colorScheme) private var colorScheme
+
+  public func body(content: Content) -> some View {
+    content
+      .overlay {
+        RoundedRectangle(cornerRadius: cornerRadius)
+          .strokeBorder(ringColor, lineWidth: 0.5)
+      }
+      .shadow(color: blurColor, radius: blurRadius, x: 0, y: blurY)
+      .overlay(alignment: .top) {
+        if colorScheme == .dark, level != .control {
+          // Inner top highlight for dark mode depth.
+          UnevenRoundedRectangle(
+            topLeadingRadius: cornerRadius,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: cornerRadius
+          )
+          .strokeBorder(Color.white.opacity(highlightOpacity), lineWidth: 0.5)
+          .allowsHitTesting(false)
+        }
+      }
+  }
+
+  private var cornerRadius: CGFloat {
+    switch level {
+    case .raised: return DesignTokens.Radius.row
+    case .panel: return DesignTokens.Radius.container
+    case .overlay: return DesignTokens.Radius.container
+    case .control: return DesignTokens.Radius.item
+    }
+  }
+
+  private var ringColor: Color {
+    switch (level, colorScheme) {
+    case (.raised, .light):  return .black.opacity(0.07)
+    case (.panel, .light):   return .black.opacity(0.08)
+    case (.overlay, .light): return .black.opacity(0.10)
+    case (.control, .light): return .black.opacity(0.14)
+    case (.raised, .dark):   return .black.opacity(0.50)
+    case (.panel, .dark):    return .white.opacity(0.06)
+    case (.overlay, .dark):  return .black.opacity(0.60)
+    case (.control, .dark):  return .black.opacity(0.50)
+    default:                 return .clear
+    }
+  }
+
+  private var blurColor: Color {
+    switch (level, colorScheme) {
+    case (.raised, .light):  return .black.opacity(0.06)
+    case (.panel, .light):   return .black.opacity(0.04)
+    case (.overlay, .light): return .black.opacity(0.12)
+    case (.control, .light): return .black.opacity(0.07)
+    case (.raised, .dark):   return .black.opacity(0.35)
+    case (.panel, .dark):    return .black.opacity(0.30)
+    case (.overlay, .dark):  return .black.opacity(0.45)
+    case (.control, .dark):  return .black.opacity(0.30)
+    default:                 return .clear
+    }
+  }
+
+  private var blurRadius: CGFloat {
+    switch level {
+    case .raised:  return 3
+    case .panel:   return 1.5
+    case .overlay: return 15
+    case .control: return 0.75
+    }
+  }
+
+  private var blurY: CGFloat {
+    switch level {
+    case .raised:  return 2
+    case .panel:   return 1
+    case .overlay: return 10
+    case .control: return 0.75
+    }
+  }
+
+  private var highlightOpacity: Double {
+    switch level {
+    case .raised:  return 0.07
+    case .panel:   return 0.06
+    case .overlay: return 0.08
+    case .control: return 0.08
+    }
+  }
+}
+
+extension View {
+  /// Apply the workbench elevation shadow for the given level.
+  public func wbElevation(_ level: DesignTokens.Shadow) -> some View {
+    modifier(WorkbenchElevationModifier(level: level))
+  }
+}

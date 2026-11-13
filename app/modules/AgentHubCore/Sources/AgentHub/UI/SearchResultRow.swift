@@ -78,7 +78,7 @@ public struct SearchResultRow: View {
       .padding(.horizontal, 12)
       .background(
         RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-          .fill(Color.surfaceOverlay)
+          .fill(Color.legacySurfaceFill)
       )
       .overlay(
         RoundedRectangle(cornerRadius: DesignTokens.Radius.md)

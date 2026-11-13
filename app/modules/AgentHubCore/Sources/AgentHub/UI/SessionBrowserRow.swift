@@ -136,7 +136,7 @@ struct SessionBrowserRow: View {
         .fill(Color.brandPrimary(for: providerKind).opacity(colorScheme == .dark ? 0.1 : 0.06))
     } else {
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     }
   }
 

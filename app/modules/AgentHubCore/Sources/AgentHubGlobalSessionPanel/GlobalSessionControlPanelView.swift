@@ -959,7 +959,7 @@ private struct GlobalSessionControlPanelRow: View {
       return Color.brandPrimary(for: item.providerKind)
         .opacity(colorScheme == .dark ? 0.16 : 0.22)
     }
-    return Color.surfaceOverlay
+    return Color.legacySurfaceFill
       .opacity(colorScheme == .dark ? 0.55 : 0.65)
   }
 

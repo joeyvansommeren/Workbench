@@ -67,6 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
       "Geist-Regular", "Geist-Medium", "Geist-SemiBold", "Geist-Bold",
       "GeistMono-Regular", "GeistMono-Medium", "GeistMono-SemiBold", "GeistMono-Bold",
       "SourceCodePro-Regular",
+      "InterDisplay-Regular", "InterDisplay-Medium", "InterDisplay-SemiBold", "InterDisplay-Bold",
     ]
     let ttfFonts = [
       "JetBrainsMono-Regular", "JetBrainsMono-Medium",

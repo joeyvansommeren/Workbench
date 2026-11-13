@@ -141,7 +141,7 @@ public struct MultiSessionLaunchView: View {
     .padding(DesignTokens.Spacing.md)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
