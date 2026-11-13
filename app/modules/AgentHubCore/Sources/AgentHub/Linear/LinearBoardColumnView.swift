@@ -105,10 +105,10 @@ struct LinearBoardColumnView: View {
     Divider()
     Button("Pick Up with Claude") { onStart(issue, .claude) }
       .disabled(!canStart || !isClaudeAvailable)
-      .help(isClaudeAvailable ? "" : "Claude Code is not installed")
+      .help(isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
     Button("Pick Up with Codex") { onStart(issue, .codex) }
       .disabled(!canStart || !isCodexAvailable)
-      .help(isCodexAvailable ? "" : "Codex is not installed")
+      .help(isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
     Divider()
     if let url = URL(string: issue.url) {
       Button("Open in Linear") { NSWorkspace.shared.open(url) }

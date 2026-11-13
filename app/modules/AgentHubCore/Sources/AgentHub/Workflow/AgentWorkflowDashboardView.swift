@@ -878,10 +878,10 @@ private struct DetectedBranchSessionDetail: View {
           Section {
             Button("Start Codex") { onStartSession(workflowID, .codex, nil) }
               .disabled(!isCodexAvailable)
-              .help(isCodexAvailable ? "" : "Codex is not installed")
+              .help(isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
             Button("Start Claude") { onStartSession(workflowID, .claude, nil) }
               .disabled(!isClaudeAvailable)
-              .help(isClaudeAvailable ? "" : "Claude Code is not installed")
+              .help(isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
           }
         }
         Section {
@@ -1225,12 +1225,12 @@ private struct ManualWorkflowEmptyState: View {
             onStartSession(workflowID, .codex, nil)
           }
           .disabled(!isCodexAvailable)
-          .help(isCodexAvailable ? "" : "Codex is not installed")
+          .help(isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
           Button("Start Claude") {
             onStartSession(workflowID, .claude, nil)
           }
           .disabled(!isClaudeAvailable)
-          .help(isClaudeAvailable ? "" : "Claude Code is not installed")
+          .help(isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)

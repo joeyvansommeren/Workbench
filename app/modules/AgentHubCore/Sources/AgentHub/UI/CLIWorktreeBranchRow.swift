@@ -199,7 +199,7 @@ public struct CLIWorktreeBranchRow: View {
           .buttonStyle(.plain)
           .help(isCLIAvailable
             ? "New \(providerLabel) session"
-            : "\(providerLabel) is not installed")
+            : providerKind.notInstalledHelp)
           .disabled(!isCLIAvailable)
           .popover(isPresented: $showNewSessionMenu, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 4) {

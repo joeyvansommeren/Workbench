@@ -135,10 +135,10 @@ struct JiraBoardColumnView: View {
     Divider()
     Button("Pick Up with Claude") { onStart(ticket, .claude) }
       .disabled(!canStart || startingSessionKeys.contains(ticket.key) || !isClaudeAvailable)
-      .help(isClaudeAvailable ? "" : "Claude Code is not installed")
+      .help(isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
     Button("Pick Up with Codex") { onStart(ticket, .codex) }
       .disabled(!canStart || startingSessionKeys.contains(ticket.key) || !isCodexAvailable)
-      .help(isCodexAvailable ? "" : "Codex is not installed")
+      .help(isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
     Divider()
     if let url = browseURL(ticket) {
       Button("Open in Jira") { NSWorkspace.shared.open(url) }

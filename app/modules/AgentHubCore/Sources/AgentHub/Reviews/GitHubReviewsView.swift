@@ -696,7 +696,7 @@ struct GitHubReviewsView: View {
     .fixedSize()
     .disabled(isStarting || !cliAvailable)
     .help(!cliAvailable
-      ? "\(provider.rawValue) is not installed"
+      ? provider.notInstalledHelp
       : isStarting ? "Starting session…" : "Choose a prompt to run with \(provider.rawValue)")
   }
 

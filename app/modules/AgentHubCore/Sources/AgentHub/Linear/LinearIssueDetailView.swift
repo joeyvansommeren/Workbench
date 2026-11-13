@@ -238,7 +238,7 @@ private struct LinearPickUpCard: View {
     }
     .buttonStyle(ProviderActionButtonStyle(provider: provider))
     .disabled(repositoryPath == nil || !available)
-    .help(available ? "" : "\(title) is not installed")
+    .help(available ? "" : provider.notInstalledHelp)
   }
 }
 

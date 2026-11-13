@@ -794,13 +794,13 @@ public struct MultiSessionLaunchView: View {
         .foregroundColor(.secondary)
       claudePill
         .disabled(!viewModel.isClaudeAvailable)
-        .help(viewModel.isClaudeAvailable ? "" : "Claude Code is not installed")
+        .help(viewModel.isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
       providerPill(
         label: "Codex",
         isSelected: codexSelectionBinding,
         disabled: viewModel.isPlanModeEnabled || !viewModel.isCodexAvailable
       )
-      .help(viewModel.isCodexAvailable ? "" : "Codex is not installed")
+      .help(viewModel.isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
       Spacer()
     }
     .onAppear { viewModel.refreshCLIAvailability() }

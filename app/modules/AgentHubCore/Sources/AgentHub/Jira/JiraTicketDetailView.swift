@@ -243,7 +243,7 @@ private struct JiraPickUpCard: View {
     }
     .buttonStyle(ProviderActionButtonStyle(provider: provider))
     .disabled(repositoryPath == nil || isStartingSession || !available)
-    .help(available ? "" : "\(title) is not installed")
+    .help(available ? "" : provider.notInstalledHelp)
   }
 }
 
