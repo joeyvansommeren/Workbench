@@ -241,6 +241,18 @@ public final class MultiSessionLaunchViewModel {
     isClaudeSelected || isCodexSelected
   }
 
+  /// Whether the Claude CLI is currently reachable.
+  public var isClaudeAvailable: Bool { claudeViewModel.isCLIAvailable }
+  /// Whether the Codex CLI is currently reachable.
+  public var isCodexAvailable: Bool { codexViewModel.isCLIAvailable }
+
+  /// Refreshes CLI availability for both providers. Call when the
+  /// launch sheet or provider selection appears.
+  public func refreshCLIAvailability() {
+    claudeViewModel.refreshCLIAvailability()
+    codexViewModel.refreshCLIAvailability()
+  }
+
   public var isSmartModeAvailable: Bool {
     intelligenceViewModel != nil
   }

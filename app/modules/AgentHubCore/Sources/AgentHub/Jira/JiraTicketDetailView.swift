@@ -22,6 +22,8 @@ struct JiraTicketDetailView: View {
   let isLoadingPullRequests: Bool
   let onRefreshPullRequests: () -> Void
   let isStartingSession: Bool
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let onStart: (SessionProviderKind) -> Void
   let onOpenSession: (JiraLinkedSession) -> Void
   let onClose: () -> Void
@@ -47,6 +49,8 @@ struct JiraTicketDetailView: View {
             repositoryPath: $repositoryPath,
             repositories: repositories,
             isStartingSession: isStartingSession,
+            isClaudeAvailable: isClaudeAvailable,
+            isCodexAvailable: isCodexAvailable,
             onStart: onStart
           )
           descriptionBlock
@@ -175,6 +179,8 @@ private struct JiraPickUpCard: View {
   @Binding var repositoryPath: String?
   let repositories: [SelectedRepository]
   let isStartingSession: Bool
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let onStart: (SessionProviderKind) -> Void
 
   var body: some View {
@@ -224,7 +230,8 @@ private struct JiraPickUpCard: View {
   }
 
   private func providerButton(_ provider: SessionProviderKind, title: String) -> some View {
-    Button {
+    let available = provider == .claude ? isClaudeAvailable : isCodexAvailable
+    return Button {
       onStart(provider)
     } label: {
       HStack(spacing: 4) {
@@ -235,7 +242,8 @@ private struct JiraPickUpCard: View {
       }
     }
     .buttonStyle(ProviderActionButtonStyle(provider: provider))
-    .disabled(repositoryPath == nil || isStartingSession)
+    .disabled(repositoryPath == nil || isStartingSession || !available)
+    .help(available ? "" : "\(title) is not installed")
   }
 }
 

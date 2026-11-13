@@ -73,6 +73,8 @@ struct GitHubReviewsView: View {
     .tint(Color.brandPrimary(from: runtimeTheme))
     .background(workspaceBackground.ignoresSafeArea())
     .task {
+      claudeSessionsViewModel.refreshCLIAvailability()
+      codexSessionsViewModel.refreshCLIAvailability()
       await viewModel.load()
       await recoverAndRestoreReviewSessions()
     }
@@ -665,6 +667,8 @@ struct GitHubReviewsView: View {
     pullRequest: GitHubProjectPullRequest
   ) -> some View {
     let isStarting = viewModel.startingReviewPRIDs.contains(pullRequest.id)
+    let vm = provider == .claude ? claudeSessionsViewModel : codexSessionsViewModel
+    let cliAvailable = vm.isCLIAvailable
     return Menu {
       ForEach(promptLibrary.templates) { template in
         Button(template.name) {
@@ -690,8 +694,10 @@ struct GitHubReviewsView: View {
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
-    .disabled(isStarting)
-    .help(isStarting ? "Starting session…" : "Choose a prompt to run with \(provider.rawValue)")
+    .disabled(isStarting || !cliAvailable)
+    .help(!cliAvailable
+      ? "\(provider.rawValue) is not installed"
+      : isStarting ? "Starting session…" : "Choose a prompt to run with \(provider.rawValue)")
   }
 
   /// One action for every visible pull request that no session works on yet,
@@ -702,12 +708,14 @@ struct GitHubReviewsView: View {
         .map(\.pullRequest))
     return Menu {
       ForEach([SessionProviderKind.codex, .claude], id: \.self) { provider in
+        let vm = provider == .claude ? claudeSessionsViewModel : codexSessionsViewModel
         Section(provider.rawValue) {
           ForEach(promptLibrary.templates) { template in
             Button("\(provider.rawValue) · \(template.name)") {
               pendingBulkLaunch = GitHubReviewBulkLaunch(
                 pullRequests: unlinked, provider: provider, template: template)
             }
+            .disabled(!vm.isCLIAvailable)
           }
         }
       }

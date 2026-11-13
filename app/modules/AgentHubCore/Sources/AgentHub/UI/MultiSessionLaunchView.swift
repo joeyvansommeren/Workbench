@@ -793,13 +793,17 @@ public struct MultiSessionLaunchView: View {
         .font(.secondarySmall)
         .foregroundColor(.secondary)
       claudePill
+        .disabled(!viewModel.isClaudeAvailable)
+        .help(viewModel.isClaudeAvailable ? "" : "Claude Code is not installed")
       providerPill(
         label: "Codex",
         isSelected: codexSelectionBinding,
-        disabled: viewModel.isPlanModeEnabled
+        disabled: viewModel.isPlanModeEnabled || !viewModel.isCodexAvailable
       )
+      .help(viewModel.isCodexAvailable ? "" : "Codex is not installed")
       Spacer()
     }
+    .onAppear { viewModel.refreshCLIAvailability() }
   }
 
   /// In compact mode the sheet allows only one provider at a time. A tap that

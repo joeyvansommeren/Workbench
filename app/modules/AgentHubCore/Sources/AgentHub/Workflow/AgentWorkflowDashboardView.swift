@@ -11,6 +11,8 @@ public struct AgentWorkflowDashboardView: View {
   private let onCloseSession: ((DetectedAgentSession) -> Void)?
   private let onStartSession: ((String, SessionProviderKind, String?) -> Void)?
   private let onCompareSessions: ((WorkflowSessionComparisonRequest) -> Void)?
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   @State private var isCreatingWorkflow = false
   @State private var sessionSearchText = ""
 
@@ -27,13 +29,17 @@ public struct AgentWorkflowDashboardView: View {
     onOpenSession: @escaping (DetectedAgentSession) -> Void,
     onCloseSession: @escaping (DetectedAgentSession) -> Void,
     onStartSession: @escaping (String, SessionProviderKind, String?) -> Void,
-    onCompareSessions: @escaping (WorkflowSessionComparisonRequest) -> Void
+    onCompareSessions: @escaping (WorkflowSessionComparisonRequest) -> Void,
+    isClaudeAvailable: Bool = true,
+    isCodexAvailable: Bool = true
   ) {
     self.viewModel = viewModel
     self.onOpenSession = onOpenSession
     self.onCloseSession = onCloseSession
     self.onStartSession = onStartSession
     self.onCompareSessions = onCompareSessions
+    self.isClaudeAvailable = isClaudeAvailable
+    self.isCodexAvailable = isCodexAvailable
   }
 
   public var body: some View {
@@ -440,6 +446,8 @@ public struct AgentWorkflowDashboardView: View {
           }
         },
         onStartSession: onStartSession,
+        isClaudeAvailable: isClaudeAvailable,
+        isCodexAvailable: isCodexAvailable,
         comparisonRequest: viewModel.comparisonRequest(for: branch.id),
         onCompareSessions: onCompareSessions
       )
@@ -694,6 +702,8 @@ private struct DetectedBranchSessionDetail: View {
   let onCreateReviewAgent: () -> Void
   let onCloseAllSessions: () -> Void
   let onStartSession: ((String, SessionProviderKind, String?) -> Void)?
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let comparisonRequest: WorkflowSessionComparisonRequest?
   let onCompareSessions: ((WorkflowSessionComparisonRequest) -> Void)?
 
@@ -734,7 +744,9 @@ private struct DetectedBranchSessionDetail: View {
           {
             ManualWorkflowEmptyState(
               workflowID: workflowID,
-              onStartSession: onStartSession
+              onStartSession: onStartSession,
+              isClaudeAvailable: isClaudeAvailable,
+              isCodexAvailable: isCodexAvailable
             )
 
             Divider()
@@ -865,7 +877,11 @@ private struct DetectedBranchSessionDetail: View {
         if branch.manualWorkflowID != nil, !branch.isCompleted, let onStartSession {
           Section {
             Button("Start Codex") { onStartSession(workflowID, .codex, nil) }
+              .disabled(!isCodexAvailable)
+              .help(isCodexAvailable ? "" : "Codex is not installed")
             Button("Start Claude") { onStartSession(workflowID, .claude, nil) }
+              .disabled(!isClaudeAvailable)
+              .help(isClaudeAvailable ? "" : "Claude Code is not installed")
           }
         }
         Section {
@@ -1193,6 +1209,8 @@ private struct CreateManualWorkflowSheet: View {
 private struct ManualWorkflowEmptyState: View {
   let workflowID: String
   let onStartSession: ((String, SessionProviderKind, String?) -> Void)?
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
 
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
@@ -1206,9 +1224,13 @@ private struct ManualWorkflowEmptyState: View {
           Button("Start Codex") {
             onStartSession(workflowID, .codex, nil)
           }
+          .disabled(!isCodexAvailable)
+          .help(isCodexAvailable ? "" : "Codex is not installed")
           Button("Start Claude") {
             onStartSession(workflowID, .claude, nil)
           }
+          .disabled(!isClaudeAvailable)
+          .help(isClaudeAvailable ? "" : "Claude Code is not installed")
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
