@@ -61,6 +61,42 @@ struct RepositoryTileColorTests {
     #expect(found.count == 3, "Expected all 3 tile colours to be reachable")
   }
 
+  @Test("the hash is FNV-1a 64-bit, so colours are the same on every launch")
+  func pinnedHash() {
+    // Reference values for FNV-1a 64-bit.
+    #expect(RepositoryTileColor.fnv1a64("") == 0xcbf2_9ce4_8422_2325)
+    #expect(RepositoryTileColor.fnv1a64("a") == 0xaf63_dc4c_8601_ec8c)
+    #expect(RepositoryTileColor.forPath("/Users/joey/Projects/Workbench") == .orange)
+  }
+
+  @Test("paths with the same letters no longer share one colour")
+  func notByteSum() {
+    // The old hash kept `h % 3` at the byte sum mod 3: every one of these got
+    // the same colour.
+    let paths = ["abc", "acb", "bac", "bca", "cab", "cba"].map { "/tmp/repo-\($0)" }
+    let colours = Set(paths.map { RepositoryTileColor.forPath($0) })
+    #expect(colours.count > 1)
+    #expect(RepositoryTileColor.forPath("/tmp/repo-ab") != RepositoryTileColor.forPath("/tmp/repo-ba"))
+  }
+
+  @Test("a linked worktree resolved to its repository gets the repository's colour")
+  func linkedWorktreeSharesParentColour() {
+    let repository = SelectedRepository(
+      path: "/Users/joey/Projects/Workbench",
+      worktrees: [
+        WorktreeBranch(name: "main", path: "/Users/joey/Projects/Workbench", isWorktree: false),
+        WorktreeBranch(name: "fix", path: "/Users/joey/Projects/Workbench-fix", isWorktree: true),
+      ]
+    )
+    let resolved = WorktreeModuleResolver.modulePath(
+      for: "/Users/joey/Projects/Workbench-fix/ios/App",
+      repositories: [repository],
+      mode: .parent
+    )
+    #expect(resolved == "/Users/joey/Projects/Workbench")
+    #expect(RepositoryTileColor.forPath(resolved) == RepositoryTileColor.forPath(repository.path))
+  }
+
   @Test("empty path does not crash")
   func emptyPath() {
     let colour = RepositoryTileColor.forPath("")

@@ -6,60 +6,39 @@
 //  `surfaceSidebar` background, content starts below the 52 pt title bar
 //  where the traffic lights and the sidebar toggle sit.
 //
-//  Contents: the Reviews and Sprint nav rows, then a placeholder flat session
-//  list. P5 replaces `ShellPlaceholderSessionList` with the real tree.
+//  Contents (P5, `Shell/Sidebar/`): the Reviews and Sprint nav rows, the
+//  repo > branch > session tree, and the Open project footer.
 //
 
 import SwiftUI
 
 struct ShellSidebarContainer: View {
+  @Environment(\.agentHub) private var agentHub
+  @Environment(\.sessionNavigationModel) private var navigationModel
+  @Environment(\.sessionsActionCoordinator) private var coordinator
+
   var body: some View {
-    VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
-      ShellSidebarNav()
-      ShellPlaceholderSessionList()
+    VStack(alignment: .leading, spacing: 0) {
+      SidebarNavSection()
+        .padding(.horizontal, DesignTokens.Inset.sidebar)
+      SessionTreeView()
+        .padding(.top, DesignTokens.Spacing.lg)
+        .frame(maxHeight: .infinity, alignment: .top)
+      SidebarFooter(openProject: openProject)
     }
     .padding(.top, DesignTokens.Size.titlebar)
-    .padding(.horizontal, DesignTokens.Inset.sidebar)
+    .padding(.bottom, DesignTokens.Inset.sidebar)
     .frame(width: DesignTokens.Width.sidebar, alignment: .topLeading)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(Color.wbSurfaceSidebar.ignoresSafeArea())
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Sidebar")
   }
-}
 
-// MARK: - Nav rows
-
-private struct ShellSidebarNav: View {
-  @Environment(WorkbenchShellModel.self) private var shellModel
-  @Environment(\.agentHub) private var agentHub
-
-  var body: some View {
-    VStack(spacing: 0) {
-      ShellSidebarRow(
-        systemImage: "arrow.triangle.pull",
-        title: "Reviews",
-        count: agentHub?.gitHubReviewsViewModel.pullRequests.count,
-        isSelected: shellModel.destination == .reviews
-      ) {
-        shellModel.select(.reviews)
-      }
-      ShellSidebarRow(
-        systemImage: "rectangle.split.3x1",
-        title: "Sprint",
-        count: sprintCount,
-        isSelected: shellModel.destination == .sprint
-      ) {
-        shellModel.select(.sprint)
-      }
-    }
-  }
-
-  private var sprintCount: Int? {
-    switch shellModel.sprintTracker {
-    case .jira: return agentHub?.jiraSprintViewModel.myOpenTicketCount
-    case .linear: return agentHub?.linearViewModel.myOpenIssueCount
-    }
+  private func openProject() {
+    guard let agentHub, let coordinator, let navigationModel else { return }
+    ShellSessionActions(agentHub: agentHub, coordinator: coordinator, navigationModel: navigationModel)
+      .addRepository()
   }
 }
 
@@ -128,112 +107,5 @@ struct ShellSidebarRow<Lead: View>: View {
     } else if isHovered {
       shape.fill(Color.wbSurfaceHover)
     }
-  }
-}
-
-extension ShellSidebarRow where Lead == ShellSidebarIcon {
-  init(
-    systemImage: String,
-    title: String,
-    count: Int? = nil,
-    isSelected: Bool,
-    action: @escaping () -> Void
-  ) {
-    self.init(
-      title: title,
-      count: count,
-      isSelected: isSelected,
-      action: action,
-      lead: { ShellSidebarIcon(systemImage: systemImage, isSelected: isSelected) }
-    )
-  }
-}
-
-struct ShellSidebarIcon: View {
-  let systemImage: String
-  let isSelected: Bool
-
-  var body: some View {
-    Image(systemName: systemImage)
-      .font(.system(size: 13))
-      .foregroundStyle(isSelected ? Color.wbTextPrimary : Color.wbTextSecondary)
-  }
-}
-
-// MARK: - Placeholder session list (P5 replaces this)
-
-private struct ShellRepoHeader: View {
-  let name: String
-  let path: String
-
-  var body: some View {
-    HStack(spacing: DesignTokens.Spacing.smPlus) {
-      LetterTile(name: name, path: path)
-      Text(name)
-        .wbText(.headline)
-        .foregroundStyle(Color.wbTextPrimary)
-        .lineLimit(1)
-    }
-    .padding(.horizontal, DesignTokens.Spacing.smPlus)
-    .frame(height: DesignTokens.Size.row)
-    .accessibilityAddTraits(.isHeader)
-  }
-}
-
-/// A flat list of the window's open sessions, grouped under their repository.
-/// Built from `SessionTreeProjection` so P5 can swap in the full tree.
-private struct ShellPlaceholderSessionList: View {
-  @Environment(WorkbenchShellModel.self) private var shellModel
-  @Environment(\.agentHub) private var agentHub
-  @Environment(\.sessionNavigationModel) private var navigationModel
-
-  var body: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: 0) {
-        ForEach(repoNodes) { repo in
-          ShellRepoHeader(name: repo.name, path: repo.path)
-            .padding(.top, repo.id == repoNodes.first?.id ? 0 : DesignTokens.Spacing.xl)
-          ForEach(repo.branches.flatMap(\.sessions)) { node in
-            sessionRow(node)
-          }
-        }
-      }
-    }
-    .scrollIndicators(.never)
-  }
-
-  private func sessionRow(_ node: SessionNode) -> some View {
-    let isSelected =
-      shellModel.destination == .sessions && navigationModel?.primarySessionId == node.id
-    return ShellSidebarRow(
-      title: title(for: node),
-      isSelected: isSelected,
-      action: {
-        navigationModel?.selectSession(node.id)
-        shellModel.select(.sessions)
-      },
-      lead: {
-        StatusGlyph(status: node.status, isPending: node.isPending)
-          .fixedSize()
-      }
-    )
-  }
-
-  private func title(for node: SessionNode) -> String {
-    guard let agentHub else { return node.session.displayName }
-    let viewModel =
-      node.providerKind == .claude
-      ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
-    return viewModel.displayName(for: node.session)
-  }
-
-  private var repoNodes: [RepoNode] {
-    guard let agentHub else { return [] }
-    let claude = agentHub.claudeSessionsViewModel
-    let codex = agentHub.codexSessionsViewModel
-    return SessionTreeProjection.project(
-      items: ShellSessionItems.items(claude: claude, codex: codex),
-      repositories: ShellSessionItems.repositories(claude: claude, codex: codex)
-    )
   }
 }

@@ -121,7 +121,7 @@ struct ReviewsDestinationView: View {
       )
       .id(pullRequest.id)
     } else if !visible.isEmpty {
-      WBEmptyState(systemImage: "arrow.triangle.pull", title: "No pull request selected")
+      WBEmptyState(icon: .pullRequest, title: "No pull request selected")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
       Color.clear
@@ -268,7 +268,7 @@ private struct ReviewsListColumn: View {
     if let issue = viewModel.recoveryIssue, viewModel.pullRequests.isEmpty {
       recoveryState(issue)
     } else if viewModel.isLoadingProjects, viewModel.projects.isEmpty {
-      state("arrow.triangle.pull", title: "Loading pull requests")
+      state(.pullRequest, title: "Loading pull requests")
     } else if viewModel.selectedProject == nil {
       state(
         "rectangle.3.group", title: "No GitHub Projects",
@@ -278,7 +278,7 @@ private struct ReviewsListColumn: View {
         Button("Filters") { isFiltersOpen = true }.buttonStyle(.wbSecondary)
       }
     } else if viewModel.isLoadingPullRequests, viewModel.pullRequests.isEmpty {
-      state("arrow.triangle.pull", title: "Loading pull requests")
+      state(.pullRequest, title: "Loading pull requests")
     } else if visiblePullRequests.isEmpty {
       if isSearching {
         state("magnifyingglass", title: "No matches") {
@@ -326,14 +326,14 @@ private struct ReviewsListColumn: View {
   // MARK: - States
 
   private func state<Actions: View>(
-    _ systemImage: String,
+    _ icon: WBEmptyStateIcon,
     title: String,
     description: String? = nil,
     isError: Bool = false,
     @ViewBuilder actions: @escaping () -> Actions = { EmptyView() }
   ) -> some View {
     WBEmptyState(
-      systemImage: systemImage, isError: isError, title: title, description: description,
+      icon: icon, isError: isError, title: title, description: description,
       actions: actions
     )
     .padding(.top, 64)

@@ -25,9 +25,20 @@ public enum RepositoryTileColor: String, CaseIterable, Sendable {
     let normalized = WorktreeModuleResolver.normalizedDirectoryPath(
       path.precomposedStringWithCanonicalMapping
     )
-    let hash = normalized.utf8.reduce(0) { ($0 &+ UInt64($1)) &* 31 }
-    let index = Int(hash % UInt64(allCases.count))
+    let index = Int(fnv1a64(normalized) % UInt64(allCases.count))
     return allCases[index]
+  }
+
+  /// FNV-1a, 64 bit: stable across runs (unlike `Hasher`) and well mixed.
+  /// The old `(h + byte) * 31` hash kept `h % 3` close to the byte sum, so
+  /// paths with the same letters always got the same colour.
+  static func fnv1a64(_ value: String) -> UInt64 {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+    for byte in value.utf8 {
+      hash ^= UInt64(byte)
+      hash &*= 0x0000_0100_0000_01b3
+    }
+    return hash
   }
 
   @MainActor
