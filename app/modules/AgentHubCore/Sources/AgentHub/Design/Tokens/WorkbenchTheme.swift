@@ -146,9 +146,11 @@ public final class WorkbenchThemeRegistry {
     // Force AppKit to redraw existing windows by toggling appearance.
     // Setting the same appearance value still triggers a
     // `viewDidChangeEffectiveAppearance` pass.
-    let saved = NSApp.appearance
-    NSApp.appearance = nil
-    NSApp.appearance = saved
+    // NSApp is nil outside a running app (unit tests), so guard instead of unwrapping.
+    guard let app = NSApp else { return }
+    let saved = app.appearance
+    app.appearance = nil
+    app.appearance = saved
   }
 
   /// Replace the active theme directly (for tests or advanced use).

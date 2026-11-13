@@ -56,6 +56,17 @@ public struct SRGBA: Equatable, Sendable {
     return 0.2126 * linearise(r) + 0.7152 * linearise(g) + 0.0722 * linearise(b)
   }
 
+  /// This colour blended over an opaque base, the way it renders on screen.
+  /// Translucent tokens (dark-mode tints, overlays) must be composited before
+  /// measuring contrast; WCAG luminance ignores alpha.
+  public func composited(over base: SRGBA) -> SRGBA {
+    SRGBA(
+      r: r * a + base.r * (1 - a),
+      g: g * a + base.g * (1 - a),
+      b: b * a + base.b * (1 - a),
+      a: 1)
+  }
+
   /// WCAG contrast ratio between two colours.
   public func contrastRatio(with other: SRGBA) -> CGFloat {
     let l1 = max(relativeLuminance, other.relativeLuminance)

@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import Testing
 
-@testable import AgentHub
+@testable import AgentHubCore
 
 @Suite("AppearancePreference")
 struct AppearancePreferenceTests {

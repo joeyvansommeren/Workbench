@@ -2,11 +2,12 @@ import AppKit
 import Foundation
 import Testing
 
-@testable import AgentHub
+@testable import AgentHubCore
 
 // MARK: - Palette parity with the CSS fixture
 
-@Suite("WorkbenchPalette")
+// Serialized: the registry is a shared singleton that also persists the choice.
+@Suite("WorkbenchPalette", .serialized)
 @MainActor
 struct WorkbenchPaletteTests {
 
@@ -148,6 +149,12 @@ struct WorkbenchPaletteTests {
 
   // MARK: - WCAG >= 4.5 for all four modes
 
+  @Test("Compositing blends a translucent colour over its base")
+  func compositing() {
+    let half = SRGBA(r: 1, g: 1, b: 1, a: 0.5).composited(over: SRGBA(r: 0, g: 0, b: 0))
+    #expect(abs(half.r - 0.5) < 0.0001 && half.a == 1)
+  }
+
   // Helper to run contrast checks on one palette
   private func assertTextContrast(_ p: WorkbenchPalette, label: String) {
     let pairs: [(String, SRGBA, SRGBA)] = [
@@ -157,7 +164,9 @@ struct WorkbenchPaletteTests {
       ("primary on sidebar", p.textPrimary, p.surfaceSidebar),
     ]
     for (name, fg, bg) in pairs {
-      let ratio = fg.contrastRatio(with: bg)
+      // Composite translucent surfaces over the content panel, as they render.
+      let base = bg.composited(over: p.surfaceContent)
+      let ratio = fg.composited(over: base).contrastRatio(with: base)
       #expect(ratio >= 4.5, "\(label) \(name) WCAG AA: \(ratio)")
     }
   }
@@ -171,7 +180,9 @@ struct WorkbenchPaletteTests {
       ("idle", p.statusIdleText, p.statusIdleTint),
     ]
     for (name, fg, bg) in pairs {
-      let ratio = fg.contrastRatio(with: bg)
+      // Dark-mode tints are translucent (about 15%): blend over the content panel first.
+      let tint = bg.composited(over: p.surfaceContent)
+      let ratio = fg.composited(over: tint).contrastRatio(with: tint)
       #expect(ratio >= 4.5, "\(label) status \(name) WCAG AA: \(ratio)")
     }
   }
@@ -227,9 +238,10 @@ struct WorkbenchPaletteTests {
   @Test("live palette switch changes the registry theme")
   func livePaletteSwitch() {
     let registry = WorkbenchThemeRegistry.shared
-    let originalTheme = registry.current
+    // Start from a known state: the stored preference outlives a crashed run.
+    registry.setPalette(.standard)
     let originalRevision = registry.revision
-    defer { registry.setCurrent(originalTheme) }
+    defer { registry.setPalette(.standard) }
 
     registry.setPalette(.warm)
     #expect(registry.current.id == "appleWarm")
@@ -242,8 +254,8 @@ struct WorkbenchPaletteTests {
   @Test("live palette switch invalidates colour cache")
   func liveSwitchInvalidatesCache() {
     let registry = WorkbenchThemeRegistry.shared
-    let originalTheme = registry.current
-    defer { registry.setCurrent(originalTheme) }
+    registry.setPalette(.standard)
+    defer { registry.setPalette(.standard) }
 
     // Force a colour to be cached
     _ = NSColor.wbSurfaceWindow
@@ -259,8 +271,8 @@ struct WorkbenchPaletteTests {
   @Test("palette(dark:) returns correct palette for warm")
   func warmPaletteResolution() {
     let registry = WorkbenchThemeRegistry.shared
-    let originalTheme = registry.current
-    defer { registry.setCurrent(originalTheme) }
+    registry.setPalette(.standard)
+    defer { registry.setPalette(.standard) }
 
     registry.setPalette(.warm)
     let light = registry.palette(dark: false)
