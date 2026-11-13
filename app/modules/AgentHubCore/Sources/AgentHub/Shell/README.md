@@ -42,5 +42,7 @@ Measured in an AppKit test host on macOS 27.
 
 No `NavigationSplitView`, `HSplitView`, `VSplitView` or `.inspector` in shell
 code. No `GeometryReader` widths. The sidebar collapses as a plain `HStack`
-child. `ShellLayout.windowMinWidth` is 1040 while the legacy Reviews
-`HSplitView` (731 pt minimum) is hosted. Lower it to 900 after P8.
+child. `ShellLayout.windowMinWidth` is 1288 while the legacy Reviews view is
+hosted: its `NavigationSplitView` sidebar (min 260) + divider + PR `HSplitView`
+(350 + divider + 380) = 992, plus the 288 shell sidebar and the 8 pt panel
+inset. P8 lowers it to 900 when it replaces Reviews.

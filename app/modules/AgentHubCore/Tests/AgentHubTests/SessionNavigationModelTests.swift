@@ -275,6 +275,32 @@ struct SessionNavigationModelTests {
     #expect(model.selectedWorkspaceID == nil)
   }
 
+  @Test("A pending id set before Sessions mounts is selected and cleared")
+  func consumeCreatedPendingSessionSelectsIt() {
+    let model = SessionNavigationModel()
+    model.primarySessionId = "claude-older"
+    let vm = makeTestViewModel()
+    let pendingID = UUID()
+    vm.lastCreatedPendingId = pendingID
+
+    let consumed = model.consumeCreatedPendingSession(provider: .claude, viewModel: vm)
+
+    #expect(consumed)
+    #expect(
+      model.primarySessionId == SidebarSessionItemID.pending(provider: .claude, pendingId: pendingID))
+    #expect(vm.lastCreatedPendingId == nil)
+  }
+
+  @Test("Consuming without a pending id changes nothing")
+  func consumeCreatedPendingSessionNoOp() {
+    let model = SessionNavigationModel()
+    model.primarySessionId = "claude-older"
+    let vm = makeTestViewModel()
+
+    #expect(!model.consumeCreatedPendingSession(provider: .claude, viewModel: vm))
+    #expect(model.primarySessionId == "claude-older")
+  }
+
   @Test("Select session clears module landing and workspace")
   func selectSessionClearsOtherSelections() {
     let model = SessionNavigationModel()

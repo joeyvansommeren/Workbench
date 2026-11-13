@@ -98,8 +98,8 @@ private struct ShellSprintDetail: View {
 
 /// Hosts the legacy `MultiProviderMonitoringPanelView` on the window's
 /// `SessionNavigationModel`, with the selection upkeep the legacy sidebar did:
-/// consume router requests, keep a valid primary selection, follow a pending
-/// session to its real id, and archive on ⌥⌘A.
+/// consume router requests and keep a valid primary selection. Pending-session
+/// selection and archive live in the always-mounted `ShellRoot`.
 private struct ShellSessionsDetail: View {
   @Bindable var claudeViewModel: CLISessionsViewModel
   @Bindable var codexViewModel: CLISessionsViewModel
@@ -154,30 +154,9 @@ private struct ShellSessionsDetail: View {
     .onChange(of: agentHub?.globalSessionSelectionRouter.comparisonRequest?.id) { _, _ in
       consumeRouterRequests()
     }
-    .onChange(of: claudeViewModel.resolvedPendingSessions) { _, resolutions in
-      navigationModel.handleResolvedSessions(resolutions, provider: .claude, viewModel: claudeViewModel)
-    }
-    .onChange(of: codexViewModel.resolvedPendingSessions) { _, resolutions in
-      navigationModel.handleResolvedSessions(resolutions, provider: .codex, viewModel: codexViewModel)
-    }
-    .onChange(of: claudeViewModel.lastCreatedPendingId) { _, newID in
-      guard let newID else { return }
-      navigationModel.selectPendingSession(provider: .claude, pendingID: newID)
-      claudeViewModel.lastCreatedPendingId = nil
-    }
-    .onChange(of: codexViewModel.lastCreatedPendingId) { _, newID in
-      guard let newID else { return }
-      navigationModel.selectPendingSession(provider: .codex, pendingID: newID)
-      codexViewModel.lastCreatedPendingId = nil
-    }
     .onChange(of: itemIDs) { _, _ in
       consumeRouterRequests()
       ensurePrimarySelection()
-    }
-    .onReceive(
-      NotificationCenter.default.publisher(for: AgentHubAppCommand.archiveCurrentSessionNotification)
-    ) { _ in
-      archiveCurrentSession(navigationModel: navigationModel)
     }
   }
 
@@ -248,26 +227,6 @@ private struct ShellSessionsDetail: View {
     navigationModel.ensurePrimarySelection(
       items: ShellSessionItems.snapshots(standalone),
       hasRouterRequest: agentHub?.globalSessionSelectionRouter.selectionRequest != nil
-    )
-  }
-
-  private func archiveCurrentSession(navigationModel: SessionNavigationModel) {
-    let viewModelFor: (SessionProviderKind) -> CLISessionsViewModel = {
-      $0 == .claude ? claudeViewModel : codexViewModel
-    }
-    actionCoordinator?.requestArchiveCurrentSession(
-      navigationModel: navigationModel,
-      selectedSessionItems: items.map { item in
-        ArchivableSessionItem(
-          id: item.id,
-          session: item.session,
-          providerKind: item.providerKind,
-          isPending: item.isPending,
-          wasPinned: viewModelFor(item.providerKind).pinnedSessionIds.contains(item.session.id)
-        )
-      },
-      viewModelForProvider: viewModelFor,
-      customNameForItem: { viewModelFor($0.providerKind).sessionCustomNames[$0.session.id] }
     )
   }
 }

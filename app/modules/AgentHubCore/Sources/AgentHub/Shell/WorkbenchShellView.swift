@@ -73,7 +73,13 @@ private struct ShellRoot: View {
           contextProfileService: agentHub.contextProfileService
         )
       )
-      .modifier(ShellRootEffects(agentHub: agentHub, launchActions: launchActions))
+      .modifier(
+        ShellRootEffects(
+          agentHub: agentHub,
+          launchActions: launchActions,
+          navigationModel: sessionNavigationModel
+        )
+      )
       .onChange(of: shellModel.destination) { oldDestination, _ in
         // Sessions left the tree: drop its sheets, alerts and scroll targets.
         guard oldDestination == .sessions else { return }
@@ -86,11 +92,6 @@ private struct ShellRoot: View {
         guard let section = AgentHubAppCommand.workspaceSection(from: notification) else { return }
         shellModel.select(legacySection: section)
       }
-      .onReceive(
-        NotificationCenter.default.publisher(for: AgentHubAppCommand.resumeSessionByIDNotification)
-      ) { _ in
-        isResumingByID = true
-      }
       .sheet(isPresented: $isResumingByID) {
         ResumeSessionByIDSheet(
           onResume: { id in await launchActions.resumeSession(id: id) },
@@ -99,7 +100,12 @@ private struct ShellRoot: View {
       }
       .focusedSceneValue(
         \.workbenchShell,
-        ShellCommandTarget(model: shellModel, startNewSession: startNewSession)
+        ShellCommandTarget(
+          model: shellModel,
+          startNewSession: startNewSession,
+          resumeSessionByID: { isResumingByID = true },
+          archiveCurrentSession: { sessionActions.archiveCurrentSession() }
+        )
       )
   }
 
@@ -112,12 +118,36 @@ private struct ShellRoot: View {
 /// Window-level work copied from `AgentHubOperationsView` (the legacy root
 /// keeps its own copy): link resolved pending sessions to reviews and Jira,
 /// load review associations, and watch for worktree launch requests.
+///
+/// Pending-session selection also lives here, not in the Sessions detail:
+/// a launch from Sprint or Reviews sets `lastCreatedPendingId` before Sessions
+/// mounts, so a detail-level `onChange` would never see it.
 private struct ShellRootEffects: ViewModifier {
   let agentHub: AgentHubProvider
   let launchActions: WorkspaceLaunchActions
+  let navigationModel: SessionNavigationModel
+
+  private var claude: CLISessionsViewModel { agentHub.claudeSessionsViewModel }
+  private var codex: CLISessionsViewModel { agentHub.codexSessionsViewModel }
 
   func body(content: Content) -> some View {
     content
+      .onAppear {
+        navigationModel.consumeCreatedPendingSession(provider: .claude, viewModel: claude)
+        navigationModel.consumeCreatedPendingSession(provider: .codex, viewModel: codex)
+      }
+      .onChange(of: claude.lastCreatedPendingId) { _, _ in
+        navigationModel.consumeCreatedPendingSession(provider: .claude, viewModel: claude)
+      }
+      .onChange(of: codex.lastCreatedPendingId) { _, _ in
+        navigationModel.consumeCreatedPendingSession(provider: .codex, viewModel: codex)
+      }
+      .onChange(of: claude.resolvedPendingSessions) { _, resolutions in
+        navigationModel.handleResolvedSessions(resolutions, provider: .claude, viewModel: claude)
+      }
+      .onChange(of: codex.resolvedPendingSessions) { _, resolutions in
+        navigationModel.handleResolvedSessions(resolutions, provider: .codex, viewModel: codex)
+      }
       .onChange(of: agentHub.claudeSessionsViewModel.resolvedPendingSessionHistory) { _, resolutions in
         launchActions.handleResolvedPendingSessions(resolutions, provider: .claude)
       }

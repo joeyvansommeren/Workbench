@@ -10,11 +10,15 @@
 
 import SwiftUI
 
-/// What a key shell window exposes to the menu bar.
+/// What a key shell window exposes to the menu bar. Menu items call these
+/// closures instead of posting app-wide notifications, so with two windows
+/// only the key window reacts.
 @MainActor
 struct ShellCommandTarget {
   let model: WorkbenchShellModel
   let startNewSession: () -> Void
+  let resumeSessionByID: () -> Void
+  let archiveCurrentSession: () -> Void
 }
 
 extension FocusedValues {
@@ -65,14 +69,17 @@ public struct ShellCommands: Commands {
         .disabled(true)
 
       Button("Resume Session by ID…") {
-        AgentHubAppCommand.resumeSessionByID()
+        shell?.resumeSessionByID()
       }
       .keyboardShortcut("r", modifiers: [.command, .shift])
+      .disabled(shell == nil)
 
+      // Archive acts on the session shown in Sessions, as in the legacy view.
       Button("Archive Current Session") {
-        AgentHubAppCommand.archiveCurrentSession()
+        shell?.archiveCurrentSession()
       }
       .keyboardShortcut("a", modifiers: [.command, .option])
+      .disabled(shell?.model.destination != .sessions)
     }
   }
 

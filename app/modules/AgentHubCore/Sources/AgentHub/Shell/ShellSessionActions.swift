@@ -40,6 +40,27 @@ struct ShellSessionActions {
     )
   }
 
+  /// ⌥⌘A: archive this window's primary session (beeps when there is none).
+  func archiveCurrentSession() {
+    let viewModelFor: (SessionProviderKind) -> CLISessionsViewModel = {
+      $0 == .claude ? claude : codex
+    }
+    coordinator.requestArchiveCurrentSession(
+      navigationModel: navigationModel,
+      selectedSessionItems: ShellSessionItems.items(claude: claude, codex: codex).map { item in
+        ArchivableSessionItem(
+          id: item.id,
+          session: item.session,
+          providerKind: item.providerKind,
+          isPending: item.isPending,
+          wasPinned: viewModelFor(item.providerKind).pinnedSessionIds.contains(item.session.id)
+        )
+      },
+      viewModelForProvider: viewModelFor,
+      customNameForItem: { viewModelFor($0.providerKind).sessionCustomNames[$0.session.id] }
+    )
+  }
+
   func addRepository() {
     // The legacy sidebar tracks pending module rows; the new shell has none yet (P5).
     coordinator.showAddRepositoryPicker(

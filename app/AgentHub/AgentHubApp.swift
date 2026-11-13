@@ -151,7 +151,7 @@ struct AgentHubApp: App {
   private let usesAppleShell: Bool
 
   init() {
-    usesAppleShell = UserDefaults.standard.bool(forKey: AgentHubDefaults.appleShellEnabled)
+    usesAppleShell = AppleShellLaunchFlag.isEnabled
     // Must run before any terminal/watcher/subprocess spawns: Finder-launched
     // apps inherit a 256 open-file soft limit, which a busy hub exhausts.
     FileDescriptorLimits.raiseSoftLimit()

@@ -37,12 +37,23 @@ final class ShellLayoutStressUITests: XCTestCase {
 
     let window = app.windows.firstMatch
     XCTAssertTrue(window.waitForExistence(timeout: 20))
+    // Fail instead of passing vacuously if the legacy root launched.
+    XCTAssertTrue(
+      app.buttons["shell.toggleSidebar"].waitForExistence(timeout: 20),
+      "The new shell did not load"
+    )
 
-    // Double-click the empty title-bar area 10×: it zooms and un-zooms the window.
-    let titleArea = window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0))
+    // Double-click the empty title area 10× in the system 32 pt strip, then 4×
+    // lower in the custom 52 pt row (TitleBarDragArea). Each zooms or un-zooms.
+    let systemStrip = window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0))
       .withOffset(CGVector(dx: 0, dy: 12))
     for _ in 0..<10 {
-      titleArea.doubleClick()
+      systemStrip.doubleClick()
+    }
+    let customRow = window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0))
+      .withOffset(CGVector(dx: 0, dy: 42))
+    for _ in 0..<4 {
+      customRow.doubleClick()
     }
     assertRunning(app)
 

@@ -346,6 +346,21 @@ final class SessionNavigationModel {
     primarySessionId = itemID
   }
 
+  /// Selects the session a launch just created, then clears the view model's
+  /// one-shot `lastCreatedPendingId`. Safe to call at any time, so a launch
+  /// started while Sessions is off screen (Sprint, Reviews) is still selected.
+  /// Returns false when there is nothing to consume.
+  @discardableResult
+  func consumeCreatedPendingSession(
+    provider: SessionProviderKind,
+    viewModel: CLISessionsViewModel
+  ) -> Bool {
+    guard let pendingID = viewModel.lastCreatedPendingId else { return false }
+    selectPendingSession(provider: provider, pendingID: pendingID)
+    viewModel.lastCreatedPendingId = nil
+    return true
+  }
+
   /// React to a newly created pending session.
   func selectPendingSession(provider: SessionProviderKind, pendingID: UUID) {
     MainThreadStallMonitor.breadcrumb("nav: selectPending \(provider.rawValue)")
