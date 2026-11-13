@@ -88,9 +88,10 @@ struct MonitoringCardContentArea: View {
       onShowTerminal: { contentMode = .terminal },
       pendingApproval: state?.pendingToolUse.map { ($0.toolName, $0.input.map(ChatTranscriptReader.firstLine)) },
       onApprove: {
-        // The permission menu selects option 1 ("Yes") on its digit key. Always
-        // the agent's own tab: an active child tab must never get the parent's approval.
-        viewModel?.typeTextInAgentTerminal(forKey: terminalKey ?? session.id, text: "1") ?? false
+        // Allow once through the shared responder: agent tab only, and only
+        // when Claude's permission menu is confirmed (otherwise the terminal).
+        viewModel?.respondToApproval(
+          sessionId: session.id, decision: .approveOnce, terminalKey: terminalKey) == .sent
       }
     )
     .background(chatBackground)

@@ -109,8 +109,7 @@ Sprint with `SidebarNavCounts`), `SessionTreeView` and `SidebarFooter`.
   `SessionNavigationModel.selectSession`). P6 makes that open a tab.
 - **Approve pill:** `SessionNode.showsApprovePill` (Claude, pending tool use,
   not an input question). The action is the single closure
-  `SidebarTreeActions.approve`, today `SidebarApproval.terminalApprove`
-  (types "1" into the agent terminal). P7 replaces that closure.
+  `SidebarTreeActions.approve`, now `SidebarApproval.respond` (P7, below).
 - **Collapse state** is `SelectedRepository.isExpanded`, persisted in
   `SessionWorkspaceState.expansionState` (SQLite) through
   `CLISessionsViewModel.setRepositoryExpanded(path:isExpanded:)`.
@@ -145,6 +144,47 @@ trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
 `JiraTicketDetailView` / `LinearIssueDetailView`. With no saved tracker, Sprint
 opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
 `sprint tracker: …`, `sprint filter: …`, `sprint ticket: open|close|start …`.
+
+## P7: Approvals (Claude only)
+
+Approve and Deny work in the app. There is no programmatic channel (the hook
+only observes, no hook changes), so the answer is a keystroke into the agent
+tab, behind `ApprovalResponding` (`Services/ApprovalResponder.swift`).
+
+- **One path:** `CLISessionsViewModel.respondToApproval(sessionId:decision:)`
+  serves the banner, the tree pill, the chat `onApprove` and voice. Allow once
+  types "1"; "Always allow" types "2"; Deny sends Escape (the "No" number is
+  not stable across tools).
+- **Fail closed.** It only types when the pending tool use is approvable
+  (`PendingToolUse.isApprovablePermission`: Claude, not an input question), and:
+  on a text backend (`canReadAgentScreen`, SwiftTerm) the live screen tail
+  shows Claude's menu (`ClaudePermissionMenu`; wording pinned in the test
+  fixture `ClaudePermissionMenuFixtures`). A scrolled-back tab is refused,
+  never sent to the sidecar check. On backends without screen text (Ghostty)
+  the sidecar's open `pending` line must carry this tool use id. "Always allow"
+  also needs option 2 to read "Yes" on screen, so it is refused on Ghostty.
+  Otherwise: "Answer in the terminal".
+- **One key per request.** The hook writes `resolved` only after the tool
+  finishes, so an approved, running tool still looks pending. Once a key went
+  out for an `ApprovalRequestKey` (tool use id, plus the timestamp when the id
+  is empty or synthetic), the view model refuses more (`.alreadyAnswered`) and
+  the banner shows no Approve/Deny buttons for it.
+- **Progress.** `ApprovalResponseTracker` (on the view model): `sending`, then
+  `answered` once the screen no longer shows the menu (polled for 3 s), or
+  `checkTerminal` ("Sent. Check the terminal.") when it can't confirm. A
+  refusal (`answerInTerminal`) keeps the buttons for a retry. Banner and pill
+  share it.
+- **Banner** (`Session/ApprovalBanner.swift`): an overlay on the terminal
+  content in `SessionDetailView`, never a sibling, so the PTY never resizes.
+  "Show in terminal" swaps it for a top-corner "Show approval" chip.
+- **⌘↩.** The terminal's key monitor eats ⌘↩ (newline or submit). While the
+  banner shows, the surface's `approvalShortcutHandler` is set and
+  `ApprovalShortcutRouting` sends ⌘↩ to Approve, on both backends; without a
+  banner, nothing changes for any `NewlineShortcut`. When the terminal is not
+  first responder, the Approve button's own ⌘↩ shortcut handles it.
+- **Tree:** Approve pill (spinner while sending; on refusal it opens the
+  session) and an Answer pill for input questions, which only opens the session.
+- Breadcrumbs: `approval: shown|approve|deny <tool>`.
 
 ## P10: overlays and settings
 

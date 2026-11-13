@@ -16,6 +16,12 @@ public protocol VoiceSessionManaging: AnyObject {
   func sendPromptToActiveTerminal(forKey key: String, prompt: String) -> Bool
   func showTerminalWithPrompt(for session: CLISession, prompt: String)
   func focusTerminal(forKey key: String)
+  /// The app's approval path (`CLISessionsViewModel.respondToApproval`).
+  func respondToApproval(
+    sessionId: String,
+    decision: ApprovalDecision,
+    terminalKey: String?
+  ) -> ApprovalResponseOutcome
   func voiceStartNewSessionInHub(
     _ worktree: WorktreeBranch,
     initialPrompt: String?
@@ -439,12 +445,15 @@ public final class VoiceAgentToolExecutor: VoiceAgentToolExecuting {
         decision: approve ? "approve" : "deny"
       )
     }
-    record.viewModel.showTerminalWithPrompt(
-      for: record.session,
-      prompt: approve ? "1" : "3"
+    // Same path as the banner: allow once, or Escape to deny. Fails closed
+    // when the terminal does not show Claude's permission menu.
+    let outcome = record.viewModel.respondToApproval(
+      sessionId: sessionId,
+      decision: approve ? .approveOnce : .deny,
+      terminalKey: nil
     )
     return VoiceApprovalResponseResult(
-      status: "accepted",
+      status: outcome == .sent ? "accepted" : "answer_in_terminal",
       sessionId: sessionId,
       decision: approve ? "approve" : "deny"
     )

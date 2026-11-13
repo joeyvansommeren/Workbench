@@ -45,8 +45,14 @@ struct SessionNode: Identifiable, Equatable {
   /// tool use that is a real approval, not a question for the user. Codex has
   /// no approval hook, and input-needed sessions get their own action (P7).
   var showsApprovePill: Bool {
-    guard providerKind == .claude, !isPending, let pendingToolName else { return false }
-    return !SessionInteractiveInputTool.matches(pendingToolName)
+    !isPending && ApprovablePermission.matches(toolName: pendingToolName, providerKind: providerKind)
+  }
+
+  /// Whether the row shows the Answer pill: the agent asked the user a
+  /// question (any provider). The pill only opens the session.
+  var showsAnswerPill: Bool {
+    guard !isPending, case .awaitingApproval(let tool) = status else { return false }
+    return SessionInteractiveInputTool.matches(tool)
   }
 }
 
