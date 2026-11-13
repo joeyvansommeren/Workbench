@@ -20,6 +20,8 @@ struct SessionNode: Identifiable, Equatable {
   let isPending: Bool
   let status: SessionStatus?
   let pendingID: UUID?
+  /// Name of the tool waiting for approval (`pendingToolUse.toolName`), if any.
+  let pendingToolName: String?
 
   init(
     id: String,
@@ -27,7 +29,8 @@ struct SessionNode: Identifiable, Equatable {
     providerKind: SessionProviderKind,
     isPending: Bool,
     status: SessionStatus?,
-    pendingID: UUID? = nil
+    pendingID: UUID? = nil,
+    pendingToolName: String? = nil
   ) {
     self.id = id
     self.session = session
@@ -35,6 +38,15 @@ struct SessionNode: Identifiable, Equatable {
     self.isPending = isPending
     self.status = status
     self.pendingID = pendingID
+    self.pendingToolName = pendingToolName
+  }
+
+  /// Whether the row shows the Approve pill: a Claude session with a pending
+  /// tool use that is a real approval, not a question for the user. Codex has
+  /// no approval hook, and input-needed sessions get their own action (P7).
+  var showsApprovePill: Bool {
+    guard providerKind == .claude, !isPending, let pendingToolName else { return false }
+    return !SessionInteractiveInputTool.matches(pendingToolName)
   }
 }
 
@@ -112,6 +124,7 @@ struct ProjectableSessionItem {
   let isPending: Bool
   let status: SessionStatus?
   let pendingID: UUID?
+  let pendingToolName: String?
 
   init(
     id: String,
@@ -120,7 +133,8 @@ struct ProjectableSessionItem {
     timestamp: Date,
     isPending: Bool,
     status: SessionStatus?,
-    pendingID: UUID? = nil
+    pendingID: UUID? = nil,
+    pendingToolName: String? = nil
   ) {
     self.id = id
     self.session = session
@@ -129,6 +143,7 @@ struct ProjectableSessionItem {
     self.isPending = isPending
     self.status = status
     self.pendingID = pendingID
+    self.pendingToolName = pendingToolName
   }
 }
 
@@ -298,7 +313,8 @@ enum SessionTreeProjection {
           providerKind: item.providerKind,
           isPending: item.isPending,
           status: item.status,
-          pendingID: item.pendingID
+          pendingID: item.pendingID,
+          pendingToolName: item.pendingToolName
         )
       }
 

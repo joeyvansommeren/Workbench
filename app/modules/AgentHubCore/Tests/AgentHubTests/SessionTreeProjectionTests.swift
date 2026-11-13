@@ -254,9 +254,74 @@ struct SessionTreeProjectionTests {
     )
     #expect(treeNeg[0].branches[0].sessions.count == 5)
   }
+
+  // MARK: - Approve pill
+
+  @Test("The projection carries the pending tool name to the session node")
+  func pendingToolNamePassesThrough() {
+    let repo = SelectedRepository(path: "/tmp/Repo")
+    let item = ProjectableSessionItem(
+      id: "s1",
+      session: CLISession(id: "s1", projectPath: "/tmp/Repo", branchName: "main"),
+      providerKind: .claude,
+      timestamp: Date(timeIntervalSince1970: 100),
+      isPending: false,
+      status: .awaitingApproval(tool: "Bash"),
+      pendingToolName: "Bash"
+    )
+
+    let tree = SessionTreeProjection.project(items: [item], repositories: [repo])
+
+    #expect(tree[0].branches[0].sessions[0].pendingToolName == "Bash")
+    #expect(tree[0].branches[0].sessions[0].showsApprovePill)
+  }
+
+  @Test("Approve pill: Claude with a pending tool use that is a real approval")
+  func approvePillForClaudeApproval() {
+    #expect(pillNode(provider: .claude, pendingToolName: "Bash").showsApprovePill)
+    #expect(pillNode(provider: .claude, pendingToolName: "Edit").showsApprovePill)
+  }
+
+  @Test("No Approve pill without a pending tool use")
+  func noPillWithoutPendingTool() {
+    #expect(!pillNode(provider: .claude, pendingToolName: nil).showsApprovePill)
+  }
+
+  @Test("No Approve pill for Codex")
+  func noPillForCodex() {
+    #expect(!pillNode(provider: .codex, pendingToolName: "Bash").showsApprovePill)
+  }
+
+  @Test("No Approve pill when the agent waits for input, not approval")
+  func noPillForInteractiveInput() {
+    #expect(!pillNode(provider: .claude, pendingToolName: "AskUserQuestion").showsApprovePill)
+    #expect(
+      !pillNode(provider: .claude, pendingToolName: "mcp__codex__request_user_input")
+        .showsApprovePill)
+  }
+
+  @Test("No Approve pill on a session that is still starting")
+  func noPillWhilePending() {
+    #expect(!pillNode(provider: .claude, pendingToolName: "Bash", isPending: true).showsApprovePill)
+  }
 }
 
 // MARK: - Helpers
+
+private func pillNode(
+  provider: SessionProviderKind,
+  pendingToolName: String?,
+  isPending: Bool = false
+) -> SessionNode {
+  SessionNode(
+    id: "s1",
+    session: CLISession(id: "s1", projectPath: "/tmp/Repo"),
+    providerKind: provider,
+    isPending: isPending,
+    status: pendingToolName.map { .awaitingApproval(tool: $0) },
+    pendingToolName: pendingToolName
+  )
+}
 
 private func projectable(
   _ id: String,

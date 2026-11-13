@@ -11,7 +11,7 @@ only its own slot:
 
 | Slot | View | Replaced by |
 |---|---|---|
-| sidebar | `ShellSidebarContainer` (nav rows + `ShellPlaceholderSessionList`) | P5 |
+| sidebar | `ShellSidebarContainer` (`Sidebar/`: nav rows, session tree, footer) | P5 |
 | toolbar | `ShellToolbar` (`ShellSessionsToolbarContent` / titles / search) | P6 tabs, P8, P9 |
 | detail | `ShellDetailSlot` (one `case` per destination) | P6 Sessions, P8 Reviews, P9 Sprint |
 
@@ -46,3 +46,32 @@ child. `ShellLayout.windowMinWidth` is 1288 while the legacy Reviews view is
 hosted: its `NavigationSplitView` sidebar (min 260) + divider + PR `HSplitView`
 (350 + divider + 380) = 992, plus the 288 shell sidebar and the 8 pt panel
 inset. P8 lowers it to 900 when it replaces Reviews.
+
+## Sidebar (P5)
+
+`Sidebar/` holds the prototype sidebar: `SidebarNavSection` (Reviews and
+Sprint with `SidebarNavCounts`), `SessionTreeView` and `SidebarFooter`.
+
+- **Tree.** `SessionTreeProjection` (P3) → `SessionTreeWorkflowMerge` (adds
+  tracked repos without sessions and empty rows for manual workflows) →
+  `SidebarTreeRows` (one flat list) → a `ScrollView` + `LazyVStack` of
+  `Equatable` rows. The projection runs in `SessionTreeContent.body` only;
+  selection is read in a child view, so selecting does not re-project.
+- **Workflows.** `BranchWorkflowDecorationIndex` adapts
+  `AgentWorkflowDashboardViewModel.detectedBranches` (archived ones dropped)
+  into branch-row decorations: PR number with CI state, roles, menu actions.
+  `WorkflowDiscoveryDriver` runs the dashboard's `load()` 3 s after launch and
+  a debounced `refreshDetectedWorkflows()`, since the Workflows view is gone.
+- **One entry point to open a session:** `SidebarTreeActions.open(_:)`
+  (workspace-owned sessions focus their workspace; others call
+  `SessionNavigationModel.selectSession`). P6 makes that open a tab.
+- **Approve pill:** `SessionNode.showsApprovePill` (Claude, pending tool use,
+  not an input question). The action is the single closure
+  `SidebarTreeActions.approve`, today `SidebarApproval.terminalApprove`
+  (types "1" into the agent terminal). P7 replaces that closure.
+- **Collapse state** is `SelectedRepository.isExpanded`, persisted in
+  `SessionWorkspaceState.expansionState` (SQLite) through
+  `CLISessionsViewModel.setRepositoryExpanded(path:isExpanded:)`.
+- **Icons** are the prototype's SVG paths (`SidebarIcons.swift`); SF Symbols
+  has no pull-request glyph.
+
