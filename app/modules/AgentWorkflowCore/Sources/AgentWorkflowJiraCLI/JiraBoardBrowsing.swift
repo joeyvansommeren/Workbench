@@ -57,7 +57,10 @@ extension ACLITicketReader: JiraBoardBrowsing {
   public func currentAccount() async throws -> JiraAccount {
     let result = try await runner.run(arguments: ["jira", "auth", "status"])
     try Self.requireSuccess(result)
-    let text = String(data: result.standardOutput, encoding: .utf8) ?? ""
+    // acli 1.3.40 writes the auth status to stderr, earlier versions to stdout.
+    let text = [result.standardOutput, result.standardError]
+      .compactMap { String(data: $0, encoding: .utf8) }
+      .joined(separator: "\n")
     func value(_ label: String) -> String? {
       text.split(whereSeparator: \.isNewline)
         .map { $0.trimmingCharacters(in: .whitespaces) }

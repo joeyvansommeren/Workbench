@@ -129,6 +129,19 @@ struct ACLITicketReaderTests {
     #expect(account.browseURL(forKey: "XFA-1")?.absoluteString == "https://xfatech.atlassian.net/browse/XFA-1")
   }
 
+  @Test("Reads the logged-in account when acli writes auth status to stderr")
+  func readsAccountFromStandardError() async throws {
+    // acli 1.3.40 prints the whole auth status to stderr and nothing to stdout.
+    let runner = MockJiraCLICommandRunner(
+      result: JiraCLICommandResult(
+        standardOutput: Data(),
+        standardError: Data(
+          "✓ Authenticated\n  Site: xfatech.atlassian.net\n  Email: me@xfa.tech\n  Authentication Type: oauth\n".utf8),
+        exitCode: 0))
+    let account = try await ACLITicketReader(runner: runner).currentAccount()
+    #expect(account == JiraAccount(site: "xfatech.atlassian.net", email: "me@xfa.tech"))
+  }
+
   @Test("Lists open sprints with the active sprint first")
   func listsSprints() async throws {
     let json = #"""

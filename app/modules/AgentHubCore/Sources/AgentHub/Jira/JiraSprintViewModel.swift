@@ -310,7 +310,7 @@ public final class JiraSprintViewModel {
       try await loadSprintsAndTickets()
       state = .loaded
     } catch {
-      state = .failed(Self.message(for: error))
+      fail(with: error)
     }
   }
 
@@ -341,7 +341,7 @@ public final class JiraSprintViewModel {
       try await loadSprintsAndTickets()
       state = .loaded
     } catch {
-      state = .failed(Self.message(for: error))
+      fail(with: error)
     }
   }
 
@@ -380,7 +380,7 @@ public final class JiraSprintViewModel {
       boards = []
       await load()
     } catch {
-      state = .failed(Self.message(for: error))
+      fail(with: error)
     }
   }
 
@@ -656,6 +656,20 @@ public final class JiraSprintViewModel {
     return lines.joined(separator: "\n")
   }
 
+  /// True when the last failure was acli itself missing (the runner's exit 127),
+  /// so the error view offers the install command instead of Connect Jira.
+  /// Other acli errors mention "acli" too, so the message can't decide this.
+  public private(set) var isCLIMissing = false
+
+  private func fail(with error: Error) {
+    if case .commandFailed(let exitCode, _)? = error as? JiraTicketReaderError {
+      isCLIMissing = exitCode == 127
+    } else {
+      isCLIMissing = false
+    }
+    state = .failed(Self.message(for: error))
+  }
+
   static func message(for error: Error) -> String {
     switch error as? JiraTicketReaderError {
     case .commandFailed(_, let message) where !message.isEmpty:
@@ -663,7 +677,7 @@ public final class JiraSprintViewModel {
     case .commandFailed(let exitCode, _):
       return "acli exited with code \(exitCode). Is Jira connected?"
     case .invalidResponse:
-      return "Jira returned a response AgentHub could not read."
+      return "Jira returned a response Workbench could not read."
     case .invalidTicketKey:
       return "Invalid Jira ticket key."
     case nil:

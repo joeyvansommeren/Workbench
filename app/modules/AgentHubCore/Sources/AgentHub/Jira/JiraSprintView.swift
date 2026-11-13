@@ -202,9 +202,7 @@ private struct JiraSprintErrorView: View {
   let message: String
   @Bindable var viewModel: JiraSprintViewModel
 
-  private var isCLIMissing: Bool {
-    message.lowercased().contains("not found") || message.lowercased().contains("acli")
-  }
+  private var isCLIMissing: Bool { viewModel.isCLIMissing }
 
   var body: some View {
     ContentUnavailableView {
