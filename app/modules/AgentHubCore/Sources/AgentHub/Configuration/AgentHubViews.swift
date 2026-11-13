@@ -32,6 +32,8 @@ public struct AgentHubOperationsView: View {
   @Environment(\.runtimeTheme) private var runtimeTheme
   @State private var section = AgentHubWorkspaceSection.workflows
   @State private var isResumingByID = false
+  @State private var sessionNavigationModel = SessionNavigationModel()
+  @State private var sessionsActionCoordinator = SessionsActionCoordinator()
 
   public init() {}
 
@@ -255,6 +257,8 @@ public struct AgentHubOperationsView: View {
       section = requestedSection
     }
     .modifier(RemoveTitleToolbarModifier())
+    .environment(\.sessionNavigationModel, sessionNavigationModel)
+    .environment(\.sessionsActionCoordinator, sessionsActionCoordinator)
   }
 
   private func startSession(
