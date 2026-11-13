@@ -105,6 +105,13 @@ final class SidebarTreeActions {
     sessionActions.startSession(preferredRepositoryPath: path)
   }
 
+  /// Branch row "+": the sheet opens on this branch's worktree, or on
+  /// "No worktree" for the main checkout.
+  func startSession(onBranch model: BranchRowModel) {
+    shellModel.select(.sessions)
+    sessionActions.startNewSession(preselectedWorktree: model.preselectedWorktree)
+  }
+
   func createWorktree(repositoryPath: String) {
     let provider: SessionProviderKind = trackedRepository(repositoryPath, in: claude) != nil ? .claude : .codex
     guard let repository = trackedRepository(repositoryPath, in: viewModel(for: provider)) else { return }

@@ -71,8 +71,6 @@ public struct GlobalSessionControlPanelView: View {
   @State private var deletionResult: GlobalSessionCleanupDeletionResult?
   @State private var isDeletingSuggestedWorktrees = false
   @FocusState private var isPanelFocused: Bool
-  @Environment(\.colorScheme) private var colorScheme
-  @Environment(\.runtimeTheme) private var runtimeTheme
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   public init(
@@ -120,11 +118,11 @@ public struct GlobalSessionControlPanelView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(panelBackground)
-    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .background(Color.wbSurfaceRaised)
+    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.container, style: .continuous))
     .overlay(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(Color.secondary.opacity(colorScheme == .dark ? 0.22 : 0.16), lineWidth: 1)
+      RoundedRectangle(cornerRadius: DesignTokens.Radius.container, style: .continuous)
+        .strokeBorder(Color.wbBorderControl, lineWidth: 0.5)
     )
     .focusable()
     .focusEffectDisabled()
@@ -164,8 +162,9 @@ public struct GlobalSessionControlPanelView: View {
     VStack(spacing: 0) {
       header
 
-      Divider()
-        .opacity(0.5)
+      Rectangle()
+        .fill(Color.wbBorderHairline)
+        .frame(height: 1)
 
       panelContent
     }
@@ -180,11 +179,11 @@ public struct GlobalSessionControlPanelView: View {
     // Even 8pt inset on all sides (matching the regular list) with a small,
     // balanced gap to the control bar — keeps the featured row's vertical
     // padding symmetric instead of jammed against the top.
-    VStack(spacing: 6) {
+    VStack(spacing: DesignTokens.Spacing.xsPlus) {
       compactFeaturedContent
       compactControlBar
     }
-    .padding(8)
+    .padding(DesignTokens.Inset.panel)
   }
 
   @ViewBuilder
@@ -208,30 +207,14 @@ public struct GlobalSessionControlPanelView: View {
 
   private var compactControlBar: some View {
     ZStack {
-      Button(action: expandPanel) {
-        Label("Expand Sessions", systemImage: "chevron.down")
-          .labelStyle(.iconOnly)
-          .font(.geist(size: 12, weight: .bold))
-          .foregroundStyle(.secondary)
-          .frame(width: 30, height: 20)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .help("Expand")
+      IconButton(systemImage: "chevron.down", isSmall: true, accessibilityLabel: "Expand sessions", action: expandPanel)
+        .help("Expand")
 
       HStack {
         Spacer()
 
-        Button(action: onClose) {
-          Label("Close", systemImage: "xmark")
-            .labelStyle(.iconOnly)
-            .font(.geist(size: 10, weight: .bold))
-            .foregroundStyle(.secondary)
-            .frame(width: 22, height: 20)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Close")
+        IconButton(systemImage: "xmark", isSmall: true, accessibilityLabel: "Close", action: onClose)
+          .help("Close")
       }
     }
   }
@@ -250,7 +233,7 @@ public struct GlobalSessionControlPanelView: View {
     let candidateIDs = Set(suggestions.flatMap(\.sessionIDs))
     return ScrollViewReader { proxy in
       ScrollView(showsIndicators: true) {
-        LazyVStack(spacing: 4) {
+        LazyVStack(spacing: DesignTokens.Spacing.xxs) {
           if !suggestions.isEmpty {
             GlobalSessionCleanupBanner(
               suggestions: suggestions,
@@ -261,7 +244,7 @@ public struct GlobalSessionControlPanelView: View {
                 )
               }
             )
-            .padding(.bottom, 4)
+            .padding(.bottom, DesignTokens.Spacing.xs)
           }
 
           ForEach(items) { item in
@@ -277,8 +260,7 @@ public struct GlobalSessionControlPanelView: View {
             .id(item.id)
           }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(DesignTokens.Inset.panel)
       }
       .onChange(of: selectedItemID) { _, newValue in
         guard displayMode == .regular else { return }
@@ -338,111 +320,55 @@ public struct GlobalSessionControlPanelView: View {
     Set(cleanupSuggestions.flatMap(\.sessionIDs))
   }
 
-  private var panelBackground: some View {
-    Group {
-      if runtimeTheme?.hasCustomBackgrounds == true {
-        Color.adaptiveBackground(for: colorScheme, theme: runtimeTheme)
-          .opacity(colorScheme == .dark ? 0.96 : 0.98)
-      } else {
-        Color(colorScheme == .dark ? NSColor.windowBackgroundColor : NSColor.controlBackgroundColor)
-          .opacity(0.98)
-      }
-    }
-  }
-
   private var header: some View {
-    HStack(spacing: 10) {
-      Image(systemName: "rectangle.stack")
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(Color.brandPrimary(from: runtimeTheme))
-        .frame(width: 18, height: 18)
+    HStack(spacing: DesignTokens.Spacing.sm) {
+      Text("Sessions")
+        .wbText(.headline)
+        .foregroundStyle(Color.wbTextPrimary)
 
-      VStack(alignment: .leading, spacing: 1) {
-        Text("Sessions")
-          .font(.heading)
-          .foregroundStyle(.primary)
-
-        Text("\(items.count) monitored")
-          .font(.secondaryCaption)
-          .foregroundStyle(.secondary)
-      }
+      CountBadge(items.count)
+        .accessibilityLabel("\(items.count) monitored")
 
       Spacer()
 
-      Text(GlobalHotKey.sessionControlPanelDefault.displayString)
-        .font(.primaryCaption)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(Color.secondary.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+      KeyCaps(GlobalHotKey.sessionControlPanelDefault.displayString)
 
-      Button(action: compactPanel) {
-        Label("Compact Sessions", systemImage: "chevron.up")
-          .labelStyle(.iconOnly)
-          .font(.geist(size: 11, weight: .bold))
-          .foregroundStyle(.secondary)
-          .frame(width: 22, height: 22)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .help("Compact")
+      IconButton(systemImage: "chevron.up", isSmall: true, accessibilityLabel: "Compact sessions", action: compactPanel)
+        .help("Compact")
 
-      Button(action: onClose) {
-        Label("Close", systemImage: "xmark")
-          .labelStyle(.iconOnly)
-          .font(.geist(size: 11, weight: .bold))
-          .foregroundStyle(.secondary)
-          .frame(width: 22, height: 22)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .help("Close")
+      IconButton(systemImage: "xmark", isSmall: true, accessibilityLabel: "Close", action: onClose)
+        .help("Close")
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
+    .padding(.leading, DesignTokens.Spacing.md)
+    .padding(.trailing, DesignTokens.Spacing.sm)
+    .padding(.vertical, DesignTokens.Spacing.sm)
     .contentShape(Rectangle())
   }
 
   private var compactEmptyState: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: DesignTokens.Spacing.smPlus) {
       Image(systemName: "terminal")
-        .font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(.secondary)
-        .frame(width: 18, height: 18)
+        .font(.system(size: 13))
+        .foregroundStyle(Color.wbTextSecondary)
+        .frame(width: DesignTokens.Size.icon, height: DesignTokens.Size.icon)
 
-      VStack(alignment: .leading, spacing: 2) {
-        Text("No monitored sessions")
-          .font(.secondaryDefault)
-          .foregroundStyle(.primary)
+      Text("No monitored sessions")
+        .wbText(.body)
+        .foregroundStyle(Color.wbTextPrimary)
 
-        Text("Start or select sessions in Workbench.")
-          .font(.secondaryCaption)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      }
-
-      Spacer(minLength: 8)
+      Spacer(minLength: DesignTokens.Spacing.sm)
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 12)
+    .padding(.horizontal, DesignTokens.Spacing.lg)
+    .padding(.vertical, DesignTokens.Spacing.md)
   }
 
   private var emptyState: some View {
-    VStack(spacing: 10) {
-      Image(systemName: "terminal")
-        .font(.system(size: 30, weight: .regular))
-        .foregroundStyle(.secondary)
-
-      Text("No monitored sessions")
-        .font(.secondaryLarge)
-        .foregroundStyle(.primary)
-
-      Text("Start or select sessions in Workbench to show them here.")
-        .font(.secondarySmall)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: 260)
+    WBEmptyState(
+      systemImage: "terminal",
+      title: "No monitored sessions",
+      description: "Start or select sessions in Workbench to show them here."
+    ) {
+      EmptyView()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .padding()
@@ -631,51 +557,37 @@ private struct GlobalSessionCleanupBanner: View {
   let isDeleting: Bool
   let onDelete: () -> Void
 
-  @Environment(\.colorScheme) private var colorScheme
-
   var body: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: DesignTokens.Spacing.smPlus) {
       Image(systemName: "flag.fill")
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(.orange)
-        .frame(width: 18, height: 18)
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(Color.wbStatusAttentionText)
+        .frame(width: DesignTokens.Size.icon, height: DesignTokens.Size.icon)
 
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
         Text(title)
-          .font(.secondaryDefault)
-          .foregroundStyle(.primary)
+          .wbText(.bodyEmphasis)
+          .foregroundStyle(Color.wbTextPrimary)
           .lineLimit(1)
 
         Text(summary)
-          .font(.secondaryCaption)
-          .foregroundStyle(.secondary)
+          .wbText(.callout)
+          .foregroundStyle(Color.wbTextSecondary)
           .lineLimit(1)
           .truncationMode(.middle)
       }
 
-      Spacer(minLength: 8)
+      Spacer(minLength: DesignTokens.Spacing.sm)
 
-      Button(action: onDelete) {
-        Label(isDeleting ? "Deleting" : "Delete Suggested", systemImage: "trash")
-          .font(.secondarySmall)
-          .foregroundStyle(.white)
-          .padding(.horizontal, 9)
-          .padding(.vertical, 5)
-          .background(Color.red.opacity(isDeleting ? 0.55 : 0.86))
-          .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-      }
-      .buttonStyle(.plain)
-      .disabled(isDeleting)
+      Button(isDeleting ? "Deleting…" : "Delete", action: onDelete)
+        .buttonStyle(WBDestructiveButtonStyle())
+        .disabled(isDeleting)
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 8)
+    .padding(.horizontal, DesignTokens.Spacing.smPlus)
+    .padding(.vertical, DesignTokens.Spacing.sm)
     .background(
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(Color.orange.opacity(colorScheme == .dark ? 0.16 : 0.12))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .stroke(Color.orange.opacity(colorScheme == .dark ? 0.28 : 0.22), lineWidth: 1)
+      Color.wbStatusAttentionTint,
+      in: RoundedRectangle(cornerRadius: DesignTokens.Radius.row, style: .continuous)
     )
   }
 
@@ -706,7 +618,6 @@ private struct GlobalSessionControlPanelRow: View {
   @State private var gitHubViewModel = SessionGitHubQuickAccessViewModel()
   @State private var resolvedRootPath: String?
   @Environment(\.agentHub) private var agentHub
-  @Environment(\.colorScheme) private var colorScheme
 
   private var gitHubObservationTaskID: String {
     let repositoryKey = SessionGitHubQuickAccessViewModel.repositoryKey(
@@ -739,11 +650,12 @@ private struct GlobalSessionControlPanelRow: View {
 
   var body: some View {
     Button(action: onSelect) {
-      HStack(alignment: .top, spacing: 10) {
-        statusIndicator
-          .padding(.top, 5)
+      HStack(alignment: .top, spacing: DesignTokens.Spacing.smPlus) {
+        StatusGlyph(status: item.status, isPending: item.isPending)
+          .fixedSize()
+          .padding(.top, 3)
 
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
           topLine
           detailLine
           gitHubLine
@@ -752,25 +664,24 @@ private struct GlobalSessionControlPanelRow: View {
           }
         }
 
-        Spacer(minLength: 8)
+        Spacer(minLength: DesignTokens.Spacing.sm)
 
         Image(systemName: "arrow.up.forward")
           .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(.secondary.opacity(isHovered || isSelected ? 0.9 : 0.45))
+          .foregroundStyle(isHovered || isSelected ? Color.wbTextSecondary : Color.wbTextTertiary)
           .padding(.top, 3)
       }
-      .padding(.horizontal, 11)
-      .padding(.vertical, 11)
+      .padding(.horizontal, DesignTokens.Spacing.smPlus)
+      .padding(.vertical, DesignTokens.Spacing.smPlus)
       .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
-      .background(rowBackground)
+      .background(
+        rowBackgroundColor,
+        in: RoundedRectangle(cornerRadius: DesignTokens.Radius.row, style: .continuous)
+      )
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .onHover { hovering in
-      withAnimation(.easeInOut(duration: 0.12)) {
-        isHovered = hovering
-      }
-    }
+    .onHover { isHovered = $0 }
     .task(id: gitHubObservationTaskID) {
       await observeGitHubIfAvailable()
       publishGitHubState()
@@ -793,27 +704,27 @@ private struct GlobalSessionControlPanelRow: View {
   }
 
   private var topLine: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: DesignTokens.Spacing.xsPlus) {
       Text(item.displayName)
-        .font(.primaryDefault)
-        .foregroundStyle(.primary)
+        .wbText(.bodyEmphasis)
+        .foregroundStyle(Color.wbTextPrimary)
         .lineLimit(1)
         .truncationMode(.tail)
 
       Text(item.providerKind.rawValue)
-        .font(.secondaryCaption)
-        .foregroundStyle(Color.brandPrimary(for: item.providerKind))
+        .wbText(.callout)
+        .foregroundStyle(Color.wbTextSecondary)
         .fixedSize(horizontal: true, vertical: false)
 
       if isCleanupCandidate {
         cleanupBadge
       }
 
-      Spacer(minLength: 4)
+      Spacer(minLength: DesignTokens.Spacing.xs)
 
       Text(item.timestamp.timeAgoDisplay())
-        .font(.secondaryCaption)
-        .foregroundStyle(.secondary)
+        .wbText(.callout)
+        .foregroundStyle(Color.wbTextTertiary)
         .monospacedDigit()
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -821,30 +732,31 @@ private struct GlobalSessionControlPanelRow: View {
 
   private var cleanupBadge: some View {
     Text("Cleanup")
-      .font(.geist(size: 9, weight: .bold))
-      .foregroundStyle(.white)
-      .padding(.horizontal, 5)
+      .wbText(.subheadline)
+      .fontWeight(.medium)
+      .foregroundStyle(Color.wbStatusAttentionText)
+      .padding(.horizontal, DesignTokens.Spacing.xsPlus)
       .padding(.vertical, 1)
-      .background(.orange, in: Capsule())
+      .background(Color.wbStatusAttentionTint, in: Capsule())
       .fixedSize()
       .help("This worktree's PR is merged — safe to clean up")
   }
 
   private var detailLine: some View {
-    HStack(spacing: 6) {
-      Text(statusText)
-        .font(.secondarySmall)
-        .foregroundStyle(statusColor)
+    HStack(spacing: DesignTokens.Spacing.xsPlus) {
+      Text(statusPresentation.word)
+        .wbText(.callout)
+        .foregroundStyle(statusPresentation.textColor)
         .lineLimit(1)
         .truncationMode(.tail)
 
       Text("·")
-        .font(.secondaryCaption)
-        .foregroundStyle(.secondary.opacity(0.7))
+        .wbText(.callout)
+        .foregroundStyle(Color.wbTextTertiary)
 
       Text(projectText)
-        .font(.secondarySmall)
-        .foregroundStyle(.secondary)
+        .wbText(.callout)
+        .foregroundStyle(Color.wbTextSecondary)
         .lineLimit(1)
         .truncationMode(.middle)
     }
@@ -853,28 +765,28 @@ private struct GlobalSessionControlPanelRow: View {
   @ViewBuilder
   private var gitHubLine: some View {
     if let pullRequest = gitHubViewModel.currentBranchPR {
-      HStack(spacing: 5) {
+      HStack(spacing: DesignTokens.Spacing.xs) {
         Image(systemName: gitHubStatusIcon)
           .font(.system(size: 10, weight: .semibold))
           .foregroundStyle(ciColor)
-          .frame(width: 12, height: 12)
+          .frame(width: DesignTokens.Size.iconSmall, height: DesignTokens.Size.iconSmall)
 
         Text("PR #\(pullRequest.number)")
-          .font(.secondaryCaption)
-          .foregroundStyle(.secondary)
+          .wbText(.callout)
+          .foregroundStyle(Color.wbTextSecondary)
 
         if pullRequest.stateKind == .merged {
-          prStateBadge("Merged", color: .purple)
+          prStateBadge("Merged", text: Color.wbTextOnAccent, fill: Color.wbTileViolet)
         } else if pullRequest.stateKind == .closed {
-          prStateBadge("Closed", color: .red)
+          prStateBadge("Closed", text: Color.wbStatusErrorText, fill: Color.wbStatusErrorTint)
         }
 
         Text("·")
-          .font(.secondaryCaption)
-          .foregroundStyle(.secondary.opacity(0.7))
+          .wbText(.callout)
+          .foregroundStyle(Color.wbTextTertiary)
 
         Text(ciText)
-          .font(.secondaryCaption)
+          .wbText(.callout)
           .foregroundStyle(ciColor)
           .lineLimit(1)
           .truncationMode(.tail)
@@ -883,18 +795,19 @@ private struct GlobalSessionControlPanelRow: View {
     }
   }
 
-  private func prStateBadge(_ title: String, color: Color) -> some View {
+  private func prStateBadge(_ title: String, text: Color, fill: Color) -> some View {
     Text(title)
-      .font(.geist(size: 9, weight: .bold))
-      .foregroundStyle(.white)
-      .padding(.horizontal, 5)
+      .wbText(.subheadline)
+      .fontWeight(.medium)
+      .foregroundStyle(text)
+      .padding(.horizontal, DesignTokens.Spacing.xsPlus)
       .padding(.vertical, 1)
-      .background(color, in: Capsule())
+      .background(fill, in: Capsule())
       .fixedSize()
   }
 
   private var pathLines: some View {
-    VStack(alignment: .leading, spacing: 3) {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
       if item.session.isWorktree {
         pathRow(icon: "arrow.triangle.branch", label: "Worktree", path: item.session.projectPath)
       }
@@ -903,15 +816,15 @@ private struct GlobalSessionControlPanelRow: View {
   }
 
   private func pathRow(icon: String, label: String, path: String) -> some View {
-    HStack(spacing: 5) {
+    HStack(spacing: DesignTokens.Spacing.xs) {
       Image(systemName: icon)
         .font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(.secondary.opacity(0.7))
-        .frame(width: 12, height: 12)
+        .foregroundStyle(Color.wbTextTertiary)
+        .frame(width: DesignTokens.Size.iconSmall, height: DesignTokens.Size.iconSmall)
 
       Text(displayPath(path))
-        .font(.secondaryCaption)
-        .foregroundStyle(.secondary)
+        .wbText(.codeSmall)
+        .foregroundStyle(Color.wbTextSecondary)
         .lineLimit(1)
         .truncationMode(.middle)
     }
@@ -934,40 +847,14 @@ private struct GlobalSessionControlPanelRow: View {
     resolvedRootPath = resolved
   }
 
-  private var statusIndicator: some View {
-    Circle()
-      .fill(statusColor)
-      .frame(width: 8, height: 8)
-      .shadow(color: statusColor.opacity(item.attention == .working ? 0.55 : 0), radius: 4)
-  }
-
-  private var rowBackground: some View {
-    RoundedRectangle(cornerRadius: 8, style: .continuous)
-      .fill(rowBackgroundColor)
-      .overlay(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .stroke(rowBorderColor, lineWidth: isSelected ? 1.5 : 1)
-      )
+  private var statusPresentation: SessionStatusPresentation {
+    SessionStatusPresentation(status: item.status, isPending: item.isPending)
   }
 
   private var rowBackgroundColor: Color {
-    if isSelected {
-      return Color.brandPrimary(for: item.providerKind)
-        .opacity(colorScheme == .dark ? 0.26 : 0.30)
-    }
-    if isHovered {
-      return Color.brandPrimary(for: item.providerKind)
-        .opacity(colorScheme == .dark ? 0.16 : 0.22)
-    }
-    return Color.legacySurfaceFill
-      .opacity(colorScheme == .dark ? 0.55 : 0.65)
-  }
-
-  private var rowBorderColor: Color {
-    if isSelected {
-      return Color.brandPrimary(for: item.providerKind).opacity(0.7)
-    }
-    return Color.secondary.opacity(isHovered ? 0.24 : 0.12)
+    if isSelected { return .wbSurfaceSelected }
+    if isHovered { return .wbSurfaceHover }
+    return .clear
   }
 
   private var projectText: String {
@@ -977,44 +864,14 @@ private struct GlobalSessionControlPanelRow: View {
     return item.session.projectName
   }
 
-  private var statusText: String {
-    if item.isPending { return "starting" }
-    guard let status = item.status else { return item.session.isActive ? "active" : "idle" }
-    switch status {
-    case .thinking:
-      return "working"
-    case .executingTool(let name):
-      return name.lowercased()
-    case .waitingForUser:
-      return "ready"
-    case .awaitingApproval(let tool):
-      return SessionInteractiveInputTool.matches(tool)
-        ? "input needed"
-        : "approval: \(tool.lowercased())"
-    case .idle:
-      return "idle"
-    }
-  }
-
-  private var statusColor: Color {
-    switch item.attention {
-    case .awaitingApproval: return .yellow
-    case .gitHubBlocked: return .red
-    case .working: return .blue
-    case .pending: return .orange
-    case .ready: return .green
-    case .idle: return .secondary
-    }
-  }
-
   private var ciColor: Color {
-    if !gitHubViewModel.blockers.isEmpty { return .red }
-    if gitHubViewModel.observationState.isUnavailable { return .orange }
+    if !gitHubViewModel.blockers.isEmpty { return .wbStatusErrorText }
+    if gitHubViewModel.observationState.isUnavailable { return .wbStatusAttentionText }
     switch gitHubViewModel.ciSummary.overallStatus {
-    case .success: return .green
-    case .failure: return .red
-    case .pending: return .orange
-    case .none: return .secondary
+    case .success: return .wbStatusReadyText
+    case .failure: return .wbStatusErrorText
+    case .pending: return .wbStatusAttentionText
+    case .none: return .wbTextSecondary
     }
   }
 

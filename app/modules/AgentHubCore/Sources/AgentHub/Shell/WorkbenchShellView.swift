@@ -41,6 +41,7 @@ private struct ShellRoot: View {
   @State private var sessionsActionCoordinator = SessionsActionCoordinator()
   @State private var sessionTabsModel = SessionTabsModel()
   @State private var isResumingByID = false
+  @State private var overlays = ShellOverlayModel()
 
   private var launchActions: WorkspaceLaunchActions {
     WorkspaceLaunchActions(agentHub: agentHub, showSessions: { shellModel.select(.sessions) })
@@ -61,6 +62,7 @@ private struct ShellRoot: View {
       .wbRedrawsOnPaletteChange()
       .frame(minWidth: ShellLayout.windowMinWidth, minHeight: ShellLayout.windowMinHeight)
       .environment(shellModel)
+      .environment(overlays)
       .environment(\.sessionNavigationModel, sessionNavigationModel)
       .environment(\.sessionsActionCoordinator, sessionsActionCoordinator)
       .environment(sessionTabsModel)
@@ -81,6 +83,17 @@ private struct ShellRoot: View {
           navigationModel: sessionNavigationModel,
           claude: agentHub.claudeSessionsViewModel,
           codex: agentHub.codexSessionsViewModel
+        )
+      )
+      .modifier(
+        ShellOverlayHost(
+          agentHub: agentHub,
+          overlays: overlays,
+          shellModel: shellModel,
+          coordinator: sessionsActionCoordinator,
+          navigationModel: sessionNavigationModel,
+          onNewSession: startNewSession,
+          onResumeSessionByID: { isResumingByID = true }
         )
       )
       .modifier(
@@ -114,6 +127,7 @@ private struct ShellRoot: View {
           model: shellModel,
           startNewSession: startNewSession,
           resumeSessionByID: { isResumingByID = true },
+          togglePalette: { overlays.togglePalette() },
           archiveCurrentSession: { sessionActions.archiveCurrentSession() }
         )
       )
@@ -166,6 +180,9 @@ private struct ShellRootEffects: ViewModifier {
       }
       .task { await agentHub.gitHubReviewsViewModel.loadSessionAssociations() }
       .task { agentHub.startWorktreeLaunchRequestMonitoring() }
+      // Appearance (System / Light / Dark) is a new-shell setting; the legacy
+      // root keeps following the system.
+      .task { WorkbenchAppearanceController.applyStoredAppearance() }
   }
 }
 

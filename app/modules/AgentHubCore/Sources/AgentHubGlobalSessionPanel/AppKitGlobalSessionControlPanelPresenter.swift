@@ -134,6 +134,8 @@ public final class AppKitGlobalSessionControlPanelPresenter: GlobalSessionContro
         self?.updateCompactContentHeight(height)
       }
     )
+    // The panel is drawn with the Workbench tokens; redraw on a live palette switch.
+    .wbRedrawsOnPaletteChange()
     .agentHub(provider)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
 

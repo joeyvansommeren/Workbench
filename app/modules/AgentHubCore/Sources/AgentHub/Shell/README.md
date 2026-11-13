@@ -176,3 +176,26 @@ tab, behind `ApprovalResponding` (`Services/ApprovalResponder.swift`).
 - **Tree:** Approve pill (spinner while sending; on refusal it opens the
   session) and an Answer pill for input questions, which only opens the session.
 - Breadcrumbs: `approval: shown|approve|deny <tool>`.
+
+## P10: overlays and settings
+
+`Overlays/` holds the window-level overlays, attached once in `ShellRoot` by
+`ShellOverlayHost`:
+
+- **Command palette** (`WorkbenchCommandPalette`, 640 pt) on ⌘K and the toolbar
+  Search field. `ShellOverlayModel` (per window, in the environment) owns
+  open/closed and logs `palette: open|close`. Rows come from the pure
+  `UI/CommandPaletteEntries.swift`. The legacy `CommandPaletteView` is unchanged.
+- **New session sheet** (`NewSessionSheet`, 560 pt) on ⌘N, the toolbar "+" and
+  the palette. It drives `MultiSessionLaunchViewModel` through
+  `NewSessionSheetModel`; `NewSessionTarget` maps New / existing / None to the
+  launch. "More options…" hands the same launch view model to the legacy
+  launcher. The request lives on the window's `SessionsActionCoordinator`
+  (`newSessionSheetRequest`), so any view can open the sheet with
+  `ShellSessionActions.startNewSession(preselectedWorktree:)` (branch-row "+").
+- **Shortcuts**: `ShellShortcuts.swift` is the one table of key equivalents and
+  destination titles; `ShellCommands` binds it and the palette shows it.
+- **Appearance**: Settings › Appearance shows System / Light / Dark and
+  Standard / Warm when the flag is on (YAML theme picker hidden), applied live
+  by `WorkbenchAppearanceController`. The stored appearance is applied when a
+  shell window opens.

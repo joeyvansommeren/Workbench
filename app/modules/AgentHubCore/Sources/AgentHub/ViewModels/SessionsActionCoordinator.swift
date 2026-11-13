@@ -84,6 +84,9 @@ final class SessionsActionCoordinator {
   var removeConfirmation: RemoveConfirmation?
   var worktreeModuleDeleteConfirmation: WorktreeModuleDeleteConfirmation?
   var workspacePendingCloseID: String?
+  /// The new shell's New session sheet. Window-level, so leaving Sessions
+  /// does not clear it; the legacy shell never sets it.
+  var newSessionSheetRequest: NewSessionSheetRequest?
 
   // MARK: - Init
 

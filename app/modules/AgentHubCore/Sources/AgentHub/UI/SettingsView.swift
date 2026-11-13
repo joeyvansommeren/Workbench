@@ -423,6 +423,15 @@ public struct SettingsView: View {
 
   private var appearanceSettingsForm: some View {
     Form {
+      // New shell: System / Light / Dark and Standard / Warm replace the YAML
+      // theme picker below. The legacy shell keeps its Appearance tab as is.
+      // Keyed on the palette revision here, not on the tab: a new identity for
+      // a TabView child can reset the selected tab.
+      if AppleShellLaunchFlag.isEnabled {
+        WorkbenchAppearanceSettingsSection()
+          .wbRedrawsOnPaletteChange()
+      }
+
       Section("Layout") {
         Picker("Diff display", selection: $diffDisplayModeRawValue) {
           ForEach(DiffDisplayMode.allCases) { mode in
@@ -491,7 +500,7 @@ public struct SettingsView: View {
         )
       }
 
-      if activeTerminalBackend != .ghostty {
+      if activeTerminalBackend != .ghostty, !AppleShellLaunchFlag.isEnabled {
         Section {
           HStack(spacing: 10) {
             Picker("Theme", selection: themeSelectionBinding) {
