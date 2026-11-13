@@ -30,6 +30,11 @@ struct BranchRowModel: Equatable {
 
   /// Where a new session on this branch starts: its worktree, else the repo.
   var launchPath: String { worktreePath ?? repositoryPath }
+
+  /// What the New session sheet preselects for this row.
+  var preselectedWorktree: WorktreeBranch {
+    WorktreeBranch(name: name, path: launchPath, isWorktree: isWorktree)
+  }
 }
 
 struct SessionRowModel: Equatable {

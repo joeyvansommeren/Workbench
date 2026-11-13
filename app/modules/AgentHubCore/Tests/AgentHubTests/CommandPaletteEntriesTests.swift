@@ -130,6 +130,43 @@ struct CommandPaletteEntriesTests {
     #expect(CommandPaletteCommand.switchAppearance.keys.isEmpty)
   }
 
+  @Test("Go to and Commands read the same shortcut table as the menu bar")
+  func sharedShortcutTable() {
+    let entries = CommandPaletteEntries.build(query: "", sessions: [], pullRequests: [])
+    for destination in ShellDestination.allCases {
+      let entry = entries.first { $0.target == .destination(destination) }
+      #expect(entry?.title == destination.title)
+      #expect(entry?.keys == destination.shortcut.keyCaps)
+    }
+    #expect(CommandPaletteCommand.newSession.shortcut == .newSession)
+    #expect(CommandPaletteCommand.resumeSessionByID.shortcut == .resumeSessionByID)
+    #expect(CommandPaletteCommand.toggleSidebar.shortcut == .toggleSidebar)
+    #expect(CommandPaletteCommand.toggleSidePanel.shortcut == .toggleSidePanel)
+    #expect(entries.first { $0.target == .destination(.reviews) }?.lead == .pullRequestGlyph)
+  }
+
+  @Test("The highlighted row follows its entry when sessions reorder")
+  func activeRowFollowsEntry() {
+    let before = CommandPaletteEntries.build(
+      query: "",
+      sessions: [session("a", "A", status: .waitingForUser), session("b", "B", status: .idle)],
+      pullRequests: []
+    )
+    // The user moved the highlight to B…
+    let picked = before[CommandPaletteEntries.activeIndex(for: "session-b", in: before)].id
+    #expect(picked == "session-b")
+    // …then B starts asking for approval and moves to the top.
+    let after = CommandPaletteEntries.build(
+      query: "",
+      sessions: [session("a", "A", status: .waitingForUser), session("b", "B", status: .awaitingApproval(tool: "Edit"))],
+      pullRequests: []
+    )
+    #expect(after[CommandPaletteEntries.activeIndex(for: picked, in: after)].id == "session-b")
+    // No pick yet, or a pick that is gone: the first row.
+    #expect(CommandPaletteEntries.activeIndex(for: nil, in: after) == 0)
+    #expect(CommandPaletteEntries.activeIndex(for: "session-gone", in: after) == 0)
+  }
+
   @Test("Opening and closing the palette toggles the overlay state")
   func overlayModel() {
     let overlays = ShellOverlayModel()

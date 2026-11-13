@@ -162,6 +162,8 @@ opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
   launcher. The request lives on the window's `SessionsActionCoordinator`
   (`newSessionSheetRequest`), so any view can open the sheet with
   `ShellSessionActions.startNewSession(preselectedWorktree:)` (branch-row "+").
+- **Shortcuts**: `ShellShortcuts.swift` is the one table of key equivalents and
+  destination titles; `ShellCommands` binds it and the palette shows it.
 - **Appearance**: Settings › Appearance shows System / Light / Dark and
   Standard / Warm when the flag is on (YAML theme picker hidden), applied live
   by `WorkbenchAppearanceController`. The stored appearance is applied when a

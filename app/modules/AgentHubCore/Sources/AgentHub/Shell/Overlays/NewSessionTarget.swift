@@ -4,7 +4,7 @@
 //
 //  Pure mapping from the new-session sheet's worktree menu (New / existing /
 //  None) to what `MultiSessionLaunchViewModel` needs: the repository to launch
-//  from, the work mode, and the worktree the session starts in.
+//  from and the work mode. Also where the sheet opens.
 //
 
 import Foundation
@@ -25,15 +25,12 @@ struct NewSessionTarget: Equatable {
   /// `MultiSessionLaunchViewModel.preselectRepository(path:)` produces.
   let launchRepository: SelectedRepository
   let workMode: WorkMode
-  /// Where the session starts; nil when launch creates a new worktree.
-  let worktree: WorktreeBranch?
 
   init(choice: NewSessionWorktreeChoice, repository: SelectedRepository) {
     switch choice {
     case .newWorktree:
       launchRepository = repository
       workMode = .worktree
-      worktree = nil
     case .existing(let branch):
       launchRepository = SelectedRepository(
         path: branch.path,
@@ -42,11 +39,9 @@ struct NewSessionTarget: Equatable {
         isExpanded: true
       )
       workMode = .local
-      worktree = branch
     case .none:
       launchRepository = repository
       workMode = .local
-      worktree = Self.mainCheckout(of: repository)
     }
   }
 
@@ -58,23 +53,40 @@ struct NewSessionTarget: Equatable {
       .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
   }
 
-  static func mainCheckout(of repository: SelectedRepository) -> WorktreeBranch {
+  /// The repository's main checkout when the repository lists it; its name is
+  /// the checked-out branch.
+  static func mainCheckout(of repository: SelectedRepository) -> WorktreeBranch? {
     let rootPath = WorktreeModuleResolver.normalizedDirectoryPath(repository.path)
     return repository.worktrees.first {
       !$0.isWorktree && WorktreeModuleResolver.normalizedDirectoryPath($0.path) == rootPath
-    } ?? WorktreeBranch(name: repository.name, path: repository.path, isWorktree: false)
+    }
   }
 
-  /// Where the sheet starts when a caller (the branch row "+") hands it a
-  /// worktree: its repository, and that worktree (or "None" for the main
-  /// checkout). Nil when the worktree belongs to no tracked repository.
-  static func preselection(
-    for worktree: WorktreeBranch,
-    in repositories: [SelectedRepository]
+  /// Where the sheet opens.
+  /// - A preselected worktree (branch row "+") opens its repository with that
+  ///   worktree chosen, or "None" for the main checkout.
+  /// - A preferred path (⌘N on a focused session, a landing page) that is a
+  ///   linked worktree starts in it, as the legacy launcher did; any other
+  ///   path in a repository opens that repository on "New worktree".
+  static func initialSelection(
+    preselectedWorktree: WorktreeBranch?,
+    preferredPath: String?,
+    repositories: [SelectedRepository]
   ) -> (repository: SelectedRepository, choice: NewSessionWorktreeChoice)? {
-    guard let match = WorktreeModuleResolver.bestMatch(for: worktree.path, repositories: repositories)
-    else { return nil }
-    let choice: NewSessionWorktreeChoice = match.worktree.isWorktree ? .existing(match.worktree) : .none
-    return (match.repository, choice)
+    if let preselectedWorktree,
+      let match = WorktreeModuleResolver.bestMatch(for: preselectedWorktree.path, repositories: repositories)
+    {
+      return (match.repository, match.worktree.isWorktree ? .existing(match.worktree) : .none)
+    }
+    if let preferredPath,
+      let match = WorktreeModuleResolver.bestMatch(for: preferredPath, repositories: repositories)
+    {
+      let isThatWorktree =
+        match.worktree.isWorktree
+        && WorktreeModuleResolver.normalizedDirectoryPath(match.worktree.path)
+          == WorktreeModuleResolver.normalizedDirectoryPath(preferredPath)
+      return (match.repository, isThatWorktree ? .existing(match.worktree) : .newWorktree)
+    }
+    return repositories.first.map { ($0, .newWorktree) }
   }
 }

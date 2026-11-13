@@ -16,7 +16,8 @@ struct WorkbenchCommandPalette: View {
   let onClose: () -> Void
 
   @State private var query = ""
-  @State private var activeIndex = 0
+  /// The highlighted row, by entry id (see `CommandPaletteEntries.activeIndex`).
+  @State private var activeEntryID: String?
   @FocusState private var isSearchFocused: Bool
 
   private var entries: [CommandPaletteEntry] {
@@ -25,6 +26,7 @@ struct WorkbenchCommandPalette: View {
 
   var body: some View {
     let entries = entries
+    let activeIndex = CommandPaletteEntries.activeIndex(for: activeEntryID, in: entries)
     VStack(spacing: 0) {
       searchRow
       Rectangle().fill(Color.wbBorderHairline).frame(height: 1)
@@ -42,9 +44,9 @@ struct WorkbenchCommandPalette: View {
     }
     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.container))
     .wbElevation(.overlay, cornerRadius: DesignTokens.Radius.container)
-    .onChange(of: query) { _, _ in activeIndex = 0 }
-    .onKeyPress(.downArrow) { move(1, count: entries.count) }
-    .onKeyPress(.upArrow) { move(-1, count: entries.count) }
+    .onChange(of: query) { _, _ in activeEntryID = nil }
+    .onKeyPress(.downArrow) { move(1, from: activeIndex, in: entries) }
+    .onKeyPress(.upArrow) { move(-1, from: activeIndex, in: entries) }
     .onKeyPress(.return) {
       run(entries, at: activeIndex)
       return .handled
@@ -77,9 +79,9 @@ struct WorkbenchCommandPalette: View {
     .frame(height: 56)
   }
 
-  private func move(_ delta: Int, count: Int) -> KeyPress.Result {
-    guard count > 0 else { return .handled }
-    activeIndex = (activeIndex + delta + count) % count
+  private func move(_ delta: Int, from index: Int, in entries: [CommandPaletteEntry]) -> KeyPress.Result {
+    guard !entries.isEmpty else { return .handled }
+    activeEntryID = entries[(index + delta + entries.count) % entries.count].id
     return .handled
   }
 
@@ -210,6 +212,9 @@ private struct CommandPaletteLeadView: View {
     case .symbol(let name):
       Image(systemName: name)
         .font(.system(size: 13))
+        .foregroundStyle(Color.wbTextSecondary)
+    case .pullRequestGlyph:
+      PullRequestGlyph()
         .foregroundStyle(Color.wbTextSecondary)
     }
   }

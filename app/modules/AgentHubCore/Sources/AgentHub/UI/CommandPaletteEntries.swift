@@ -72,16 +72,19 @@ enum CommandPaletteCommand: String, CaseIterable {
     }
   }
 
-  var keys: [String] {
+  /// The menu shortcut, from the table `ShellCommands` binds.
+  var shortcut: ShellShortcut? {
     switch self {
-    case .newSession: return ["⌘", "N"]
-    case .resumeSessionByID: return ["⇧", "⌘", "R"]
-    case .toggleSidePanel: return ["⌥", "⌘", "0"]
-    case .toggleSidebar: return ["⌃", "⌘", "S"]
-    case .openSettings: return ["⌘", ","]
-    case .switchAppearance: return []
+    case .newSession: return .newSession
+    case .resumeSessionByID: return .resumeSessionByID
+    case .toggleSidePanel: return .toggleSidePanel
+    case .toggleSidebar: return .toggleSidebar
+    case .openSettings: return .openSettings
+    case .switchAppearance: return nil
     }
   }
+
+  var keys: [String] { shortcut?.keyCaps ?? [] }
 }
 
 /// What a palette row shows at its leading edge.
@@ -90,6 +93,8 @@ enum CommandPaletteLead: Equatable {
   /// A repository letter tile. `colorKey` picks the stable tile colour.
   case tile(name: String, colorKey: String)
   case symbol(String)
+  /// SF Symbols has no pull-request glyph; draw `PullRequestGlyph`.
+  case pullRequestGlyph
 }
 
 /// What running a palette row does. The view maps it onto the window.
@@ -157,6 +162,13 @@ enum CommandPaletteEntries {
     }
   }
 
+  /// The highlighted row follows an entry id, not a position, so a live status
+  /// reorder never moves Return onto another session. Falls back to the
+  /// first row when the id is gone (or none was picked yet).
+  static func activeIndex(for entryID: String?, in entries: [CommandPaletteEntry]) -> Int {
+    entryID.flatMap { id in entries.firstIndex { $0.id == id } } ?? 0
+  }
+
   static func firstMatch(of query: String, in text: String) -> Range<String.Index>? {
     guard !query.isEmpty else { return nil }
     return text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive])
@@ -213,21 +225,25 @@ enum CommandPaletteEntries {
     }
   }
 
-  private static let goToEntries: [CommandPaletteEntry] = [
-    (ShellDestination.sessions, "Sessions", "terminal", "1"),
-    (.reviews, "Reviews", "arrow.triangle.pull", "2"),
-    (.sprint, "Sprint", "rectangle.split.3x1", "3"),
-  ].map { destination, title, symbol, key in
+  private static let goToEntries: [CommandPaletteEntry] = ShellDestination.allCases.map { destination in
     CommandPaletteEntry(
       id: "goto-\(destination.rawValue)",
       group: .goTo,
-      lead: .symbol(symbol),
-      title: title,
+      lead: lead(for: destination),
+      title: destination.title,
       meta: "",
       trailingText: nil,
-      keys: ["⌘", key],
+      keys: destination.shortcut.keyCaps,
       target: .destination(destination)
     )
+  }
+
+  private static func lead(for destination: ShellDestination) -> CommandPaletteLead {
+    switch destination {
+    case .sessions: return .symbol("terminal")
+    case .reviews: return .pullRequestGlyph
+    case .sprint: return .symbol("rectangle.split.3x1")
+    }
   }
 
   private static let commandEntries: [CommandPaletteEntry] = CommandPaletteCommand.allCases.map {

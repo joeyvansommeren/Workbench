@@ -18,19 +18,18 @@ extension PalettePreference: CustomStringConvertible {
 }
 
 struct WorkbenchAppearanceSettingsSection: View {
-  @State private var appearance = WorkbenchAppearanceController.storedAppearance()
-  @State private var palette = WorkbenchAppearanceController.storedPalette()
+  // Backed by the stored values, so a change made elsewhere (the palette's
+  // "Switch appearance") shows here too.
+  @AppStorage(AgentHubDefaults.appearance) private var appearanceRaw = AppearancePreference.system.rawValue
+  @AppStorage(AgentHubDefaults.palette) private var paletteRaw = PalettePreference.standard.rawValue
 
   var body: some View {
     Section("Appearance") {
       LabeledContent("Appearance") {
         WorkbenchSegmentedControl(
           selection: Binding(
-            get: { appearance },
-            set: { newValue in
-              appearance = newValue
-              WorkbenchAppearanceController.selectAppearance(newValue)
-            }
+            get: { AppearancePreference(rawValue: appearanceRaw) ?? .system },
+            set: { WorkbenchAppearanceController.selectAppearance($0) }
           ),
           accessibilityIdentifier: "settings.appearance"
         )
@@ -39,11 +38,8 @@ struct WorkbenchAppearanceSettingsSection: View {
       LabeledContent("Palette") {
         WorkbenchSegmentedControl(
           selection: Binding(
-            get: { palette },
-            set: { newValue in
-              palette = newValue
-              WorkbenchAppearanceController.selectPalette(newValue)
-            }
+            get: { PalettePreference(rawValue: paletteRaw) ?? .standard },
+            set: { WorkbenchAppearanceController.selectPalette($0) }
           ),
           accessibilityIdentifier: "settings.palette"
         )
