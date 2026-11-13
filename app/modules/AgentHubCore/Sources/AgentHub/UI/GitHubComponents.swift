@@ -377,8 +377,8 @@ struct GitHubCommentCard: View {
         }
       }
 
-      Text(commentBody)
-        .font(GitHubTypography.body)
+      MarkdownView(content: commentBody, includeScrollView: false)
+        .frame(maxWidth: 680, alignment: .leading)
         .textSelection(.enabled)
     }
     .frame(maxWidth: .infinity, alignment: .leading)

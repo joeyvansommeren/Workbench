@@ -728,9 +728,7 @@ public struct MonitoringCardView: View {
           Circle()
             .fill(isHighlighted ? Color.brandPrimary(for: providerKind) : .gray.opacity(0.3))
             .frame(width: 10, height: 10)
-            .shadow(
-              color: isHighlighted ? Color.brandPrimary(for: providerKind).opacity(0.6) : .clear,
-              radius: 4)
+            // Glow removed — state is shown by tone and text.
             .accessibilityHidden(true)
           if let statusWord {
             Text(statusWord)
@@ -1396,7 +1394,7 @@ struct AnimatedCopyButton: View {
   var body: some View {
     Button {
       action()
-      withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+      withAnimation(.smooth(duration: 0.3)) {
         showConfirmation = true
       }
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {

@@ -116,7 +116,6 @@ private struct DraggedRowPreview<Content: View>: View {
       .overlay(
         RoundedRectangle(cornerRadius: 6)
           .strokeBorder(accent.opacity(0.8), lineWidth: 1)
-          .shadow(color: accent.opacity(0.5), radius: 4)
       )
       .padding(6)
   }

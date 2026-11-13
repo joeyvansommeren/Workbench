@@ -145,7 +145,7 @@ public struct CLISessionRow: View {
       // Copy session ID button with animated confirmation
       Button {
         onCopyId()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+        withAnimation(.smooth(duration: 0.3)) {
           showCopyConfirmation = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {

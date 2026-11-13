@@ -37,7 +37,7 @@ struct WorkspaceSwitcher: View {
           isSelected: selection == item.section,
           namespace: selectionNamespace
         ) {
-          withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.9)) {
+          withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
             selection = item.section
           }
         }
@@ -213,6 +213,7 @@ private struct ProviderActionButtonBody: View {
   let provider: SessionProviderKind
   let isEnabled: Bool
   @State private var isHovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     let tint = Color.brandPrimary(for: provider)
@@ -232,7 +233,11 @@ private struct ProviderActionButtonBody: View {
           .strokeBorder((isEnabled ? tint : Color.primary).opacity(0.25), lineWidth: 1)
       )
       .contentShape(Rectangle())
+      .scaleEffect(
+        isEnabled && !reduceMotion && configuration.isPressed ? 0.96 : 1.0
+      )
       .onHover { isHovered = $0 }
       .animation(.easeOut(duration: 0.15), value: isHovered)
+      .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
   }
 }

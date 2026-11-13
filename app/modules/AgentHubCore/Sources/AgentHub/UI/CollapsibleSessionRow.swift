@@ -81,6 +81,7 @@ struct CollapsibleSessionRow: View {
   @State private var sessionGitHubQuickAccessViewModel = SessionGitHubQuickAccessViewModel()
   @Environment(\.agentHub) private var agentHub
   @Environment(\.appVisibility) private var appVisibility
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   // MARK: - Computed
 
@@ -123,7 +124,8 @@ struct CollapsibleSessionRow: View {
   private var shouldPulse: Bool {
     StatusPulsePolicy.shouldPulse(
       isActiveStatus: isActiveStatus,
-      isAppVisible: appVisibility?.isVisible ?? true
+      isAppVisible: appVisibility?.isVisible ?? true,
+      reduceMotion: reduceMotion
     )
   }
 

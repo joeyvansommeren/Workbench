@@ -122,13 +122,15 @@ private struct StatusBadge: View {
   let status: SessionStatus
   @State private var pulse = false
   @Environment(\.appVisibility) private var appVisibility
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   /// See `CollapsibleSessionRow.shouldPulse` — a `repeatForever` animation
   /// pins the display link, so it stops while the app is occluded.
   private var shouldPulse: Bool {
     StatusPulsePolicy.shouldPulse(
       isActiveStatus: isActiveStatus,
-      isAppVisible: appVisibility?.isVisible ?? true
+      isAppVisible: appVisibility?.isVisible ?? true,
+      reduceMotion: reduceMotion
     )
   }
 
@@ -139,7 +141,7 @@ private struct StatusBadge: View {
         Circle()
           .fill(statusColor)
           .frame(width: 6, height: 6)
-          .shadow(color: statusColor.opacity(0.5), radius: isActiveStatus ? 4 : 2)
+          // Glow removed — state is shown by tone and text.
 
         if isActiveStatus {
           Circle()

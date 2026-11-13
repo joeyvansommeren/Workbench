@@ -53,19 +53,20 @@ public struct CompactPillSegmentedControl<Value: Hashable>: View {
     self.accessibilityLabel = accessibilityLabel
   }
 
+  @Environment(\.runtimeTheme) private var runtimeTheme
+
   public var body: some View {
     HStack(spacing: 2) {
       ForEach(items) { item in
         segmentButton(for: item)
       }
     }
-    .padding(2)
+    .padding(3)
     .frame(height: Self.controlHeight)
-    .background(controlFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    .overlay {
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .strokeBorder(controlBorder, lineWidth: 1)
-    }
+    .background(
+      RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
+        .fill(Color.primary.opacity(0.045))
+    )
     .fixedSize(horizontal: true, vertical: false)
     .accessibilityElement(children: .contain)
     .accessibilityLabel(accessibilityLabel)
@@ -80,20 +81,23 @@ public struct CompactPillSegmentedControl<Value: Hashable>: View {
       }
     } label: {
       Text(item.title)
-        .font(.secondaryCaption)
+        .font(.geist(size: 11, weight: isSelected ? .semibold : .medium))
         .lineLimit(1)
-        .foregroundStyle(isSelected ? Color.white : textColor)
-        .padding(.horizontal, 14)
+        .foregroundStyle(isSelected ? .primary : .secondary)
+        .padding(.horizontal, 10)
         .frame(height: Self.controlHeight - (Self.selectedPillVerticalInset * 2))
         .background {
           if isSelected {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-              .fill(selectedColor)
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous)
+              .fill(Color.surfaceCard)
+              .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous)
+                  .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+              )
               .matchedGeometryEffect(id: "selected-pill", in: selectionNamespace)
-              .shadow(color: selectedColor.opacity(0.18), radius: 6, y: 1)
           }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous))
     }
     .buttonStyle(.plain)
     .help(item.helpText ?? item.title)
@@ -101,14 +105,6 @@ public struct CompactPillSegmentedControl<Value: Hashable>: View {
   }
 
   private var selectionAnimation: Animation? {
-    reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.86)
-  }
-
-  private var controlFill: Color {
-    colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.06)
-  }
-
-  private var controlBorder: Color {
-    colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.12)
+    reduceMotion ? nil : .easeOut(duration: 0.15)
   }
 }

@@ -221,8 +221,6 @@ private struct JiraFilterChip: View {
   let isSelected: Bool
   let action: () -> Void
 
-  @Environment(\.runtimeTheme) private var runtimeTheme
-
   var body: some View {
     Button(action: action) {
       HStack(spacing: 5) {
@@ -232,17 +230,18 @@ private struct JiraFilterChip: View {
         }
       }
       .font(.geist(size: 12, weight: isSelected ? .semibold : .medium))
+      .foregroundStyle(isSelected ? .primary : .secondary)
       .padding(.horizontal, 10)
       .frame(height: 26)
       .background(
-        Capsule().fill(
-          isSelected ? Color.brandPrimary(from: runtimeTheme).opacity(0.18) : Color.primary.opacity(0.05))
+        RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous)
+          .fill(isSelected ? Color.surfaceCard : Color.clear)
       )
       .overlay(
-        Capsule().strokeBorder(
-          isSelected ? Color.brandPrimary(from: runtimeTheme).opacity(0.6) : .clear, lineWidth: 1)
+        RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous)
+          .strokeBorder(isSelected ? Color.primary.opacity(0.1) : .clear, lineWidth: 1)
       )
-      .contentShape(Capsule())
+      .contentShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.sm + 1, style: .continuous))
     }
     .buttonStyle(.plain)
   }

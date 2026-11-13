@@ -61,7 +61,9 @@ struct GitHubReviewDetailView: View {
         Link("Open on GitHub", destination: url)
       }
       if let body = detail.pullRequest.body, !body.isEmpty {
-        Text(body).textSelection(.enabled)
+        MarkdownView(content: body, includeScrollView: false)
+          .frame(maxWidth: 680, alignment: .leading)
+          .textSelection(.enabled)
       }
       Divider()
       Text("Checks").font(.geist(size: 13, weight: .bold))

@@ -145,14 +145,8 @@ struct GitHubReviewsView: View {
   private var sidebarHeader: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
       HStack(spacing: DesignTokens.Spacing.md) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("PULL REQUEST REVIEWS")
-            .font(.geist(size: 10, weight: .semibold))
-            .foregroundStyle(.secondary)
-          Text("From a saved GitHub Project view")
-            .font(.secondaryCaption)
-            .foregroundStyle(.secondary)
-        }
+        Text("Reviews")
+          .font(.heading)
 
         Spacer()
 
@@ -316,13 +310,16 @@ struct GitHubReviewsView: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(viewModel.selectedView?.name ?? "Code review")
           .font(.geist(size: 17, weight: .semibold))
+          .lineLimit(1)
         Text(
           [viewModel.selectedProject?.displayName ?? "Select a GitHub Project view", reviewCountLabel(visible: rows.count)]
             .joined(separator: " · ")
         )
         .font(.secondarySmall)
         .foregroundStyle(.secondary)
+        .lineLimit(1)
       }
+      .layoutPriority(1)
       Spacer()
       if let sessionCommandFeedback {
         Label(
@@ -346,7 +343,12 @@ struct GitHubReviewsView: View {
       .buttonStyle(.borderless)
       .controlSize(.small)
       .help("Urgent pull requests first, then the least recently updated")
-      WorkspaceSearchField(prompt: "Search pull requests", text: $viewModel.searchText, width: 230)
+      WorkspaceSearchField(
+        prompt: "Search pull requests",
+        text: $viewModel.searchText,
+        width: 230
+      )
+      .frame(minWidth: 120, idealWidth: 230)
     }
     .padding(.horizontal, DesignTokens.Spacing.lg)
     .padding(.vertical, DesignTokens.Spacing.md)
@@ -585,17 +587,17 @@ struct GitHubReviewsView: View {
         }
         .padding(.vertical, DesignTokens.Spacing.xs)
       }
-      .width(min: 320, ideal: 520)
+      .width(min: 220, ideal: 420)
 
       TableColumn("Status", value: \.status) { row in
         statusCell(row.pullRequest.projectStatus)
       }
-      .width(min: 105, ideal: 135)
+      .width(min: 70, ideal: 110)
 
       TableColumn("Priority", value: \.prioritySortValue) { row in
         priorityCell(row.pullRequest.projectPriority)
       }
-      .width(min: 90, ideal: 120)
+      .width(min: 60, ideal: 100)
 
       TableColumn("Repository", value: \.repository) { row in
         let pullRequest = row.pullRequest
@@ -605,7 +607,7 @@ struct GitHubReviewsView: View {
           .lineLimit(1)
           .help(pullRequest.repositoryNameWithOwner)
       }
-      .width(min: 190, ideal: 240)
+      .width(min: 100, ideal: 180)
 
       TableColumn("Author", value: \.author) { row in
         let pullRequest = row.pullRequest
@@ -613,7 +615,7 @@ struct GitHubReviewsView: View {
           .font(.secondaryDefault)
           .foregroundStyle(.secondary)
       }
-      .width(min: 100, ideal: 140)
+      .width(min: 70, ideal: 120)
 
       TableColumn("Updated", value: \.updatedSortValue) { row in
         let pullRequest = row.pullRequest
@@ -627,12 +629,12 @@ struct GitHubReviewsView: View {
             .foregroundStyle(.secondary)
         }
       }
-      .width(min: 80, ideal: 110)
+      .width(min: 60, ideal: 100)
 
       TableColumn("Session", value: \.sessionSortValue) { row in
         reviewSessionsCell(row.sessionLinks, pullRequest: row.pullRequest)
       }
-      .width(min: 190, ideal: 240)
+      .width(min: 100, ideal: 180)
 
       TableColumn("Review") { row in
         HStack(spacing: DesignTokens.Spacing.xs) {
@@ -640,7 +642,7 @@ struct GitHubReviewsView: View {
           promptMenu(provider: .claude, pullRequest: row.pullRequest)
         }
       }
-      .width(min: 145, ideal: 160)
+      .width(min: 100, ideal: 140)
     }
     .scrollContentBackground(.hidden)
     .background(workspaceBackground)
@@ -695,11 +697,14 @@ struct GitHubReviewsView: View {
         }
       }
     } label: {
-      Label("Start for \(unlinked.count) without session", systemImage: "play.square.stack")
+      Label(
+        unlinked.isEmpty ? "All have sessions" : "Start for \(unlinked.count) without session",
+        systemImage: "play.square.stack"
+      )
     }
     .menuStyle(.borderlessButton)
-    .fixedSize()
     .disabled(unlinked.isEmpty)
+    .opacity(unlinked.isEmpty ? 0 : 1)
     .help(
       viewModel.viewerLogin == nil
         ? "Determining your GitHub account…"
