@@ -38,12 +38,14 @@ public struct AgentHubOperationsView: View {
     VStack(spacing: 0) {
       HStack(spacing: DesignTokens.Spacing.md) {
         WorkspaceSwitcherBar(selection: $section)
-        Spacer()
+          .fixedSize(horizontal: true, vertical: false)
+        Spacer(minLength: DesignTokens.Spacing.sm)
         if section == .workflows {
-          StateChip(
-            text: "Approval required before commit, push, or PR",
-            systemImage: "hand.raised.fill"
-          )
+          // Longest label that fits; narrow windows get the short form.
+          ViewThatFits(in: .horizontal) {
+            StateChip(text: "Approval required before commit, push, or PR", systemImage: "hand.raised.fill")
+            StateChip(text: "Approval required", systemImage: "hand.raised.fill")
+          }
           .help("Workflow policy: a human approves every commit, push, and pull request")
         }
       }
@@ -123,11 +125,7 @@ public struct AgentHubOperationsView: View {
           }
         case .sprint:
           if let agentHub {
-            // Wrap in NavigationStack so Sprint gets the same toolbar band
-            // as the other tabs (which use NavigationSplitView), preventing
-            // a ~28pt vertical jump when switching to this tab.
-            NavigationStack {
-              JiraSprintView(
+            JiraSprintView(
                 viewModel: agentHub.jiraSprintViewModel,
                 repositories: WorktreeModuleResolver.mergedRepositories(
                   agentHub.claudeSessionsViewModel.selectedRepositories
@@ -144,8 +142,6 @@ public struct AgentHubOperationsView: View {
                 },
                 onOpenSession: { agentHub.showSession($0) }
               )
-              .modifier(RemoveTitleToolbarModifier())
-            }
           } else {
             ContentUnavailableView(
               "AgentHub provider not found",

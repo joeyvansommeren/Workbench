@@ -234,6 +234,7 @@ public struct MultiProviderSessionsListView: View {
         } detail: {
           detailPane
         }
+        .toolbar(removing: .sidebarToggle)
         .navigationSplitViewStyle(.balanced)
         .background(appBackground.ignoresSafeArea())
 
@@ -3251,7 +3252,7 @@ private struct ProjectGroupHeader: View {
             .font(Font.geist(size: 13, weight: .semibold))
             .foregroundColor(.primary)
             .lineLimit(1)
-            .truncationMode(.middle)
+            .truncationMode(.tail)
             .help(name)
           if canToggle {
             Image(systemName: "chevron.right")

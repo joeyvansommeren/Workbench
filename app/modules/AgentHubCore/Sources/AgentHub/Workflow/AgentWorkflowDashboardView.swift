@@ -39,14 +39,15 @@ public struct AgentWorkflowDashboardView: View {
   public var body: some View {
     NavigationSplitView {
       workflowSidebar
-        .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
+        .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 360)
     } content: {
       branchColumn
-        .navigationSplitViewColumnWidth(min: 400, ideal: 500, max: 640)
+        .navigationSplitViewColumnWidth(min: 300, ideal: 500, max: 640)
     } detail: {
       sessionColumn
         .navigationSplitViewColumnWidth(min: 340, ideal: 420)
     }
+    .toolbar(removing: .sidebarToggle)
     .navigationSplitViewStyle(.balanced)
     .tint(Color.brandPrimary(from: runtimeTheme))
     .background(workspaceBackground.ignoresSafeArea())

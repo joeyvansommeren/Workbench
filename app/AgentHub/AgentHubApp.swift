@@ -162,6 +162,9 @@ struct AgentHubApp: App {
     }
     .windowStyle(.hiddenTitleBar)
     .commands {
+      // Split views have no toolbar toggle; View › Toggle Sidebar (⌃⌘S) replaces it.
+      SidebarCommands()
+
       CommandMenu("Navigate") {
         Button("Workflows") {
           AgentHubAppCommand.selectWorkspace(.workflows)

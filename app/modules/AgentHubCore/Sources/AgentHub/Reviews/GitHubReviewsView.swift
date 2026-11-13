@@ -68,6 +68,7 @@ struct GitHubReviewsView: View {
     } detail: {
       reviewQueue
     }
+    .toolbar(removing: .sidebarToggle)
     .navigationSplitViewStyle(.balanced)
     .tint(Color.brandPrimary(from: runtimeTheme))
     .background(workspaceBackground.ignoresSafeArea())

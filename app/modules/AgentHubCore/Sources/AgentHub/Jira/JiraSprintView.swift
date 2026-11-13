@@ -223,6 +223,8 @@ private struct JiraSprintErrorView: View {
           Task { await viewModel.load() }
         }
       }
+      // ContentUnavailableView squeezes actions to equal widths; keep labels whole.
+      .fixedSize()
     }
   }
 }
