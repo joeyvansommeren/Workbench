@@ -77,12 +77,12 @@ public struct MultiProviderSessionsListView: View {
   @Bindable var workspaceViewModel: AgentWorkspacesViewModel
   @Binding var columnVisibility: NavigationSplitViewVisibility
 
+  // MARK: - View-local state (not shared with other shells)
+
   @State private var sessionFileSheetItem: SessionFileSheetItem?
   @State private var isSearchExpanded: Bool = false
   @State private var isBrowseExpanded: Bool = false
   @State private var multiLaunchViewModel: MultiSessionLaunchViewModel?
-  @State private var primarySessionId: String?
-  @State private var workflowComparisonState = WorkflowComparisonPresentationState()
   @State private var showCommandPalette = false
   @State private var collapsedProjectGroups: Set<String> = []
   @State private var collapsedFolderGroups: Set<String> = []
@@ -98,21 +98,79 @@ public struct MultiProviderSessionsListView: View {
   @State private var pinnedSessionOrder: [String: Int] = [:]
   @State private var didLoadPinnedSessionOrder = false
   @State private var pinnedSessionOrderPersistenceTask: Task<Void, Never>?
-  @State private var scrollToSessionId: String?
   @State private var launchExpandRequestID = 0
-  @State private var createWorktreeContext: WorktreeCreateContext?
-  @State private var startSessionSheetContext: StartSessionSheetContext?
-  @State private var gitHubSheetItem: GitHubSheetItem?
-  @State private var projectDetailsSheetItem: ProjectDetailsSheetItem?
-  @State private var archiveUndo: ArchivedSessionsUndo?
-  @State private var removeConfirmation: RemoveConfirmation?
-  @State private var worktreeModuleDeleteConfirmation: WorktreeModuleDeleteConfirmation?
-  @State private var selectedModuleLandingPath: String?
-  @State private var selectedWorkspaceID: String?
-  @State private var workspacePendingCloseID: String?
   @State private var pendingAddedModulePaths: [String] = []
-  @State private var isRefreshingGitHubStates = false
-  @State private var didScheduleInitialGitHubStateRefresh = false
+
+  // MARK: - Shared state (delegated to provider-owned models)
+  //
+  // These computed properties proxy to `SessionNavigationModel` and
+  // `SessionsActionCoordinator` on the provider, making the models
+  // the single source of truth while every existing reference in this
+  // file keeps compiling unchanged.
+
+  private var navModel: SessionNavigationModel { agentHub!.sessionNavigationModel }
+  private var actionCoordinator: SessionsActionCoordinator { agentHub!.sessionsActionCoordinator }
+
+  private var primarySessionId: String? {
+    get { navModel.primarySessionId }
+    nonmutating set { navModel.primarySessionId = newValue }
+  }
+  private var selectedModuleLandingPath: String? {
+    get { navModel.selectedModuleLandingPath }
+    nonmutating set { navModel.selectedModuleLandingPath = newValue }
+  }
+  private var selectedWorkspaceID: String? {
+    get { navModel.selectedWorkspaceID }
+    nonmutating set { navModel.selectedWorkspaceID = newValue }
+  }
+  private var scrollToSessionId: String? {
+    get { navModel.scrollToSessionId }
+    nonmutating set { navModel.scrollToSessionId = newValue }
+  }
+  private var workflowComparisonState: WorkflowComparisonPresentationState {
+    get { navModel.workflowComparisonState }
+    nonmutating set { navModel.workflowComparisonState = newValue }
+  }
+  private var isRefreshingGitHubStates: Bool {
+    get { navModel.isRefreshingGitHubStates }
+    nonmutating set { navModel.isRefreshingGitHubStates = newValue }
+  }
+  private var didScheduleInitialGitHubStateRefresh: Bool {
+    get { navModel.didScheduleInitialGitHubStateRefresh }
+    nonmutating set { navModel.didScheduleInitialGitHubStateRefresh = newValue }
+  }
+  private var createWorktreeContext: WorktreeCreateContext? {
+    get { actionCoordinator.createWorktreeContext }
+    nonmutating set { actionCoordinator.createWorktreeContext = newValue }
+  }
+  private var startSessionSheetContext: StartSessionSheetContext? {
+    get { actionCoordinator.startSessionSheetContext }
+    nonmutating set { actionCoordinator.startSessionSheetContext = newValue }
+  }
+  private var gitHubSheetItem: GitHubSheetItem? {
+    get { actionCoordinator.gitHubSheetItem }
+    nonmutating set { actionCoordinator.gitHubSheetItem = newValue }
+  }
+  private var projectDetailsSheetItem: ProjectDetailsSheetItem? {
+    get { actionCoordinator.projectDetailsSheetItem }
+    nonmutating set { actionCoordinator.projectDetailsSheetItem = newValue }
+  }
+  private var archiveUndo: ArchivedSessionsUndo? {
+    get { actionCoordinator.archiveUndo }
+    nonmutating set { actionCoordinator.archiveUndo = newValue }
+  }
+  private var removeConfirmation: RemoveConfirmation? {
+    get { actionCoordinator.removeConfirmation }
+    nonmutating set { actionCoordinator.removeConfirmation = newValue }
+  }
+  private var worktreeModuleDeleteConfirmation: WorktreeModuleDeleteConfirmation? {
+    get { actionCoordinator.worktreeModuleDeleteConfirmation }
+    nonmutating set { actionCoordinator.worktreeModuleDeleteConfirmation = newValue }
+  }
+  private var workspacePendingCloseID: String? {
+    get { actionCoordinator.workspacePendingCloseID }
+    nonmutating set { actionCoordinator.workspacePendingCloseID = newValue }
+  }
 
   // TODO: Remove along with MultiSessionLaunchView once the new Threads-based
   // session-start flow is fully implemented. Flip to `true` to restore the
@@ -159,7 +217,26 @@ public struct MultiProviderSessionsListView: View {
   }
 
   public var body: some View {
-    presentedContent
+    navigationContent
+      .sheet(item: $sessionFileSheetItem) { item in
+        SessionFileSheetView(
+          session: item.session,
+          fileName: item.fileName,
+          content: item.content,
+          onDismiss: { sessionFileSheetItem = nil }
+        )
+      }
+      .modifier(
+        SessionsPresentationModifier(
+          coordinator: actionCoordinator,
+          claudeViewModel: claudeViewModel,
+          codexViewModel: codexViewModel,
+          workspaceViewModel: workspaceViewModel,
+          navigationModel: navModel,
+          intelligenceViewModel: intelligenceViewModel,
+          contextProfileService: agentHub?.contextProfileService
+        )
+      )
   }
 
   private var navigationContent: some View {
@@ -213,16 +290,12 @@ public struct MultiProviderSessionsListView: View {
     }
     .onChange(of: claudeViewModel.lastCreatedPendingId) { _, newId in
       guard let newId else { return }
-      workflowComparisonState.showStandaloneContent()
-      selectedWorkspaceID = nil
-      primarySessionId = Self.pendingItemID(.claude, newId)
+      navModel.selectPendingSession(provider: .claude, pendingID: newId)
       claudeViewModel.lastCreatedPendingId = nil
     }
     .onChange(of: codexViewModel.lastCreatedPendingId) { _, newId in
       guard let newId else { return }
-      workflowComparisonState.showStandaloneContent()
-      selectedWorkspaceID = nil
-      primarySessionId = Self.pendingItemID(.codex, newId)
+      navModel.selectPendingSession(provider: .codex, pendingID: newId)
       codexViewModel.lastCreatedPendingId = nil
     }
     .onChange(of: selectedSessionItemIDs) { _, _ in
@@ -260,199 +333,8 @@ public struct MultiProviderSessionsListView: View {
     }
   }
 
-  private var presentedContent: some View {
-    navigationContent
-      .sheet(item: $sessionFileSheetItem) { item in
-        SessionFileSheetView(
-          session: item.session,
-          fileName: item.fileName,
-          content: item.content,
-          onDismiss: { sessionFileSheetItem = nil }
-        )
-      }
-      .alert(
-        "Failed to Delete Worktree",
-        isPresented: Binding(
-          get: {
-            claudeViewModel.worktreeDeletionError != nil
-              || codexViewModel.worktreeDeletionError != nil
-          },
-          set: {
-            if !$0 {
-              claudeViewModel.clearWorktreeDeletionError()
-              codexViewModel.clearWorktreeDeletionError()
-            }
-          }
-        )
-      ) {
-        let error = claudeViewModel.worktreeDeletionError ?? codexViewModel.worktreeDeletionError
-        if let error, error.isOrphaned, let parentRepoPath = error.parentRepoPath {
-          Button("Prune & Delete") {
-            let isClaudeError = claudeViewModel.worktreeDeletionError != nil
-            if isClaudeError {
-              codexViewModel.clearWorktreeDeletionError()
-              claudeViewModel.forceDeleteOrphanedWorktree(
-                error.worktree, parentRepoPath: parentRepoPath)
-            } else {
-              claudeViewModel.clearWorktreeDeletionError()
-              codexViewModel.forceDeleteOrphanedWorktree(
-                error.worktree, parentRepoPath: parentRepoPath)
-            }
-          }
-          Button("Cancel", role: .cancel) {
-            claudeViewModel.clearWorktreeDeletionError()
-            codexViewModel.clearWorktreeDeletionError()
-          }
-        } else if let error {
-          Button("Force Delete", role: .destructive) {
-            let isClaudeError = claudeViewModel.worktreeDeletionError != nil
-            if isClaudeError {
-              codexViewModel.clearWorktreeDeletionError()
-              claudeViewModel.forceDeleteWorktree(error.worktree)
-            } else {
-              claudeViewModel.clearWorktreeDeletionError()
-              codexViewModel.forceDeleteWorktree(error.worktree)
-            }
-          }
-          Button("Cancel", role: .cancel) {
-            claudeViewModel.clearWorktreeDeletionError()
-            codexViewModel.clearWorktreeDeletionError()
-          }
-        }
-      } message: {
-        let error = claudeViewModel.worktreeDeletionError ?? codexViewModel.worktreeDeletionError
-        if let error {
-          if error.isOrphaned, let parentRepoPath = error.parentRepoPath {
-            Text(
-              "The worktree at:\n\(error.worktree.path)\n\nhas no parent repo. You can prune and delete it from:\n\(parentRepoPath)"
-            )
-          } else {
-            Text(
-              "\(error.message)\n\n\"Force Delete\" will remove the worktree even if it contains untracked files."
-            )
-          }
-        }
-      }
-      .alert(
-        "Delete Worktree?",
-        isPresented: Binding(
-          get: { worktreeModuleDeleteConfirmation != nil },
-          set: { if !$0 { worktreeModuleDeleteConfirmation = nil } }
-        ),
-        presenting: worktreeModuleDeleteConfirmation
-      ) { confirmation in
-        Button("Cancel", role: .cancel) {
-          worktreeModuleDeleteConfirmation = nil
-        }
-        Button("Delete", role: .destructive) {
-          deleteWorktreeModule(confirmation)
-        }
-      } message: { confirmation in
-        if confirmation.sessionCount > 0 {
-          let threadLabel = confirmation.sessionCount == 1 ? "thread" : "threads"
-          Text(
-            "This will archive \(confirmation.sessionCount) \(threadLabel) "
-              + "and delete \(confirmation.displayName) at:\n"
-              + "\(confirmation.worktree.path)\n\n"
-              + "This cannot be undone."
-          )
-        } else {
-          Text(
-            """
-            Delete \(confirmation.displayName) at:
-            \(confirmation.worktree.path)
-
-            This cannot be undone.
-            """
-          )
-        }
-      }
-      .sheet(item: $createWorktreeContext) { context in
-        CreateWorktreeSheet(
-          repositoryPath: context.repository.path,
-          repositoryName: context.repository.name,
-          onDismiss: { createWorktreeContext = nil },
-          onCreate: { branchName, directoryName, baseBranch in
-            beginSidePanelWorktree(
-              context: context,
-              branchName: branchName,
-              directoryName: directoryName,
-              baseBranch: baseBranch
-            )
-          }
-        )
-      }
-      .sheet(item: $gitHubSheetItem) { item in
-        let provider = claudeViewModel.agentHubProvider ?? codexViewModel.agentHubProvider
-        GitHubPanelView(
-          projectPath: item.projectPath,
-          onDismiss: { gitHubSheetItem = nil },
-          isEmbedded: false,
-          viewModel: GitHubViewModel(
-            service: provider?.gitHubService ?? GitHubCLIService(),
-            observationService: provider?.gitHubPRObservationService
-          ),
-          onSendToSession: { prompt, session in
-            claudeViewModel.showTerminalWithPrompt(for: session, prompt: prompt)
-          },
-          onStartNewSession: { inputText, provider in
-            launchGitHubReviewSession(
-              projectPath: item.projectPath,
-              inputText: inputText,
-              providerKind: provider
-            )
-          }
-        )
-      }
-      .sheet(item: $startSessionSheetContext) { context in
-        StartSessionSheet(
-          launchViewModel: context.launchViewModel,
-          intelligenceViewModel: intelligenceViewModel,
-          onDismiss: { startSessionSheetContext = nil }
-        )
-      }
-      .overlay(alignment: .topTrailing) {
-        if let archiveUndo {
-          ArchiveUndoToast(
-            undo: archiveUndo,
-            onUndo: { undoArchive(archiveUndo) },
-            onDismiss: {
-              withAnimation(.easeOut(duration: 0.2)) {
-                if self.archiveUndo == archiveUndo { self.archiveUndo = nil }
-              }
-            }
-          )
-          .id(archiveUndo.id)
-          .padding(.top, DesignTokens.Spacing.md)
-          .padding(.trailing, DesignTokens.Spacing.lg)
-          .transition(.move(edge: .top).combined(with: .opacity))
-        }
-      }
-      .modifier(RemoveConfirmationAlert(confirmation: $removeConfirmation))
-      .modifier(
-        AgentWorkspaceCloseConfirmationModifier(
-          workspaceID: $workspacePendingCloseID,
-          onConfirm: closePendingWorkspace
-        )
-      )
-      .sheet(item: $projectDetailsSheetItem) { item in
-        ProjectDetailsSheetView(
-          modulePath: item.projectPath,
-          displayName: item.displayName,
-          claudeViewModel: claudeViewModel,
-          codexViewModel: codexViewModel,
-          contextProfileService: agentHub?.contextProfileService,
-          onDismiss: { projectDetailsSheetItem = nil },
-          onSelectSession: { sessionItem in
-            projectDetailsSheetItem = nil
-            selectedWorkspaceID = nil
-            selectedModuleLandingPath = nil
-            primarySessionId = sessionItem.id
-          }
-        )
-      }
-      .modifier(AgentWorkspaceErrorAlertModifier(viewModel: workspaceViewModel))
-  }
+  // presentedContent deleted — sheets and alerts now live in
+  // SessionsPresentationModifier, applied in `body` above.
 
   // MARK: - UI Helpers
 
@@ -485,9 +367,15 @@ public struct MultiProviderSessionsListView: View {
           MultiProviderMonitoringPanelView(
             claudeViewModel: claudeViewModel,
             codexViewModel: codexViewModel,
-            primarySessionId: $primarySessionId,
+            primarySessionId: Binding(
+              get: { navModel.primarySessionId },
+              set: { navModel.primarySessionId = $0 }
+            ),
             workflowComparison: workflowComparisonBinding,
-            selectedModuleLandingPath: $selectedModuleLandingPath,
+            selectedModuleLandingPath: Binding(
+              get: { navModel.selectedModuleLandingPath },
+              set: { navModel.selectedModuleLandingPath = $0 }
+            ),
             onEmbeddedSidePanelVisibilityChange: handleEmbeddedSidePanelVisibilityChange,
             onAddFolder: { showAddRepositoryPicker() },
             onRequestStartSession: { preferredRepositoryPath in
@@ -1333,32 +1221,23 @@ public struct MultiProviderSessionsListView: View {
   }
 
   private func removeWorktreeModuleFocus(_ worktree: WorktreeBranch) {
-    let path = WorktreeModuleResolver.normalizedDirectoryPath(worktree.path)
-    let workspaces = workspaceViewModel.workspaces(for: path)
-    if workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
-      selectedWorkspaceID = nil
-    }
-    Task {
-      for workspace in workspaces {
-        await workspaceViewModel.closeWorkspace(id: workspace.id)
-      }
-    }
-    if selectedModuleLandingPath == path {
-      selectedModuleLandingPath = nil
-    }
-    claudeViewModel.removeFocusedWorktree(at: path)
-    codexViewModel.removeFocusedWorktree(at: path)
+    actionCoordinator.removeWorktreeModuleFocus(
+      worktree,
+      claudeViewModel: claudeViewModel,
+      codexViewModel: codexViewModel,
+      workspaceViewModel: workspaceViewModel,
+      navigationModel: navModel
+    )
   }
 
   private func deleteWorktreeModule(_ confirmation: WorktreeModuleDeleteConfirmation) {
-    worktreeModuleDeleteConfirmation = nil
-    Task { @MainActor in
-      let viewModel = confirmation.providerKind == .claude ? claudeViewModel : codexViewModel
-      let succeeded = await viewModel.deleteWorktree(confirmation.worktree)
-      if succeeded {
-        removeWorktreeModuleFocus(confirmation.worktree)
-      }
-    }
+    actionCoordinator.deleteWorktreeModule(
+      confirmation,
+      claudeViewModel: claudeViewModel,
+      codexViewModel: codexViewModel,
+      workspaceViewModel: workspaceViewModel,
+      navigationModel: navModel
+    )
   }
 
   /// Sessions grouped by status category (Working / Needs Attention / Idle).
@@ -2223,22 +2102,14 @@ public struct MultiProviderSessionsListView: View {
 
   /// Uses asyncAfter to schedule NSOpenPanel creation on a future run loop iteration,
   /// avoiding HIRunLoopSemaphore deadlock that occurs during GCD dispatch queue drain.
-  private func showAddRepositoryPicker() {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-      MainActor.assumeIsolated {
-        let panel = NSOpenPanel()
-        panel.title = "Add Sessions Folder"
-        panel.message = "Choose a repository or a folder containing projects"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
+  // MARK: - Action Delegation (to SessionsActionCoordinator)
 
-        if panel.runModal() == .OK, let url = panel.url {
-          self.addRepository(at: url.path)
-        }
-      }
-    }
+  private func showAddRepositoryPicker() {
+    actionCoordinator.showAddRepositoryPicker(
+      claudeViewModel: claudeViewModel,
+      codexViewModel: codexViewModel,
+      trackPendingModule: { trackPendingModule($0) }
+    )
   }
 
   private func addRepository(at path: String) {
@@ -2248,13 +2119,14 @@ public struct MultiProviderSessionsListView: View {
   }
 
   private func openSessionFile(for session: CLISession, viewModel: CLISessionsViewModel) {
+    // The view keeps its own sessionFileSheetItem because
+    // SessionFileSheetView is private to this file.
     guard let fileURL = viewModel.sessionFileURL(for: session),
       let data = FileManager.default.contents(atPath: fileURL.path),
       let content = String(data: data, encoding: .utf8)
     else {
       return
     }
-
     if !content.isEmpty {
       sessionFileSheetItem = SessionFileSheetItem(
         session: session,
@@ -2282,44 +2154,20 @@ public struct MultiProviderSessionsListView: View {
     }
   }
 
-  /// Hands a side-panel worktree creation to the app-wide progress coordinator
-  /// (which owns the work and surfaces it in the top bar) so the sheet can
-  /// dismiss immediately. Falls back to a direct, untracked creation if no
-  /// coordinator is available (e.g. previews).
   private func beginSidePanelWorktree(
     context: WorktreeCreateContext,
     branchName: String,
     directoryName: String,
     baseBranch: String?
   ) {
-    let vm = viewModel(for: context.providerKind)
-    let repo = context.repository
-    let providerKind = context.providerKind
-    if let coordinator = vm.agentHubProvider?.worktreeGenerationProgressCoordinator {
-      coordinator.beginSidePanelOperation(
-        branchName: branchName,
-        repoName: repo.name,
-        providerKind: providerKind
-      ) { onProgress in
-        try await vm.createWorktree(
-          for: repo,
-          branchName: branchName,
-          directoryName: directoryName,
-          baseBranch: baseBranch,
-          onProgress: onProgress
-        )
-      }
-    } else {
-      Task {
-        try? await vm.createWorktree(
-          for: repo,
-          branchName: branchName,
-          directoryName: directoryName,
-          baseBranch: baseBranch,
-          onProgress: { _ in }
-        )
-      }
-    }
+    actionCoordinator.beginSidePanelWorktree(
+      context: context,
+      branchName: branchName,
+      directoryName: directoryName,
+      baseBranch: baseBranch,
+      claudeViewModel: claudeViewModel,
+      codexViewModel: codexViewModel
+    )
   }
 
   private var selectedProvider: SessionProviderKind {
@@ -2387,210 +2235,84 @@ public struct MultiProviderSessionsListView: View {
   }
 
   private func scheduleInitialGitHubStateRefreshIfNeeded() {
-    guard !didScheduleInitialGitHubStateRefresh,
-      canRefreshGitHubStates
-    else {
-      return
-    }
-
-    didScheduleInitialGitHubStateRefresh = true
-    Task { @MainActor in
-      try? await Task.sleep(for: .seconds(3))
-      guard !Task.isCancelled else { return }
-      scheduleGitHubStateRefresh(limit: 12, showsIndicator: false)
-    }
+    navModel.scheduleInitialGitHubStateRefreshIfNeeded(
+      canRefresh: canRefreshGitHubStates,
+      observationService: gitHubPRObservationService,
+      targets: { [self] in self.gitHubRefreshTargets }
+    )
   }
 
   private func scheduleGitHubStateRefresh(limit: Int?, showsIndicator: Bool) {
-    guard !isRefreshingGitHubStates,
-      let observationService = gitHubPRObservationService
-    else {
-      return
-    }
-
-    let targets = Array(gitHubRefreshTargets.prefix(limit ?? Int.max))
-    guard !targets.isEmpty else { return }
-
-    isRefreshingGitHubStates = true
-    Task { @MainActor in
-      for target in targets {
-        await observationService.refresh(target)
-        try? await Task.sleep(for: .milliseconds(120))
-      }
-      if !showsIndicator {
-        isRefreshingGitHubStates = false
-        return
-      }
-      try? await Task.sleep(for: .milliseconds(350))
-      isRefreshingGitHubStates = false
-    }
+    navModel.scheduleGitHubStateRefresh(
+      limit: limit,
+      showsIndicator: showsIndicator,
+      observationService: gitHubPRObservationService,
+      targets: { gitHubRefreshTargets }
+    )
   }
+
+  // MARK: - Navigation Delegation (to SessionNavigationModel)
 
   private func handleResolvedSessions(
     _ resolutions: [UUID: String],
     provider: SessionProviderKind,
     viewModel: CLISessionsViewModel
   ) {
-    guard let currentPrimary = primarySessionId else { return }
-    let providerPrefix = "pending-\(provider.rawValue.lowercased())-"
-    guard currentPrimary.hasPrefix(providerPrefix) else { return }
-    let uuidString = String(currentPrimary.dropFirst(providerPrefix.count))
-    guard let pendingUUID = UUID(uuidString: uuidString),
-      let realSessionId = resolutions[pendingUUID]
-    else { return }
-    let newPrimaryId = "\(provider.rawValue.lowercased())-\(realSessionId)"
-    AppLogger.session.info(
-      "[PrimarySelection] Resolved: \(currentPrimary.prefix(20), privacy: .public) -> \(newPrimaryId.prefix(20), privacy: .public)"
-    )
-    primarySessionId = newPrimaryId
-    viewModel.resolvedPendingSessions.removeValue(forKey: pendingUUID)
+    navModel.handleResolvedSessions(resolutions, provider: provider, viewModel: viewModel)
   }
 
-  /// - Parameter items: Prebuilt list, when the caller already has one. Deriving
-  ///   it is not free, so callers that need several of these helpers build once
-  ///   and pass it down.
   private func ensurePrimarySelection(items prebuiltItems: [SelectedSessionItem]? = nil) {
-    guard selectedModuleLandingPath == nil, selectedWorkspaceID == nil else {
-      primarySessionId = nil
-      return
-    }
-
-    // Workspace-owned sessions never auto-select as the primary standalone
-    // card; their PTY lives inside the workspace surface.
     let items = (prebuiltItems ?? selectedSessionItems).filter { !isWorkspaceOwned($0) }
-    if agentHub?.globalSessionSelectionRouter.selectionRequest != nil {
-      primarySessionId = nil
-      return
-    }
-    guard !items.isEmpty else {
-      primarySessionId = nil
-      return
-    }
-    if let current = primarySessionId, items.contains(where: { $0.id == current }) {
-      return
-    }
-    primarySessionId = items.first?.id
+    navModel.ensurePrimarySelection(
+      items: items.map {
+        SessionItemSnapshot(
+          id: $0.id, providerKind: $0.providerKind,
+          sessionId: $0.session.id, isPending: $0.isPending)
+      },
+      hasRouterRequest: agentHub?.globalSessionSelectionRouter.selectionRequest != nil
+    )
   }
 
   private func consumeGlobalSessionSelectionIfNeeded() {
-    guard let router = agentHub?.globalSessionSelectionRouter,
-      let request = router.selectionRequest
-    else {
-      return
-    }
-
-    let viewModel = request.providerKind == .claude ? claudeViewModel : codexViewModel
-    if let session = request.session,
-      session.id == request.sessionId,
-      !viewModel.isMonitoring(sessionId: session.id)
-    {
-      viewModel.startMonitoring(session: session)
-    }
-    if request.providerKind == .codex {
-      viewModel.ensureLiveMonitoring(sessionId: request.sessionId)
-    }
-
-    guard let item = selectedSessionItems.first(where: { $0.id == request.itemId }) else {
-      return
-    }
-
-    selectedModuleLandingPath = nil
-    selectedProviderRaw = request.providerKind.rawValue
-    workflowComparisonState.showStandaloneContent()
-    if !item.isPending,
-      let workspaceID = workspaceViewModel.focusWorkspaceSession(
-        provider: item.providerKind,
-        sessionId: item.session.id,
-        isDark: colorScheme == .dark
-      )
-    {
-      // Workspace-owned sessions open inside their workspace pane.
-      primarySessionId = nil
-      selectedWorkspaceID = workspaceID
-      setAuxiliaryShellVisible(false)
-    } else {
-      selectedWorkspaceID = nil
-      primarySessionId = request.itemId
-    }
-    scrollToSessionId = request.itemId
-    router.markConsumed(request)
-  }
-
-  private func consumeGlobalWorkflowComparisonIfNeeded() {
-    guard let router = agentHub?.globalSessionSelectionRouter,
-      let request = router.comparisonRequest ?? router.activeComparison
-    else {
-      return
-    }
-
-    if workflowComparisonState.retainedComparison?.id == request.id {
-      if router.comparisonRequest?.id == request.id {
-        workflowComparisonState.retainAndPresent(request)
-        selectedWorkspaceID = nil
-        selectedModuleLandingPath = nil
-        primarySessionId = request.implementation.itemID
-        scrollToSessionId = request.implementation.itemID
-        router.markConsumed(request)
-      }
-      return
-    }
-
-    for target in [request.implementation, request.review] {
-      let viewModel = target.providerKind == .claude ? claudeViewModel : codexViewModel
-      if !viewModel.isMonitoring(sessionId: target.session.id) {
-        viewModel.startMonitoring(session: target.session)
-      }
-      if target.providerKind == .codex {
-        viewModel.ensureLiveMonitoring(sessionId: target.session.id)
-      }
-    }
-
-    let availableIDs = Set(selectedSessionItems.map(\.id))
-    guard availableIDs.contains(request.implementation.itemID),
-      availableIDs.contains(request.review.itemID)
-    else {
-      return
-    }
-
-    selectedWorkspaceID = nil
-    selectedModuleLandingPath = nil
-    workflowComparisonState.retainAndPresent(request)
-    primarySessionId = request.implementation.itemID
-    scrollToSessionId = request.implementation.itemID
-    router.markConsumed(request)
-  }
-
-  private var workflowComparisonBinding: Binding<WorkflowSessionComparisonRequest?> {
-    Binding(
-      get: { workflowComparisonState.presentedComparison },
-      set: { comparison in
-        if let comparison {
-          workflowComparisonState.retainAndPresent(comparison)
-        } else {
-          closeWorkflowComparison()
-        }
-      }
+    navModel.consumeGlobalSessionSelectionIfNeeded(
+      router: agentHub?.globalSessionSelectionRouter,
+      claudeViewModel: claudeViewModel,
+      codexViewModel: codexViewModel,
+      workspaceViewModel: workspaceViewModel,
+      selectedSessionItems: selectedSessionItems.map {
+        SessionItemSnapshot(
+          id: $0.id, providerKind: $0.providerKind,
+          sessionId: $0.session.id, isPending: $0.isPending)
+      },
+      colorScheme: colorScheme == .dark ? .dark : .light,
+      setAuxiliaryShellVisible: { setAuxiliaryShellVisible($0) },
+      selectedProviderRawSetter: { selectedProviderRaw = $0 }
     )
   }
 
+  private func consumeGlobalWorkflowComparisonIfNeeded() {
+    navModel.consumeGlobalWorkflowComparisonIfNeeded(
+      router: agentHub?.globalSessionSelectionRouter,
+      claudeViewModel: claudeViewModel,
+      codexViewModel: codexViewModel,
+      availableItemIDs: Set(selectedSessionItems.map(\.id))
+    )
+  }
+
+  private var workflowComparisonBinding: Binding<WorkflowSessionComparisonRequest?> {
+    navModel.workflowComparisonBinding(router: agentHub?.globalSessionSelectionRouter)
+  }
+
   private func closeWorkflowComparison() {
-    let comparison = workflowComparisonState.close()
-    agentHub?.globalSessionSelectionRouter.closeComparison(comparison)
+    navModel.closeWorkflowComparison(router: agentHub?.globalSessionSelectionRouter)
   }
 
   private func reopenWorkflowComparison() {
-    guard let comparison = workflowComparisonState.presentRetainedComparison() else { return }
-    selectedWorkspaceID = nil
-    selectedModuleLandingPath = nil
-    primarySessionId = comparison.implementation.itemID
-    scrollToSessionId = comparison.implementation.itemID
+    navModel.reopenWorkflowComparison()
   }
 
   private func selectEmptyModule(_ path: String) {
-    workflowComparisonState.showStandaloneContent()
-    selectedWorkspaceID = nil
-    selectedModuleLandingPath = path
-    primarySessionId = nil
+    navModel.selectEmptyModule(path)
     setAuxiliaryShellVisible(false)
   }
 
@@ -2804,50 +2526,22 @@ public struct MultiProviderSessionsListView: View {
   }
 
   private func requestCloseWorkspace(_ workspaceID: String) {
-    if workspaceViewModel.requiresCloseConfirmation(id: workspaceID) {
-      workspacePendingCloseID = workspaceID
-    } else {
-      closeWorkspace(workspaceID)
-    }
-  }
-
-  private func closePendingWorkspace() {
-    guard let workspaceID = workspacePendingCloseID else { return }
-    workspacePendingCloseID = nil
-    closeWorkspace(workspaceID)
-  }
-
-  private func closeWorkspace(_ workspaceID: String) {
-    if selectedWorkspaceID == workspaceID {
-      selectedWorkspaceID = nil
-      ensurePrimarySelection()
-    }
-    Task {
-      await workspaceViewModel.closeWorkspace(id: workspaceID)
-    }
+    actionCoordinator.requestCloseWorkspace(
+      workspaceID,
+      workspaceViewModel: workspaceViewModel,
+      navigationModel: navModel
+    )
   }
 
   private func triggerNewSessionFlow(
     preferredRepositoryPath: String? = nil,
     fallsBackToRepositoryPicker: Bool = true
   ) {
-    let launchViewModel = makeLaunchViewModel()
-
-    guard let preferredRepositoryPath else {
-      startSessionSheetContext = StartSessionSheetContext(launchViewModel: launchViewModel)
-      launchViewModel.selectRepository()
-      return
-    }
-
-    if launchViewModel.preselectRepository(path: preferredRepositoryPath) {
-      // Present immediately; branches (including the remote fetch) load
-      // behind the sheet's loading state.
-      startSessionSheetContext = StartSessionSheetContext(launchViewModel: launchViewModel)
-      launchViewModel.beginBranchLoad()
-    } else if fallsBackToRepositoryPicker {
-      startSessionSheetContext = StartSessionSheetContext(launchViewModel: launchViewModel)
-      launchViewModel.selectRepository()
-    }
+    actionCoordinator.triggerNewSessionFlow(
+      preferredRepositoryPath: preferredRepositoryPath,
+      fallsBackToRepositoryPicker: fallsBackToRepositoryPicker,
+      makeLaunchViewModel: makeLaunchViewModel
+    )
   }
 
   private func launchGitHubReviewSession(
@@ -2855,38 +2549,22 @@ public struct MultiProviderSessionsListView: View {
     inputText: String,
     providerKind: SessionProviderKind
   ) {
-    let viewModel = providerKind == .claude ? claudeViewModel : codexViewModel
-    let target = GitHubReviewSessionLaunchTargetResolver.launchTarget(
-      for: projectPath,
-      repositories: Array(orderedTrackedRepos)
+    actionCoordinator.launchGitHubReviewSession(
+      projectPath: projectPath,
+      inputText: inputText,
+      providerKind: providerKind,
+      orderedTrackedRepos: Array(orderedTrackedRepos),
+      claudeViewModel: claudeViewModel,
+      codexViewModel: codexViewModel
     )
-
-    gitHubSheetItem = nil
-
-    Task { @MainActor in
-      let worktree: WorktreeBranch
-      if target.worktree.isWorktree, let parentRepositoryPath = target.parentRepositoryPath {
-        worktree = await viewModel.registerCreatedWorktree(
-          name: target.worktree.name,
-          path: target.worktree.path,
-          parentRepositoryPath: parentRepositoryPath
-        )
-      } else {
-        viewModel.addRepository(at: target.worktree.path)
-        worktree = target.worktree
-      }
-
-      viewModel.startNewSessionInHub(worktree, initialPrompt: inputText)
-      viewModel.refresh()
-    }
   }
 
   private func triggerForkSessionFlow(session: CLISession, targetProvider: SessionProviderKind) {
-    let launchViewModel = makeLaunchViewModel()
-
-    if launchViewModel.configureForFork(from: session, targetProvider: targetProvider) {
-      startSessionSheetContext = StartSessionSheetContext(launchViewModel: launchViewModel)
-    }
+    actionCoordinator.triggerForkSessionFlow(
+      session: session,
+      targetProvider: targetProvider,
+      makeLaunchViewModel: makeLaunchViewModel
+    )
   }
 
   private func toggleAuxiliaryShellDock() {
@@ -2910,39 +2588,20 @@ public struct MultiProviderSessionsListView: View {
   }
 
   private func navigateSessionHistory(direction: SidebarSessionNavigationDirection) {
-    let orderedIDs = navigableSessionItems.map(\.id)
-    guard
-      let nextID = SidebarSessionOrdering.nextID(
-        in: orderedIDs,
-        currentID: primarySessionId,
-        direction: direction
-      )
-    else {
-      return
-    }
-
-    if nextID == workflowComparisonState.retainedComparison?.implementation.itemID {
-      reopenWorkflowComparison()
-      return
-    }
-
-    workflowComparisonState.showStandaloneContent()
-    selectedModuleLandingPath = nil
-    primarySessionId = nextID
-    scrollToSessionId = nextID
+    navModel.navigateSessionHistory(
+      direction: direction,
+      navigableIDs: navigableSessionItems.map(\.id)
+    )
   }
 
   private func requestArchiveCurrentSession() {
-    guard
-      selectedWorkspaceID == nil,
-      let primarySessionId,
-      let item = selectedSessionItems.first(where: { $0.id == primarySessionId }),
-      !item.isPending
-    else {
-      NSSound.beep()
-      return
-    }
-    archiveSession(item)
+    let items = selectedSessionItems
+    actionCoordinator.requestArchiveCurrentSession(
+      navigationModel: navModel,
+      selectedSessionItems: items.map { toArchivable($0) },
+      viewModelForProvider: sessionsViewModel,
+      customNameForItem: { selectedSessionCustomName(forArchivable: $0) }
+    )
   }
 
   private func closePendingSession(_ item: SelectedSessionItem) {
@@ -2953,42 +2612,41 @@ public struct MultiProviderSessionsListView: View {
     }
   }
 
-  /// Archives immediately (no confirmation); the undo toast is the safety net.
   private func archiveSession(_ item: SelectedSessionItem) {
-    archiveSessions([item], groupName: nil)
+    actionCoordinator.archiveSession(
+      toArchivable(item),
+      viewModelForProvider: sessionsViewModel,
+      customNameForItem: { selectedSessionCustomName(forArchivable: $0) }
+    )
   }
 
   private func archiveSessions(_ items: [SelectedSessionItem], groupName: String?) {
-    let archivable = items.filter { !$0.isPending }
-    guard !archivable.isEmpty else { return }
-    let entries = archivable.map {
-      ArchivedSessionsUndo.Entry(
-        provider: $0.providerKind, session: $0.session, wasPinned: isPinned($0))
-    }
-    withAnimation(.easeInOut(duration: 0.25)) {
-      for item in archivable {
-        sessionsViewModel(for: item.providerKind).stopMonitoring(session: item.session)
-      }
-    }
-    let title: String
-    if archivable.count == 1, let item = archivable.first {
-      let name = selectedSessionCustomName(for: item) ?? item.session.slug ?? item.session.shortId
-      title = "Archived “\(name)”"
-    } else {
-      title = "Archived \(archivable.count) sessions\(groupName.map { " in \($0)" } ?? "")"
-    }
-    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-      archiveUndo = ArchivedSessionsUndo(entries: entries, title: title)
-    }
+    actionCoordinator.archiveSessions(
+      items.map { toArchivable($0) },
+      groupName: groupName,
+      viewModelForProvider: sessionsViewModel,
+      customNameForItem: { selectedSessionCustomName(forArchivable: $0) }
+    )
   }
 
   private func undoArchive(_ undo: ArchivedSessionsUndo) {
-    withAnimation(.easeInOut(duration: 0.25)) {
-      for entry in undo.entries {
-        sessionsViewModel(for: entry.provider)
-          .restoreArchivedSession(entry.session, wasPinned: entry.wasPinned)
-      }
-      archiveUndo = nil
+    actionCoordinator.undoArchive(undo, viewModelForProvider: sessionsViewModel)
+  }
+
+  private func toArchivable(_ item: SelectedSessionItem) -> ArchivableSessionItem {
+    ArchivableSessionItem(
+      id: item.id,
+      session: item.session,
+      providerKind: item.providerKind,
+      isPending: item.isPending,
+      wasPinned: isPinned(item)
+    )
+  }
+
+  private func selectedSessionCustomName(forArchivable item: ArchivableSessionItem) -> String? {
+    switch item.providerKind {
+    case .claude: return claudeViewModel.sessionCustomNames[item.session.id]
+    case .codex: return codexViewModel.sessionCustomNames[item.session.id]
     }
   }
 
