@@ -406,7 +406,7 @@ public struct MultiProviderMonitoringPanelView: View {
       }
     }
     .sheet(item: $sessionFileSheetItem) { item in
-      MonitoringSessionFileSheetView(
+      SessionTranscriptSheetView(
         session: item.session,
         fileName: item.fileName,
         content: item.content,
@@ -1483,175 +1483,31 @@ public struct MultiProviderMonitoringPanelView: View {
   private func sidePanelView(for payload: SidePanelPayload, viewModel: CLISessionsViewModel)
     -> some View
   {
-    switch payload.content {
-    case .diff(_, let session, let projectPath):
-      GitDiffView(
-        session: session,
-        projectPath: projectPath,
-        onDismiss: closeEmbeddedSidePanel,
-        cliConfiguration: viewModel.cliConfiguration(for: payload.providerKind),
-        providerKind: payload.providerKind,
-        onInlineRequestSubmit: { prompt, sess in
-          closeEmbeddedSidePanel()
-          showTerminalWithPrompt(
-            prompt,
-            for: sess,
-            itemID: payload.itemID,
-            viewModel: viewModel
-          )
-        },
-        isEmbedded: true
-      )
-    case .plan(_, let session, let planState):
-      PlanView(
-        session: session,
-        planState: planState,
-        onDismiss: closeEmbeddedSidePanel,
-        isEmbedded: true,
-        providerKind: payload.providerKind,
-        onSendFeedback: { feedback, sess in
-          closeEmbeddedSidePanel()
-          showTerminalWithPrompt(
-            feedback,
-            for: sess,
-            itemID: payload.itemID,
-            viewModel: viewModel
-          )
-        }
-      )
-    case .webPreview(let sessionId, let session, let projectPath, let mode):
-      WebPreviewView(
-        session: session,
-        projectPath: projectPath,
-        onDismiss: closeEmbeddedSidePanel,
-        isEmbedded: true,
-        onInspectSubmit: { prompt, sess in
-          if !viewModel.sendPromptToActiveTerminal(forKey: sess.id, prompt: prompt) {
-            viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
-          }
-        },
-        onQueuedSubmit: { prompt, sess in
-          viewModel.sendPromptToActiveTerminal(forKey: sess.id, prompt: prompt)
-        },
-        viewModel: viewModel,
-        providerKind: payload.providerKind,
-        mode: mode,
-        agentLocalhostURL: viewModel.monitorStates[sessionId]?.detectedLocalhostURL,
-        monitorState: viewModel.monitorStates[sessionId],
-        isExpanded: sidePanelExpansion.isExpanded(for: payload),
-        onToggleExpanded: { toggleEmbeddedSidePanelExpansion(for: payload) },
-        onCollapseExpandedAfterSend: { collapseEmbeddedSidePanelExpansion(for: payload) }
-      )
-    case .mermaid(_, let session):
-      MermaidDiagramView(
-        session: session,
-        onDismiss: closeEmbeddedSidePanel,
-        isEmbedded: true
-      )
-    case .gitHub(_, let session, let projectPath, let linkedPullRequests):
-      let gitHubViewModel = GitHubViewModel(
-        service: viewModel.agentHubProvider?.gitHubService ?? GitHubCLIService(),
-        observationService: viewModel.agentHubProvider?.gitHubPRObservationService
-      )
-      GitHubPanelView(
-        projectPath: projectPath,
-        branchName: session.branchName,
-        linkedPullRequests: linkedPullRequests,
-        onDismiss: closeEmbeddedSidePanel,
-        isEmbedded: true,
-        session: session,
-        viewModel: gitHubViewModel,
-        onSendToSession: { prompt, sess in
-          viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
-        },
-        onPopOut: { panelViewModel in
-          closeEmbeddedSidePanel()
-          gitHubPopOutItem = GitHubPopOutItem(
-            session: session,
-            projectPath: projectPath,
-            linkedPullRequests: linkedPullRequests,
-            viewModel: panelViewModel,
-            onSendToSession: { prompt, sess in
-              viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
-            }
-          )
-        }
-      )
-    case .edits(let sessionId, let session):
-      if let pendingToolUse = viewModel.monitorStates[sessionId]?.pendingToolUse {
-        PendingChangesView(
+    SidePanelContentView(
+      content: payload.content,
+      providerKind: payload.providerKind,
+      viewModel: viewModel,
+      onDismiss: closeEmbeddedSidePanel,
+      onShowTerminalWithPrompt: { prompt, sess in
+        showTerminalWithPrompt(prompt, for: sess, itemID: payload.itemID, viewModel: viewModel)
+      },
+      onGitHubPopOut: { panelViewModel, session, projectPath, linkedPullRequests in
+        closeEmbeddedSidePanel()
+        gitHubPopOutItem = GitHubPopOutItem(
           session: session,
-          pendingToolUse: pendingToolUse,
-          onDismiss: closeEmbeddedSidePanel,
-          isEmbedded: true,
-          onApprovalResponse: { response, sess in
-            viewModel.showTerminalWithPrompt(for: sess, prompt: response)
+          projectPath: projectPath,
+          linkedPullRequests: linkedPullRequests,
+          viewModel: panelViewModel,
+          onSendToSession: { prompt, sess in
+            viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
           }
         )
-      } else {
-        PendingChangesWaitingView(
-          session: session,
-          onDismiss: closeEmbeddedSidePanel
-        )
-      }
-    case .mcpApp(let sessionId, let session, _):
-      MCPAppSidePanelView(
-        session: session,
-        viewModel: viewModel,
-        monitorState: viewModel.monitorStates[sessionId],
-        onDismiss: closeEmbeddedSidePanel,
-        isEmbedded: true,
-        isExpanded: sidePanelExpansion.isExpanded(for: payload),
-        onToggleExpanded: { toggleEmbeddedSidePanelExpansion(for: payload) }
-      )
-    case .simulator(let sessionId, let session, let projectPath):
-      SimulatorPreviewSidePanelView(
-        session: session,
-        projectPath: projectPath,
-        providerKind: payload.providerKind,
-        onDismiss: closeEmbeddedSidePanel,
-        onSendToSession: { prompt, sess in
-          // Deliver the fix prompt to the running session terminal without
-          // disturbing the user's current view: keep the simulator side panel
-          // open and don't flip the card content mode (e.g. diffs/files) to
-          // terminal. Stash a pending prompt only if no terminal is active yet.
-          if !viewModel.sendPromptToActiveTerminal(forKey: sess.id, prompt: prompt) {
-            viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
-          }
-        },
-        openEditorFilePath: editorStates[payload.itemID]?.selectedFilePath
-      )
-      .id("\(sessionId)|\(projectPath)")
-    case .measurements(_, let session):
-      MeasurementsSidePanelView(
-        session: session,
-        viewModel: viewModel,
-        onDismiss: closeEmbeddedSidePanel,
-        isEmbedded: true
-      )
-    case .claudeArtifact(let sessionId, _):
-      ArtifactSidePanelView(
-        artifacts: viewModel.monitorStates[sessionId]?.detectedArtifacts ?? [],
-        onDismiss: closeEmbeddedSidePanel,
-        isEmbedded: true,
-        isExpanded: sidePanelExpansion.isExpanded(for: payload),
-        onToggleExpanded: { toggleEmbeddedSidePanelExpansion(for: payload) }
-      )
-    case .studio(_, let session):
-      StudioSidePanelView(
-        session: session,
-        viewModel: viewModel,
-        onDismiss: closeEmbeddedSidePanel,
-        isEmbedded: true,
-        isExpanded: sidePanelExpansion.isExpanded(for: payload),
-        onToggleExpanded: { toggleEmbeddedSidePanelExpansion(for: payload) },
-        onSendPrompt: { prompt, sess in
-          if !viewModel.sendPromptToActiveTerminal(forKey: sess.id, prompt: prompt) {
-            viewModel.showTerminalWithPrompt(for: sess, prompt: prompt)
-          }
-        }
-      )
-    }
+      },
+      isExpanded: sidePanelExpansion.isExpanded(for: payload),
+      onToggleExpanded: { toggleEmbeddedSidePanelExpansion(for: payload) },
+      onCollapseExpandedAfterSend: { collapseEmbeddedSidePanelExpansion(for: payload) },
+      openEditorFilePath: editorStates[payload.itemID]?.selectedFilePath
+    )
   }
 
   private func makeItemSnapshot() -> MonitoringItemsSnapshot<ProviderMonitoringItem> {
@@ -2103,27 +1959,9 @@ public struct MultiProviderMonitoringPanelView: View {
     session: CLISession,
     viewModel: CLISessionsViewModel
   ) {
-    guard let fixService = viewModel.agentHubProvider?.gitHubCIFixService else { return }
+    guard CIFailureFixAction.canFix(viewModel: viewModel) else { return }
     setContentMode(.terminal, for: item)
-    Task {
-      let prompt = await fixService.buildFixPrompt(
-        projectPath: payload.projectPath,
-        prNumber: payload.prNumber,
-        prTitle: payload.prTitle,
-        branchName: payload.branchName,
-        failedChecks: payload.failedChecks.map {
-          GitHubCIFixPromptBuilder.FailedCheck(
-            name: $0.name,
-            workflowName: $0.workflowName,
-            detailsUrl: $0.detailsUrl
-          )
-        }
-      )
-      if !viewModel.sendPromptToActiveTerminal(forKey: session.id, prompt: prompt) {
-        viewModel.showTerminalWithPrompt(for: session, prompt: prompt)
-      }
-      viewModel.focusTerminal(forKey: session.id)
-    }
+    CIFailureFixAction.send(payload, session: session, viewModel: viewModel)
   }
 
   private func showTerminalWithPrompt(
@@ -2350,9 +2188,9 @@ private func filterJSONLContent(_ content: String) -> String {
   return result.joined(separator: "\n\n")
 }
 
-// MARK: - MonitoringSessionFileSheetView
+// MARK: - SessionTranscriptSheetView
 
-private struct MonitoringSessionFileSheetView: View {
+struct SessionTranscriptSheetView: View {
   let session: CLISession
   let fileName: String
   let content: String

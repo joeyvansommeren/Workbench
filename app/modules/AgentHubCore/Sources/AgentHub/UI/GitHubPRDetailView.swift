@@ -473,6 +473,15 @@ struct GitHubPRDetailView: View {
           .font(GitHubTypography.body)
           .foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if AppleShellLaunchFlag.isEnabled {
+        // New shell: no NSSplitView in the shell path (layout-loop crash,
+        // CLAUDE.md). A fixed column split instead of the resizable one.
+        HStack(spacing: 0) {
+          fileList
+          Divider()
+          diffPane
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
       } else {
         HSplitView {
           fileList

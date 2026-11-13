@@ -12,7 +12,7 @@ only its own slot:
 | Slot | View | Replaced by |
 |---|---|---|
 | sidebar | `ShellSidebarContainer` (`Sidebar/`: nav rows, session tree, footer) | P5 |
-| toolbar | `ShellToolbar` (`ShellSessionsToolbarContent` / titles / search) | P6 tabs, P8, P9 |
+| toolbar | `ShellToolbar` (`SessionsToolbarContent` (P6), `SprintToolbarContent` (P9), titles, search) | P6 tabs, P8, P9 |
 | detail | `ShellDetailSlot` (one `case` per destination) | P6 Sessions, P8 Reviews, P9 Sprint |
 
 Per-window state lives in `ShellRoot`: `WorkbenchShellModel`,
@@ -42,9 +42,52 @@ Measured in an AppKit test host on macOS 27.
 
 No `NavigationSplitView`, `HSplitView`, `VSplitView` or `.inspector` in shell
 code. No `GeometryReader` widths. The sidebar collapses as a plain `HStack`
-child. `ShellLayout.windowMinWidth` is 1137 while the legacy Sessions workflow
-comparison (`HSplitView`, two 420 pt panes) is hosted; P6 lowers it to 900.
-`ReviewsLayoutTests` checks that Reviews fits the minimum.
+child. `ShellLayout.windowMinWidth` is 900: no split view is hosted in the
+shell any more, and every destination's content minimum plus the 288 pt
+sidebar and the 8 pt panel inset fits it. `ReviewsLayoutTests` (Reviews) and
+`SessionTabsModelTests` (Sessions: `SessionDetailLayout`, content 260 + side
+panel 320) check it.
+
+## P6: session view (`Shell/Session/`)
+
+- **Tabs.** `SessionTabsModel` is per window (owned by `ShellRoot`, injected
+  with `.environment(sessionTabsModel)`). `SessionTabsSync` keeps it in step:
+  any `primarySessionId` change (sidebar, palette, router, launch) opens or
+  selects a tab, so callers only use `SessionNavigationModel.selectSession`.
+  Closing a tab never stops the session. Pending tabs take the resolved id in
+  place. Open tabs persist per provider in `session_workspace_state`
+  (`v17_add_open_session_tab_ids`, saved through `CLISessionsViewModel`'s
+  gated workspace-state write). Tabs whose session goes away are pruned;
+  restored ids that never resolved stay hidden.
+- **Toolbar.** `SessionsToolbarContent` → `SessionTabStrip`: tabs flex
+  120–204 pt, overflow goes to a chevron menu. The strip measures only its own
+  width (parent-driven, rounded, stored on change).
+- **Detail.** `SessionDetailView`: `SessionHeaderView`, the shared
+  `MonitoringCardContentArea` (terminal/chat/files/diffs, also used by the
+  legacy card) and `SessionSidePanel` in a `ResizablePanelContainer`
+  (400 default, 320–520). Effects run through `SessionCardEffects`, the same
+  modifier the legacy card uses. Panels come from `SidePanelContentView`
+  (shared with the legacy panel); availability from `SidePanelSegments`.
+- **Persistence across windows.** Each provider saves the ordered union of
+  every window's tabs (`OpenSessionTabsAggregate`). The first window to ask
+  after launch gets the saved tabs (`claimRestoredOpenSessionTabIds`); later
+  windows start empty. So no window drops another window's tabs, and a closed
+  tab stays saved only while another window has it open. A closed window's
+  tabs stay saved until relaunch.
+- **Selection.** While nothing is shown (launch, sessions loading), the first
+  restored tab is shown, else the newest session; never after the user closed
+  every tab this run (`SessionTabsModel.selectionUpkeep`).
+- **Parity with the legacy panel.** Edits/Plan auto-open with the legacy rules
+  (`SidePanelAutoOpenTracker`), CI-failure "Open GitHub panel" / "Fix CI"
+  notification actions (`CIFailureFixAction`, shared), Create PR
+  (`CreatePullRequestAction`, shared) and Commit (2 s per-session cooldown).
+- **No split views.** The legacy `MultiProviderMonitoringPanelView` is not in
+  this path. A workflow comparison opens both sessions as tabs.
+  `GitHubPRDetailView` uses a fixed `HStack` when the flag is on.
+- **Terminal palette.** With the flag on, `TerminalPaletteResolver` drives the
+  SwiftTerm colours (incl. 16 ANSI slots) and the Ghostty overlay from the
+  Workbench palette; a palette or appearance switch repaints open terminals.
+  Flag off: the legacy rules, unchanged.
 
 ## Sidebar (P5)
 

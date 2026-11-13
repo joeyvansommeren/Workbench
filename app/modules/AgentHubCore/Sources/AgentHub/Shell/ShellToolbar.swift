@@ -6,7 +6,7 @@
 //  content panel (Variant B, see Shell/README.md). The row's structure never
 //  changes; a destination change only swaps the leading content.
 //
-//  P6 replaces `ShellSessionsToolbarContent` with the session tab strip.
+//  Sessions shows the P6 tab strip (`SessionsToolbarContent`).
 //  P8 and P9 may replace the Reviews and Sprint titles.
 //
 
@@ -19,12 +19,11 @@ enum ShellLayout {
   /// Leading padding of the title row while the sidebar is hidden, so its
   /// content clears the traffic lights and the sidebar toggle.
   static let collapsedToolbarLeading: CGFloat = 132
-  /// Child minimums must fit the window minimum, or NSSplitView can loop
-  /// (CLAUDE.md, layout-loop crash). The widest child is the legacy Sessions
-  /// workflow comparison, still hosted in the shell: an `HSplitView` with two
-  /// 420 pt panes, plus the shell sidebar and the trailing panel inset.
-  /// P6 lowers this to 900. `ReviewsLayoutTests` checks that Reviews fits.
-  static let windowMinWidth: CGFloat = 1137
+  /// Child minimums must fit the window minimum (CLAUDE.md, layout-loop
+  /// crash). No split view is hosted in the shell any more: Reviews (P8) and
+  /// the Sessions detail (P6, `SessionDetailLayout`) both fit 288 + 8 + their
+  /// content minimum. `ReviewsLayoutTests` and `SessionTabsModelTests` check it.
+  static let windowMinWidth: CGFloat = 900
   static let windowMinHeight: CGFloat = 600
 }
 
@@ -48,7 +47,7 @@ struct ShellToolbar: View {
   private var leadingContent: some View {
     switch shellModel.destination {
     case .sessions:
-      ShellSessionsToolbarContent(onNewSession: onNewSession)
+      SessionsToolbarContent(onNewSession: onNewSession)
     case .reviews:
       ShellToolbarTitle(text: "Reviews")
     case .sprint:
@@ -89,23 +88,8 @@ private struct ShellToolbarTitle: View {
   }
 }
 
-/// P6 replaces this with the session tab strip.
-private struct ShellSessionsToolbarContent: View {
-  let onNewSession: () -> Void
-
-  var body: some View {
-    IconButton(
-      systemImage: "plus",
-      accessibilityLabel: "New session",
-      accessibilityIdentifier: "shell.newSession",
-      action: onNewSession
-    )
-    .help("New session  ⌘N")
-  }
-}
-
 /// The toolbar search field (`.toolbar-search`). Opens the palette (P10).
-private struct ShellSearchButton: View {
+struct ShellSearchButton: View {
   @State private var isHovered = false
 
   var body: some View {
