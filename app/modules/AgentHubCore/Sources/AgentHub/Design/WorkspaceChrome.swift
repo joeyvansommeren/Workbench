@@ -145,7 +145,7 @@ struct WorkspaceSearchField: View {
       }
     }
     .padding(.horizontal, 9)
-    .frame(width: width, height: 28)
+    .frame(minWidth: 120, idealWidth: width, maxWidth: width, minHeight: 28, maxHeight: 28)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.sm, style: .continuous)
         .fill(Color.primary.opacity(isFocused ? 0.07 : 0.045))

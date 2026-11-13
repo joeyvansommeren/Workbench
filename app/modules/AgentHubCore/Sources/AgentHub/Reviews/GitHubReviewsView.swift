@@ -348,7 +348,6 @@ struct GitHubReviewsView: View {
         text: $viewModel.searchText,
         width: 230
       )
-      .frame(minWidth: 120, idealWidth: 230)
     }
     .padding(.horizontal, DesignTokens.Spacing.lg)
     .padding(.vertical, DesignTokens.Spacing.md)

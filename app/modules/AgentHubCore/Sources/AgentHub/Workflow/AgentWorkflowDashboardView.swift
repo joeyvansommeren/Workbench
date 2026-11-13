@@ -110,15 +110,14 @@ public struct AgentWorkflowDashboardView: View {
         .accessibilityLabel("Refresh pull request states")
       }
 
-      Picker("Workflow state", selection: scopeBinding) {
-        Text("Active \(viewModel.activeWorkflowCount)")
-          .tag(AgentWorkflowListScope.active)
-        Text("Completed \(viewModel.completedWorkflowCount)")
-          .tag(AgentWorkflowListScope.completed)
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .accessibilityLabel("Workflow state")
+      CompactPillSegmentedControl(
+        selection: scopeBinding,
+        items: [
+          .init(value: AgentWorkflowListScope.active, title: "Active \(viewModel.activeWorkflowCount)"),
+          .init(value: AgentWorkflowListScope.completed, title: "Completed \(viewModel.completedWorkflowCount)"),
+        ],
+        accessibilityLabel: "Workflow state"
+      )
 
       sessionAnalysisControls
 
@@ -1096,13 +1095,14 @@ private struct CreateManualWorkflowSheet: View {
 
         GridRow {
           fieldLabel("Implementer")
-          Picker("Implementation agent", selection: $provider) {
-            Text("Codex").tag(SessionProviderKind.codex)
-            Text("Claude").tag(SessionProviderKind.claude)
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-          .frame(maxWidth: 240)
+          CompactPillSegmentedControl(
+            selection: $provider,
+            items: [
+              .init(value: SessionProviderKind.codex, title: "Codex"),
+              .init(value: SessionProviderKind.claude, title: "Claude"),
+            ],
+            accessibilityLabel: "Implementation agent"
+          )
         }
       }
 

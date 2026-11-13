@@ -76,12 +76,14 @@ struct SessionInvestigationPanelView: View {
       }
 
       if viewModel.report != nil {
-        Picker("Investigation view", selection: $selectedMode) {
-          Label("Report", systemImage: "doc.text").tag(SessionInvestigationPanelMode.report)
-          Label("MCP", systemImage: "rectangle.on.rectangle").tag(SessionInvestigationPanelMode.mcp)
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
+        CompactPillSegmentedControl(
+          selection: $selectedMode,
+          items: [
+            .init(value: SessionInvestigationPanelMode.report, title: "Report"),
+            .init(value: SessionInvestigationPanelMode.mcp, title: "MCP"),
+          ],
+          accessibilityLabel: "Investigation view"
+        )
       }
     }
     .padding(.horizontal, 12)
