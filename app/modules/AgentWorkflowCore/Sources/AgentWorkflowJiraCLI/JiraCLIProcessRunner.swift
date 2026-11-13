@@ -17,6 +17,11 @@ public protocol JiraCLICommandRunning: Sendable {
 }
 
 public actor JiraCLIProcessRunner: JiraCLICommandRunning {
+  /// `acli` is not in Homebrew core: it ships from Atlassian's tap, and current
+  /// Homebrew refuses third-party formulae until they are trusted.
+  public static let installCommand =
+    "brew tap atlassian/homebrew-acli && brew trust --formula atlassian/acli/acli && brew install acli"
+
   private let executableURL: URL?
   private let argumentPrefix: [String]
 
@@ -37,7 +42,7 @@ public actor JiraCLIProcessRunner: JiraCLICommandRunning {
     else {
       throw JiraTicketReaderError.commandFailed(
         exitCode: 127,
-        message: "The Atlassian CLI (acli) was not found. Install it with `brew install acli`."
+        message: "The Atlassian CLI (acli) was not found. Install it with `\(Self.installCommand)`."
       )
     }
     let fullArguments = argumentPrefix + arguments

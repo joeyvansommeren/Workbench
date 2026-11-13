@@ -245,6 +245,24 @@ struct JiraSprintViewModelTests {
     await viewModel.load()
 
     #expect(viewModel.state == .failed("not logged in"))
+    #expect(viewModel.isCLIMissing == false)
+  }
+
+  @Test("Only a missing executable counts as the CLI missing, not errors that mention acli")
+  func cliMissingOnlyForMissingExecutable() async {
+    let unauthorized = JiraSprintViewModel(
+      service: MockJiraSprintService(error: JiraTicketReaderError.commandFailed(
+        exitCode: 1, message: "Error: unauthorized: use 'acli jira auth login' to authenticate")),
+      userDefaults: Self.makeDefaults())
+    await unauthorized.load()
+    #expect(unauthorized.isCLIMissing == false)
+
+    let missing = JiraSprintViewModel(
+      service: MockJiraSprintService(error: JiraTicketReaderError.commandFailed(
+        exitCode: 127, message: "The Atlassian CLI (acli) was not found.")),
+      userDefaults: Self.makeDefaults())
+    await missing.load()
+    #expect(missing.isCLIMissing == true)
   }
 
   @Test("Launch prompt uses the full ticket description, falling back to the snapshot")

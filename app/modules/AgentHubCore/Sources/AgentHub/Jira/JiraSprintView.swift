@@ -202,9 +202,7 @@ private struct JiraSprintErrorView: View {
   let message: String
   @Bindable var viewModel: JiraSprintViewModel
 
-  private var isCLIMissing: Bool {
-    message.lowercased().contains("not found") || message.lowercased().contains("acli")
-  }
+  private var isCLIMissing: Bool { viewModel.isCLIMissing }
 
   var body: some View {
     ContentUnavailableView {
@@ -220,9 +218,9 @@ private struct JiraSprintErrorView: View {
         if isCLIMissing {
           Button("Copy install command") {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString("brew install acli", forType: .string)
+            NSPasteboard.general.setString(JiraCLIProcessRunner.installCommand, forType: .string)
           }
-          .help("Copies: brew install acli")
+          .help("Copies: \(JiraCLIProcessRunner.installCommand)")
         } else if !viewModel.isConnecting {
           Button("Connect Jira") {
             Task { await viewModel.connect() }
