@@ -179,6 +179,21 @@ public final class CLISessionsViewModel {
   /// workflow and review links from silently restoring a closed session.
   public private(set) var archivedSessionIds: Set<String> = []
 
+  /// Session tabs open in the new shell for this provider, in tab order.
+  /// Nil until the persisted workspace state has been read this run, so a
+  /// window never mistakes "not read yet" for "no tabs".
+  private(set) var restoredOpenSessionTabIds: [String]?
+  /// The ids saved with the workspace state. Set by the shell's tabs model.
+  @ObservationIgnored private var openSessionTabIds: [String] = []
+
+  /// Stores this provider's open tab ids and saves the workspace state
+  /// (gated on a successful read, like every workspace-state save).
+  func updateOpenSessionTabIds(_ ids: [String]) {
+    guard ids != openSessionTabIds else { return }
+    openSessionTabIds = ids
+    persistWorkspaceState()
+  }
+
   /// Maps session IDs to prompts that should be sent to the terminal when it becomes ready.
   ///
   /// This acts as a bridge between GitDiffView (where users submit inline edit requests) and
@@ -2794,6 +2809,10 @@ public final class CLISessionsViewModel {
       }
       canPersistWorkspaceState = true
       selectedFolderPaths = workspaceState.selectedFolderPaths
+      // Tabs a window opened before this read finished are merged by the
+      // tabs model when it sees the restored list.
+      openSessionTabIds = workspaceState.openSessionTabIds
+      restoredOpenSessionTabIds = workspaceState.openSessionTabIds
       let paths = await restoredRepositoryPaths(from: workspaceState)
       // Retain every saved session ID before any restore step can fail. Even if
       // repositories or worktrees are unavailable this launch, the IDs keep
@@ -3089,7 +3108,8 @@ public final class CLISessionsViewModel {
       monitoredSessionIds: Array(sessionIdsToPersist).sorted(),
       archivedSessionIds: Array(archivedSessionIds).sorted(),
       ownedWorktreePaths: Array(ownedWorktreePaths).sorted(),
-      expansionState: state
+      expansionState: state,
+      openSessionTabIds: openSessionTabIds
     )
   }
 

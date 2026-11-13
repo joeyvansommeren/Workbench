@@ -922,6 +922,10 @@ public final class AgentHubGhosttyTerminalSurface: NSView, EmbeddedTerminalSurfa
   /// Otherwise the bundled legibility overlay is used, rewritten so its
   /// configured `background` still matches the painted backdrop.
   private func appearanceOverlayPath(isDark: Bool) -> String? {
+    // New shell: the terminal follows the Workbench palette in both modes.
+    if let terminalPalette = TerminalPaletteResolver.currentWorkbenchTerminalPalette(isDark: isDark) {
+      return AgentHubGhosttyAppearanceConfiguration.path(isDark: isDark, terminalPalette: terminalPalette)
+    }
     let backdrop = isDark ? currentTheme?.backgroundDark : currentTheme?.backgroundLight
     let backdropHex = backdrop.map {
       AgentHubGhosttyTerminalTabChrome.hexString(from: NSColor($0))

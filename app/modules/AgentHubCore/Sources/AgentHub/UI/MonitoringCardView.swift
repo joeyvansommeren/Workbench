@@ -62,8 +62,6 @@ public struct MonitoringCardView: View {
   @State private var showingActionsPopover = false
   @State private var showingFilePicker = false
   @State private var showingNameSheet = false
-  @State private var activityRefreshTask: Task<Void, Never>?
-  @State private var pendingActivityTimestamp: Date?
   /// What the agent tab's screen says right now (compacting), when readable.
   @State private var liveTerminalStatus: String?
   @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
@@ -227,8 +225,6 @@ public struct MonitoringCardView: View {
     !mcpAppDisplayItems.isEmpty
   }
 
-  /// Key that changes when the set of detected MCP tool invocations changes, so
-  /// host-app resolution re-runs only when the agent makes a new app-bearing call.
   private var measurementCount: Int {
     viewModel?.measurements(for: session).count ?? 0
   }
@@ -258,24 +254,14 @@ public struct MonitoringCardView: View {
     measurementCount == 1 ? "Open 1 recorded measurement" : "Open \(measurementCount) recorded measurements"
   }
 
-  private var mcpAppInvocationResolutionKey: String {
-    (state?.detectedMCPAppInvocations ?? []).map(\.id).joined(separator: ",")
-  }
-
   private var mcpAppButtonAccessibilityLabel: String {
     mcpAppResourceCount == 1 ? "Open 1 MCP app" : "Open \(mcpAppResourceCount) MCP apps"
   }
 
   /// Memoized: read from `body`, so it re-parsed every detected link on each render.
   private var linkedPullRequests: [GitHubPullRequestURLReference] {
-    let detected = GitHubPullRequestURLReferenceCache.references(in: resourceLinks.map(\.url))
-    let itemID = SidebarSessionItemID.monitored(provider: providerKind, sessionId: session.id)
-    let provider = viewModel?.agentHubProvider ?? agentHub
-    let associated =
-      provider?.gitHubReviewsViewModel
-      .linkedPullRequestReferencesByItemID(provider: providerKind)[itemID] ?? []
-    var seen: Set<GitHubPullRequestURLReference> = []
-    return (detected + associated).filter { seen.insert($0).inserted }
+    SessionCardEffects.linkedPullRequests(
+      session: session, state: state, providerKind: providerKind, hubProvider: hubProvider)
   }
 
   private var hubProvider: AgentHubProvider? {
@@ -302,15 +288,6 @@ public struct MonitoringCardView: View {
     !resourceLinks.isEmpty
       || sessionGitHubQuickAccessViewModel.currentBranchPR != nil
       || (localDiffSummary?.fileCount ?? 0) > 0
-  }
-
-  private var gitHubQuickAccessCoordinator: (any SessionGitHubQuickAccessCoordinatorProtocol)? {
-    viewModel?.agentHubProvider?.gitHubQuickAccessCoordinator
-      ?? agentHub?.gitHubQuickAccessCoordinator
-  }
-
-  private var gitHubPRObservationService: (any GitHubPRObservationServiceProtocol)? {
-    viewModel?.agentHubProvider?.gitHubPRObservationService ?? agentHub?.gitHubPRObservationService
   }
 
   public var body: some View {
@@ -380,100 +357,22 @@ public struct MonitoringCardView: View {
       radius: isDragging ? 12 : 0
     )
     .animation(.easeInOut(duration: 0.2), value: isDragging)
-    .task(id: session.projectPath) {
-      await loadWebPreviewCandidateIfNeeded()
-    }
-    .task(id: liveStatusPollKey) {
-      await pollLiveTerminalStatus()
-    }
-    .task {
-      // Project keys come from Jira; without them branch names can't be matched.
-      await hubProvider?.jiraSprintViewModel.loadIfNeeded()
-    }
-    .task(id: session.projectPath) {
-      await viewModel?.ensureProjectCapabilities(for: session.projectPath)
-    }
-    .task(id: session.projectPath) {
-      await viewModel?.ensureDiffAvailability(for: session.projectPath, forceRefresh: true)
-    }
-    .task(id: session.projectPath) {
-      await viewModel?.ensureLocalDiffSummary(for: session.projectPath, forceRefresh: true)
-    }
-    .task(id: mcpAppInvocationResolutionKey) {
-      await viewModel?.ensureMCPAppRenderItems(for: session, state: state)
-    }
-    // Measurements outlive the session that filed them, so the button has to reflect
-    // what this project already holds — not just what this session produced.
-    .task(id: session.projectPath) {
-      viewModel?.loadMeasurements(for: session)
-      viewModel?.loadStudioArtifacts(for: session)
-    }
-    .task(id: gitHubObservationTaskID) {
-      if linkedPullRequests.isEmpty {
-        try? await Task.sleep(for: .seconds(2))
-        guard !Task.isCancelled else { return }
-      }
-      if let notifier = viewModel?.agentHubProvider?.gitHubCIFailureNotifier
-        ?? agentHub?.gitHubCIFailureNotifier
-      {
-        let context = GitHubCIFailureSessionContext(
-          sessionId: session.id,
-          providerKind: providerKind,
-          projectPath: session.projectPath,
-          branchName: session.branchName
-        )
-        sessionGitHubQuickAccessViewModel.onSnapshotApplied = { snapshot in
-          notifier.evaluate(snapshot: snapshot, context: context)
-        }
-      }
-      await sessionGitHubQuickAccessViewModel.load(
-        projectPath: session.projectPath,
-        branchName: session.branchName,
+    .modifier(
+      SessionCardEffects(
+        session: session,
+        state: state,
+        providerKind: providerKind,
+        viewModel: viewModel,
+        terminalKey: terminalKey,
+        quickAccessViewModel: sessionGitHubQuickAccessViewModel,
         linkedPullRequests: linkedPullRequests,
-        coordinator: gitHubQuickAccessCoordinator,
-        observationService: gitHubPRObservationService
+        isPrimarySession: isPrimarySession,
+        isChatVisible: effectiveContentMode == .chat,
+        liveTerminalStatus: $liveTerminalStatus,
+        contentMode: $contentMode,
+        isDragging: $isDragging
       )
-      if let lastActivityAt = state?.lastActivityAt {
-        await sessionGitHubQuickAccessViewModel.notifySessionActivity(at: lastActivityAt)
-      }
-    }
-    .onDisappear {
-      sessionGitHubQuickAccessViewModel.stopPolling()
-      activityRefreshTask?.cancel()
-      activityRefreshTask = nil
-    }
-    .onChange(of: state?.lastActivityAt) { _, newValue in
-      guard let newValue else { return }
-      // Coalesce to one refresh pass per 2s: this fires on every parsed JSONL
-      // activity while the agent streams, and per-tick forced git refreshes
-      // thrash the observable dictionaries and the diff actors. The trailing
-      // task picks up the latest timestamp at fire time.
-      pendingActivityTimestamp = newValue
-      guard activityRefreshTask == nil else { return }
-      activityRefreshTask = Task { @MainActor in
-        defer { activityRefreshTask = nil }
-        try? await Task.sleep(for: .seconds(2))
-        guard !Task.isCancelled, let timestamp = pendingActivityTimestamp else { return }
-        pendingActivityTimestamp = nil
-        await sessionGitHubQuickAccessViewModel.notifySessionActivity(at: timestamp)
-        await loadWebPreviewCandidateIfNeeded()
-        await viewModel?.ensureDiffAvailability(for: session.projectPath, forceRefresh: true)
-        await viewModel?.ensureLocalDiffSummary(for: session.projectPath, forceRefresh: true)
-      }
-    }
-    .onChange(of: state?.detectedLocalhostURL) { _, newValue in
-      guard newValue == nil else { return }
-      Task {
-        await loadWebPreviewCandidateIfNeeded()
-      }
-    }
-    .onDrop(
-      of: [.agentHubGitHubContextItem, .fileURL, .png, .tiff, .image, .pdf],
-      isTargeted: $isDragging
-    ) { providers in
-      handleDroppedItems(providers)
-      return true
-    }
+    )
     .sheet(item: $simulatorSheetSession) { session in
       SimulatorPickerView(
         session: session,
@@ -516,139 +415,6 @@ public struct MonitoringCardView: View {
     }
   }
 
-  // MARK: - Drag and Drop
-
-  /// Handles dropped providers by typing context into the terminal without submitting.
-  private func handleDroppedItems(_ providers: [NSItemProvider]) {
-    guard let key = terminalKey, let viewModel = viewModel else { return }
-
-    if handleDroppedGitHubContext(providers, key: key, viewModel: viewModel) {
-      return
-    }
-
-    handleDroppedFiles(providers, key: key, viewModel: viewModel)
-  }
-
-  private func handleDroppedGitHubContext(
-    _ providers: [NSItemProvider],
-    key: String,
-    viewModel: CLISessionsViewModel
-  ) -> Bool {
-    guard
-      let provider = providers.first(where: {
-        $0.hasItemConformingToTypeIdentifier(GitHubContextDragPayload.typeIdentifier)
-      })
-    else {
-      return false
-    }
-
-    GitHubContextDragPayload.load(from: provider) { payload in
-      guard let payload else { return }
-
-      Task { @MainActor in
-        contentMode = .terminal
-        viewModel.typeToTerminal(forKey: key, text: payload.commandText + " ")
-        viewModel.focusTerminal(forKey: key)
-      }
-    }
-
-    return true
-  }
-
-  /// Handles dropped file providers by extracting paths and typing them into terminal.
-  private func handleDroppedFiles(
-    _ providers: [NSItemProvider],
-    key: String,
-    viewModel: CLISessionsViewModel
-  ) {
-    for provider in providers {
-      // Handle file URLs (files dragged from Finder)
-      if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-        _ = provider.loadObject(ofClass: URL.self) { url, error in
-          guard let url = url, error == nil else { return }
-
-          Task { @MainActor in
-            let path = url.path
-            let quotedPath = path.contains(" ") ? "\"\(path)\"" : path
-            viewModel.typeToTerminal(forKey: key, text: quotedPath + " ")
-          }
-        }
-      }
-      // Handle PNG data (screenshots)
-      else if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
-        _ = provider.loadDataRepresentation(for: .png) { data, error in
-          guard let data = data, error == nil else { return }
-
-          Task { @MainActor in
-            let tempURL = FileManager.default.temporaryDirectory
-              .appendingPathComponent("screenshot_\(UUID().uuidString).png")
-            do {
-              try data.write(to: tempURL)
-              let quotedPath = tempURL.path.contains(" ") ? "\"\(tempURL.path)\"" : tempURL.path
-              viewModel.typeToTerminal(forKey: key, text: quotedPath + " ")
-            } catch {
-              print("Failed to save dropped screenshot: \(error)")
-            }
-          }
-        }
-      }
-      // Handle TIFF data (another screenshot format)
-      else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
-        _ = provider.loadDataRepresentation(for: .tiff) { data, error in
-          guard let data = data, error == nil else { return }
-
-          Task { @MainActor in
-            let tempURL = FileManager.default.temporaryDirectory
-              .appendingPathComponent("screenshot_\(UUID().uuidString).tiff")
-            do {
-              try data.write(to: tempURL)
-              let quotedPath = tempURL.path.contains(" ") ? "\"\(tempURL.path)\"" : tempURL.path
-              viewModel.typeToTerminal(forKey: key, text: quotedPath + " ")
-            } catch {
-              print("Failed to save dropped screenshot: \(error)")
-            }
-          }
-        }
-      }
-      // Handle generic image data
-      else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-        _ = provider.loadDataRepresentation(for: .image) { data, error in
-          guard let data = data, error == nil else { return }
-
-          Task { @MainActor in
-            let tempURL = FileManager.default.temporaryDirectory
-              .appendingPathComponent("dropped_image_\(UUID().uuidString).png")
-            do {
-              try data.write(to: tempURL)
-              let quotedPath = tempURL.path.contains(" ") ? "\"\(tempURL.path)\"" : tempURL.path
-              viewModel.typeToTerminal(forKey: key, text: quotedPath + " ")
-            } catch {
-              print("Failed to save dropped image: \(error)")
-            }
-          }
-        }
-      }
-      // Handle PDF data (documents dragged from Preview or other apps)
-      else if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
-        _ = provider.loadDataRepresentation(for: .pdf) { data, error in
-          guard let data = data, error == nil else { return }
-
-          Task { @MainActor in
-            let tempURL = FileManager.default.temporaryDirectory
-              .appendingPathComponent("dropped_document_\(UUID().uuidString).pdf")
-            do {
-              try data.write(to: tempURL)
-              let quotedPath = tempURL.path.contains(" ") ? "\"\(tempURL.path)\"" : tempURL.path
-              viewModel.typeToTerminal(forKey: key, text: quotedPath + " ")
-            } catch {
-              print("Failed to save dropped PDF: \(error)")
-            }
-          }
-        }
-      }
-    }
-  }
-
   // MARK: - File Picker
 
   /// Handles files selected from the file picker by typing their paths into terminal
@@ -671,22 +437,8 @@ public struct MonitoringCardView: View {
     onShowWebPreview?(session, session.projectPath, mode)
   }
 
-  @MainActor
-  private func loadWebPreviewCandidateIfNeeded() async {
-    guard state?.detectedLocalhostURL == nil else { return }
-    await viewModel?.ensureWebPreviewCandidate(for: session.projectPath)
-  }
-
   private func presentGitHubPanel() {
     onShowGitHub?(session, session.projectPath, linkedPullRequests)
-  }
-
-  private var gitHubObservationTaskID: String {
-    SessionGitHubQuickAccessViewModel.repositoryKey(
-      projectPath: session.projectPath,
-      branchName: session.branchName,
-      linkedPullRequests: linkedPullRequests
-    )
   }
 
   private static let createPullRequestPrompt =
@@ -837,99 +589,15 @@ public struct MonitoringCardView: View {
   /// the count in the label says how many agent-produced things are waiting.
   private var toolsMenu: some View {
     Menu {
-      if diffDisplayMode == .sidePanel {
+      ForEach(SidePanelSegments.toolsMenuItems(sidePanelAvailability), id: \.self) { segment in
         Button {
-          onShowDiff?(session, session.projectPath)
-        } label: {
-          Label("Diff", systemImage: "arrow.left.arrow.right")
-        }
-      }
-
-      // Storybook takes precedence when present: showing both would route the
-      // same pane to two URLs.
-      if hasStorybook {
-        Button {
-          Task {
-            await DevServerManager.shared.startStorybookServer(
-              for: session.id,
-              projectPath: session.projectPath
-            )
-          }
-          presentWebPreview(mode: .storybook)
-        } label: {
-          Label("Storybook", systemImage: "book.pages")
-        }
-      } else if shouldShowWebPreviewButton {
-        Button {
-          presentWebPreview(mode: .app)
+          openTool(segment)
         } label: {
           Label(
-            queuedPreviewContextCount > 0
-              ? "Preview (\(queuedPreviewContextCount) queued updates)" : "Preview",
-            systemImage: "globe")
+            SidePanelSegments.legacyMenuTitle(for: segment, availability: sidePanelAvailability),
+            systemImage: SidePanelSegments.legacyMenuSystemImage(for: segment))
         }
-      }
-
-      if shouldShowMCPAppsButton {
-        Button {
-          onShowMCPApp?(session, session.projectPath)
-        } label: {
-          Label("MCP apps (\(mcpAppResourceCount))", systemImage: "square.stack.3d.up")
-        }
-        .accessibilityLabel(mcpAppButtonAccessibilityLabel)
-      }
-
-      if measurementCount > 0 {
-        Button {
-          onShowMeasurement?(session)
-        } label: {
-          Label("Measurements (\(measurementCount))", systemImage: "chart.bar.doc.horizontal")
-        }
-        .accessibilityLabel(measurementButtonAccessibilityLabel)
-      }
-
-      if onShowStudio != nil, studioArtifactCount > 0 {
-        Button {
-          onShowStudio?(session)
-        } label: {
-          Label("Studio (\(studioArtifactCount))", systemImage: "paintpalette")
-        }
-        .accessibilityLabel(studioButtonAccessibilityLabel)
-      }
-
-      if onShowArtifact != nil, !detectedArtifacts.isEmpty {
-        Button {
-          onShowArtifact?(session)
-        } label: {
-          Label("Artifact (\(detectedArtifacts.count))", systemImage: "sparkles.rectangle.stack")
-        }
-        .accessibilityLabel(artifactButtonAccessibilityLabel)
-      }
-
-      if state?.hasMermaidContent == true {
-        Button {
-          onShowMermaid?(session)
-        } label: {
-          Label("Diagram", systemImage: "chart.xyaxis.line")
-        }
-      }
-
-      // Xcode projects: the live simulator panel, or the legacy management
-      // sheet where the panel callback is not wired.
-      if isXcodeProject {
-        Button {
-          if onShowSimulatorPreview != nil {
-            onShowSimulatorPreview?(session, session.projectPath)
-          } else {
-            simulatorSheetSession = session
-          }
-        } label: {
-          Label("Simulator", systemImage: "iphone.gen3")
-        }
-      }
-
-      Button(action: presentGitHubPanel) {
-        Label("GitHub", systemImage: "arrow.triangle.pull")
+        .accessibilityLabel(toolAccessibilityLabel(segment))
       }
     } label: {
       HStack(spacing: 4) {
@@ -948,6 +616,75 @@ public struct MonitoringCardView: View {
     .accessibilityLabel(
       toolsAttentionCount > 0
         ? "Tools menu, \(toolsAttentionCount) agent results waiting" : "Tools menu")
+  }
+
+  /// Inputs of the shared side-panel availability rules (`SidePanelSegments`).
+  private var sidePanelAvailability: SidePanelAvailability {
+    SidePanelAvailability(
+      diffDisplayMode: diffDisplayMode,
+      hasStorybook: hasStorybook,
+      showsWebPreview: shouldShowWebPreviewButton,
+      queuedPreviewContextCount: queuedPreviewContextCount,
+      mcpAppCount: mcpAppResourceCount,
+      measurementCount: measurementCount,
+      studioArtifactCount: studioArtifactCount,
+      artifactCount: detectedArtifacts.count,
+      hasMermaidContent: state?.hasMermaidContent == true,
+      isXcodeProject: isXcodeProject,
+      supportsStudio: onShowStudio != nil,
+      supportsArtifact: onShowArtifact != nil
+    )
+  }
+
+  private func openTool(_ segment: SidePanelSegment) {
+    switch segment {
+    case .diff:
+      onShowDiff?(session, session.projectPath)
+    case .storybook:
+      Task {
+        await DevServerManager.shared.startStorybookServer(
+          for: session.id,
+          projectPath: session.projectPath
+        )
+      }
+      presentWebPreview(mode: .storybook)
+    case .preview:
+      presentWebPreview(mode: .app)
+    case .mcpApps:
+      onShowMCPApp?(session, session.projectPath)
+    case .measurements:
+      onShowMeasurement?(session)
+    case .studio:
+      onShowStudio?(session)
+    case .artifact:
+      onShowArtifact?(session)
+    case .diagram:
+      onShowMermaid?(session)
+    case .simulator:
+      // The live simulator panel, or the legacy management sheet where the
+      // panel callback is not wired.
+      if onShowSimulatorPreview != nil {
+        onShowSimulatorPreview?(session, session.projectPath)
+      } else {
+        simulatorSheetSession = session
+      }
+    case .gitHub:
+      presentGitHubPanel()
+    case .plan, .edits:
+      // Not Tools-menu items: the card header has its own Plan and Edits buttons.
+      break
+    }
+  }
+
+  private func toolAccessibilityLabel(_ segment: SidePanelSegment) -> String {
+    switch segment {
+    case .mcpApps: return mcpAppButtonAccessibilityLabel
+    case .measurements: return measurementButtonAccessibilityLabel
+    case .studio: return studioButtonAccessibilityLabel
+    case .artifact: return artifactButtonAccessibilityLabel
+    default:
+      return SidePanelSegments.legacyMenuTitle(for: segment, availability: sidePanelAvailability)
+    }
   }
 
   /// Things the agent produced that are waiting to be looked at.
@@ -1032,168 +769,36 @@ public struct MonitoringCardView: View {
 
   // MARK: - Monitor Content
 
-  @ViewBuilder
   private var monitorContent: some View {
-    switch effectiveContentMode {
-    case .terminal:
-      terminalContent
-    case .chat:
-      // The terminal stays mounted (invisible) under the chat: a new session only
-      // starts once its terminal exists, and the composer types into it.
-      ZStack {
-        terminalContent
-          .environment(\.isTerminalConcealed, true)
-          .opacity(0)
-          .allowsHitTesting(false)
-          .accessibilityHidden(true)
-        chatContent
-      }
-    case .editor:
-      editorContent
-    case .diffs:
-      diffContent
-    }
-  }
-
-  private var chatContent: some View {
-    ChatTranscriptView(
-      transcriptPath: session.sessionFilePath,
+    MonitoringCardContentArea(
+      session: session,
+      state: state,
       providerKind: providerKind,
-      reader: hubProvider?.chatTranscriptReader ?? ChatTranscriptReader(),
-      onSend: { text in
-        guard let viewModel else { return false }
-        // Straight to this card's terminal first (also covers a session still
-        // starting, whose id is only a placeholder that must not be monitored).
-        if viewModel.sendPromptToActiveTerminal(forKey: terminalKey ?? session.id, prompt: text) {
-          AppLogger.chat.notice("Chat sent to terminal \(terminalKey ?? session.id, privacy: .public)")
-          return true
-        }
-        AppLogger.chat.notice("Chat terminal not ready for \(terminalKey ?? session.id, privacy: .public)")
-        guard !session.id.hasPrefix("pending-") else { return false }
-        return viewModel.sendAutomatedPrompt(to: session, prompt: text)
-      },
-      target: ChatSessionTarget(name: sessionDisplayName, providerKind: providerKind),
-      // Only the active card's composer takes the keyboard; typing or focusing
-      // the chat of another column makes that column active first.
-      isActiveCard: isPrimarySession,
-      onInteraction: onTerminalInteraction,
-      liveTerminalStatus: liveTerminalStatus,
-      terminalNotice: chatTerminalNotice,
-      terminalFocusNotice: chatTerminalFocusNotice,
-      onShowTerminal: { contentMode = .terminal },
-      pendingApproval: state?.pendingToolUse.map { ($0.toolName, $0.input.map(ChatTranscriptReader.firstLine)) },
-      onApprove: {
-        // The permission menu selects option 1 ("Yes") on its digit key. Always
-        // the agent's own tab: an active child tab must never get the parent's approval.
-        viewModel?.typeTextInAgentTerminal(forKey: terminalKey ?? session.id, text: "1") ?? false
-      }
-    )
-    .background(Color(nsColor: .windowBackgroundColor))
-  }
-
-  private var sessionDisplayName: String {
-    viewModel?.displayName(for: session) ?? session.displayName
-  }
-
-  /// Whether this card reads its agent tab's screen: only the active card, only
-  /// while its chat is on screen. One bounded read of a few rows every two
-  /// seconds; no file I/O, no other terminals.
-  private var liveStatusPollKey: String {
-    "\(isPrimarySession)|\(effectiveContentMode == .chat)|\(terminalKey ?? session.id)"
-  }
-
-  private func pollLiveTerminalStatus() async {
-    guard isPrimarySession, effectiveContentMode == .chat else {
-      liveTerminalStatus = nil
-      return
-    }
-    let key = terminalKey ?? session.id
-    while !Task.isCancelled {
-      let tail = viewModel?.agentTerminalScreenTail(forKey: key, maxRows: Self.liveStatusRows)
-      let status = tail.flatMap(TerminalLiveStatusDetector.status(in:))
-      if status != liveTerminalStatus { liveTerminalStatus = status }
-      try? await Task.sleep(for: .seconds(2))
-    }
-    liveTerminalStatus = nil
-  }
-
-  private static let liveStatusRows = 12
-
-  /// Things the chat can't show: approvals and a launch that hasn't written yet.
-  private var chatTerminalNotice: String? {
-    if case .awaitingApproval = state?.status {
-      return "\(sessionDisplayName) is waiting for your approval in the terminal."
-    }
-    if session.sessionFilePath == nil {
-      return "\(sessionDisplayName) is starting. Its first steps show in the terminal."
-    }
-    return nil
-  }
-
-  /// The terminal under the chat is on a child session tab. The chat does not
-  /// follow it; it says so instead, so nothing is read or sent to the wrong agent.
-  private var chatTerminalFocusNotice: String? {
-    guard
-      let linked = viewModel?.terminalWorkspaceSnapshots[terminalKey ?? session.id]?
-        .activeLinkedSession
-    else { return nil }
-    return
-      "The terminal is on child session \(linked.sessionId.prefix(8)) (\(linked.provider.rawValue)). This chat stays with \(sessionDisplayName)."
-  }
-
-  private var terminalContent: some View {
-    MonitoringCardTerminalContent(
-      terminalKey: terminalKey ?? session.id,
-      sessionId: session.id,
-      projectPath: session.projectPath,
+      viewModel: viewModel,
+      hubProvider: hubProvider,
+      terminalKey: terminalKey,
       cliConfiguration: liveCLIConfiguration,
       initialPrompt: initialPrompt,
       initialInputText: initialInputText,
       launchContext: launchContext,
-      viewModel: viewModel,
       dangerouslySkipPermissions: dangerouslySkipPermissions,
       permissionModePlan: permissionModePlan,
       worktreeName: worktreeName,
-      onUserInteraction: onTerminalInteraction,
+      mode: effectiveContentMode,
+      contentMode: $contentMode,
+      selectedEditorFilePath: $selectedEditorFilePath,
+      editorProjectPath: editorProjectPath,
+      editorNavigationRequest: editorNavigationRequest,
+      isPrimarySession: isPrimarySession,
+      liveTerminalStatus: liveTerminalStatus,
+      onTerminalInteraction: onTerminalInteraction,
       onRequestShowEditor: onRequestShowEditor,
-      consumeQueuedWebPreviewContextOnSubmit: {
-        viewModel?.consumeQueuedWebPreviewContextPrompt(for: session.id)
-      }
+      onInlineRequestSubmit: onInlineRequestSubmit
     )
   }
 
-  private var editorContent: some View {
-    FileExplorerView(
-      session: session,
-      projectPath: editorProjectPath,
-      onDismiss: { contentMode = .chat },
-      isEmbedded: false,
-      selectedFilePath: $selectedEditorFilePath,
-      navigationRequest: editorNavigationRequest
-    )
-    .frame(maxWidth: .infinity, minHeight: 300, maxHeight: .infinity)
-    .id("editor-\(session.id)")
-  }
-
-  private var diffContent: some View {
-    GitDiffView(
-      session: session,
-      projectPath: session.projectPath,
-      onDismiss: { contentMode = .chat },
-      cliConfiguration: liveCLIConfiguration,
-      providerKind: providerKind,
-      onInlineRequestSubmit: { prompt, sess in
-        contentMode = .terminal
-        if let onInlineRequestSubmit {
-          onInlineRequestSubmit(prompt, sess)
-        } else {
-          viewModel?.showTerminalWithPrompt(for: sess, prompt: prompt)
-        }
-      },
-      isEmbedded: false
-    )
-    .frame(maxWidth: .infinity, minHeight: 300, maxHeight: .infinity)
-    .id("diffs-\(session.id)")
+  private var sessionDisplayName: String {
+    viewModel?.displayName(for: session) ?? session.displayName
   }
 
   private var liveCLIConfiguration: CLICommandConfiguration {
@@ -1326,7 +931,7 @@ private struct MonitoringCardPathRow: View {
   }
 }
 
-private struct MonitoringCardTerminalContent: View {
+struct MonitoringCardTerminalContent: View {
   let terminalKey: String
   let sessionId: String?
   let projectPath: String

@@ -49,7 +49,7 @@ struct ShellToolbar: View {
   private var leadingContent: some View {
     switch shellModel.destination {
     case .sessions:
-      ShellSessionsToolbarContent(onNewSession: onNewSession)
+      SessionsToolbarContent(onNewSession: onNewSession)
     case .reviews:
       ShellToolbarTitle(text: "Reviews")
     case .sprint:
@@ -87,21 +87,6 @@ private struct ShellToolbarTitle: View {
       .lineLimit(1)
       .fixedSize()
       .padding(.leading, DesignTokens.Spacing.sm)
-  }
-}
-
-/// P6 replaces this with the session tab strip.
-private struct ShellSessionsToolbarContent: View {
-  let onNewSession: () -> Void
-
-  var body: some View {
-    IconButton(
-      systemImage: "plus",
-      accessibilityLabel: "New session",
-      accessibilityIdentifier: "shell.newSession",
-      action: onNewSession
-    )
-    .help("New session  ⌘N")
   }
 }
 
