@@ -47,6 +47,8 @@ public final class LinearViewModel {
   public private(set) var issueDetail: LinearIssue?
   public private(set) var isLoadingDetail = false
   public private(set) var isStartingSession = false
+  /// Issue ids with a session launch in flight (prevents double starts).
+  public private(set) var startingIssueIDs = Set<String>()
 
   public var searchText = ""
 
@@ -258,6 +260,17 @@ public final class LinearViewModel {
   }
 
   // MARK: - Session launch
+
+  /// Returns true if the issue was not already in flight and is now marked.
+  /// Returns false if a launch is already in progress for this issue.
+  public func beginStartingSession(for issueID: String) -> Bool {
+    startingIssueIDs.insert(issueID).inserted
+  }
+
+  /// Clears the in-flight state for an issue.
+  public func endStartingSession(for issueID: String) {
+    startingIssueIDs.remove(issueID)
+  }
 
   static func sessionName(for issue: LinearIssue) -> String {
     let title = issue.title.trimmingCharacters(in: .whitespacesAndNewlines)
