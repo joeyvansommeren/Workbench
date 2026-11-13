@@ -31,11 +31,19 @@ public struct SplitButton<MenuContent: View>: View {
       }
       .buttonStyle(SplitLeftStyle())
 
+      // .borderlessButton lets AppKit draw the label: it ignores the token colour
+      // (white chevron on Warm dark's near-white accent) and adds a second arrow.
+      // A plain-button menu with the indicator hidden draws our own chevron.
       Menu(content: menu) {
         Image(systemName: "chevron.down")
           .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(Color.wbTextOnAccent)
+          .frame(width: 28, height: DesignTokens.Size.control)
+          .contentShape(Rectangle())
       }
-      .menuStyle(.borderlessButton)
+      .menuStyle(.button)
+      .buttonStyle(.plain)
+      .menuIndicator(.hidden)
       .frame(width: 28, height: DesignTokens.Size.control)
       .background(Color.wbAccent)
       .foregroundStyle(Color.wbTextOnAccent)
