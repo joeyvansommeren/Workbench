@@ -777,7 +777,7 @@ public struct MultiProviderSessionsListView: View {
       .padding(.vertical, DesignTokens.Spacing.sm)
       .background(
         RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-          .fill(Color.surfaceOverlay)
+          .fill(Color.legacySurfaceFill)
       )
       .overlay(
         RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
@@ -884,7 +884,7 @@ public struct MultiProviderSessionsListView: View {
     .padding(.vertical, DesignTokens.Spacing.sm)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
@@ -1783,7 +1783,7 @@ public struct MultiProviderSessionsListView: View {
       )
     }
     .padding(10)
-    .background(Color.surfaceOverlay)
+    .background(Color.legacySurfaceFill)
     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
@@ -2167,7 +2167,7 @@ public struct MultiProviderSessionsListView: View {
     .padding(.vertical, 12)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
@@ -2195,7 +2195,7 @@ public struct MultiProviderSessionsListView: View {
     .padding(.vertical, 12)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
@@ -2246,7 +2246,7 @@ public struct MultiProviderSessionsListView: View {
           .padding(.vertical, DesignTokens.Spacing.xs + 2)
           .background(
             RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
-              .fill(Color.surfaceOverlay)
+              .fill(Color.legacySurfaceFill)
           )
           .overlay(
             RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
@@ -2263,7 +2263,7 @@ public struct MultiProviderSessionsListView: View {
             .frame(width: 28, height: 28)
             .background(
               RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
-                .fill(Color.surfaceOverlay)
+                .fill(Color.legacySurfaceFill)
             )
             .overlay(
               RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)

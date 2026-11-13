@@ -280,7 +280,7 @@ struct WorktreeBranchNamingProgressCard: View {
       colors: [
         accentColor.opacity(0.11),
         accentColor.opacity(0.04),
-        Color.surfaceOverlay
+        Color.legacySurfaceFill
       ],
       startPoint: .topLeading,
       endPoint: .bottomTrailing

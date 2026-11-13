@@ -257,11 +257,15 @@ extension Color {
     Color(nsColor: .controlBackgroundColor)
   }
 
-  public static var surfaceOverlay: Color {
+  /// Renamed from `surfaceOverlay` to avoid collision with the new
+  /// workbench token `Color.wbSurfaceOverlay`. Legacy views use this.
+  public static var legacySurfaceFill: Color {
     Color.gray.opacity(0.06)
   }
 
-  public static var surfaceHover: Color {
+  /// Renamed from `surfaceHover` to avoid collision with the new
+  /// workbench token `Color.wbSurfaceHover`. Legacy views use this.
+  public static var legacySurfaceHover: Color {
     Color.gray.opacity(0.10)
   }
 
