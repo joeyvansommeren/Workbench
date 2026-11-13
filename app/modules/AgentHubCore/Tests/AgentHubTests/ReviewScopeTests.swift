@@ -7,6 +7,9 @@ import Testing
 private final class ReviewScopeServiceStub: GitHubProjectReviewServiceProtocol, @unchecked Sendable {
   var pullRequests: [GitHubProjectPullRequest] = []
   var login: String?
+  /// Answers for successive `viewerLogin()` calls; `login` once these run out.
+  var loginSequence: [String?] = []
+  var loginCalls = 0
   var detail: GitHubReviewDetail?
 
   func pullRequestDetail(_ request: GitHubProjectPullRequest) async throws -> GitHubReviewDetail {
@@ -27,7 +30,10 @@ private final class ReviewScopeServiceStub: GitHubProjectReviewServiceProtocol, 
     project: GitHubReviewProject, view: GitHubProjectView, limit: Int
   ) async throws -> [GitHubProjectPullRequest] { pullRequests }
   func rateLimitResetDate() async -> Date? { nil }
-  func viewerLogin() async -> String? { login }
+  func viewerLogin() async -> String? {
+    loginCalls += 1
+    return loginSequence.isEmpty ? login : loginSequence.removeFirst()
+  }
 }
 
 @MainActor
@@ -86,15 +92,66 @@ struct ReviewScopeTests {
     #expect(model.visiblePullRequests.isEmpty)
   }
 
-  @Test("Jumping to a pull request outside the scope widens the scope to All")
+  @Test("Jumping to a pull request outside the scope widens to All without saving it")
   func focusWidensScope() async {
-    let model = await loadedModel(login: "joey", authors: ["joey", "amaes"])
+    let defaults = isolatedDefaults()
+    defaults.set("requested", forKey: AgentHubDefaults.reviewsScope)
+    let model = await loadedModel(login: "joey", authors: ["joey", "amaes"], defaults: defaults)
     #expect(model.reviewScope == .requested)
 
     model.focusPullRequest(owner: "org", repository: "repo", number: 100)
 
     #expect(model.selectedPullRequestID == "0")
     #expect(model.reviewScope == .all)
+    #expect(model.visiblePullRequests.map(\.id).contains("0"))
+    #expect(defaults.string(forKey: AgentHubDefaults.reviewsScope) == "requested")
+  }
+
+  @Test("Jumping while the login is unknown widens to All, so your own PR stays listed")
+  func focusWithUnknownLogin() async {
+    let model = await loadedModel(login: nil, authors: ["joey", "amaes"])
+
+    model.focusPullRequest(owner: "org", repository: "repo", number: 100)
+
+    #expect(model.reviewScope == .all)
+  }
+
+  @Test("When the login arrives late, a selection that left the scope widens to All")
+  func lateLoginKeepsSelectionVisible() async {
+    let service = ReviewScopeServiceStub()
+    service.loginSequence = [nil, "joey"]
+    service.pullRequests = [pullRequest(index: 0, author: "joey"), pullRequest(index: 1, author: "amaes")]
+    let defaults = isolatedDefaults()
+    let model = GitHubReviewsViewModel(service: service, userDefaults: defaults)
+    await model.load()
+    model.selectedPullRequestID = "0"
+    #expect(model.reviewScope == .requested)
+
+    await model.reloadProjects()
+
+    #expect(model.viewerLogin == "joey")
+    #expect(model.reviewScope == .all)
+    #expect(defaults.string(forKey: AgentHubDefaults.reviewsScope) == nil)
+  }
+
+  @Test("Reload fetches the login again after a failed first fetch")
+  func reloadRefetchesLogin() async {
+    let service = ReviewScopeServiceStub()
+    service.loginSequence = [nil, "joey"]
+    service.pullRequests = [pullRequest(index: 0, author: "joey"), pullRequest(index: 1, author: "amaes")]
+    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    await model.load()
+    #expect(model.viewerLogin == nil)
+    #expect(model.pullRequests(in: .mine).isEmpty)
+
+    await model.reloadProjects()
+
+    #expect(model.viewerLogin == "joey")
+    #expect(model.pullRequests(in: .mine).map(\.id) == ["0"])
+    #expect(model.pullRequests(in: .requested).map(\.id) == ["1"])
+
+    await model.reloadProjects()
+    #expect(service.loginCalls == 2)
   }
 
   @Test("A loaded detail records the pull request's checks")
@@ -115,11 +172,13 @@ struct ReviewScopeTests {
 
   // MARK: - Helpers
 
-  private func loadedModel(login: String?, authors: [String?]) async -> GitHubReviewsViewModel {
+  private func loadedModel(
+    login: String?, authors: [String?], defaults: UserDefaults? = nil
+  ) async -> GitHubReviewsViewModel {
     let service = ReviewScopeServiceStub()
     service.login = login
     service.pullRequests = authors.enumerated().map { pullRequest(index: $0.offset, author: $0.element) }
-    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    let model = GitHubReviewsViewModel(service: service, userDefaults: defaults ?? isolatedDefaults())
     await model.load()
     return model
   }
@@ -138,5 +197,16 @@ struct ReviewScopeTests {
     let defaults = UserDefaults(suiteName: suiteName)!
     defaults.removePersistentDomain(forName: suiteName)
     return defaults
+  }
+}
+
+@MainActor
+@Suite("Reviews layout")
+struct ReviewsLayoutTests {
+  @Test("Reviews fits the shell's minimum window width")
+  func fitsWindowMinimum() {
+    let needed =
+      DesignTokens.Width.sidebar + ReviewsLayout.minimumContentWidth + DesignTokens.Inset.panel
+    #expect(needed <= ShellLayout.windowMinWidth)
   }
 }

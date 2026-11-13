@@ -14,11 +14,15 @@
 import AgentHubGitHub
 import SwiftUI
 
+/// Reviews widths. Their sum, with the shell sidebar and panel inset, must fit
+/// `ShellLayout.windowMinWidth` (checked by `ReviewsLayoutTests`).
 enum ReviewsLayout {
   static let listWidth: CGFloat = 400
-  /// Must fit the shell's minimum: sidebar 288 + list 400 + hairline 1 +
-  /// detail 200 + panel inset 8 = 897 ≤ `ShellLayout.windowMinWidth` (900).
+  static let hairlineWidth: CGFloat = 1
   static let detailMinWidth: CGFloat = 200
+
+  /// The narrowest content panel Reviews fits in.
+  static var minimumContentWidth: CGFloat { listWidth + hairlineWidth + detailMinWidth }
 }
 
 struct ReviewsDestinationView: View {
@@ -53,7 +57,7 @@ struct ReviewsDestinationView: View {
       .frame(width: ReviewsLayout.listWidth)
 
       Color.wbBorderHairline
-        .frame(width: 1)
+        .frame(width: ReviewsLayout.hairlineWidth)
 
       // The detail sits in an overlay so its content can never widen the
       // row: near the window minimum it clips instead of pushing the list

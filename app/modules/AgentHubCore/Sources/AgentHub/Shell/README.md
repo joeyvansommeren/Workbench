@@ -42,17 +42,19 @@ Measured in an AppKit test host on macOS 27.
 
 No `NavigationSplitView`, `HSplitView`, `VSplitView` or `.inspector` in shell
 code. No `GeometryReader` widths. The sidebar collapses as a plain `HStack`
-child. `ShellLayout.windowMinWidth` is 900: Reviews needs 288 sidebar + 400
-list + 1 hairline + 200 detail minimum + 8 panel inset = 897.
+child. `ShellLayout.windowMinWidth` is 1137 while the legacy Sessions workflow
+comparison (`HSplitView`, two 420 pt panes) is hosted; P6 lowers it to 900.
+`ReviewsLayoutTests` checks that Reviews fits the minimum.
 
 ## P8: Reviews
 
 `ShellDetailSlot` `.reviews` shows `Reviews/ReviewsDestinationView`: a fixed
-400 pt list (`PullRequestRow`), a 1 pt hairline and `PullRequestDetailView`, in
-a plain `HStack`. No split views; the search field sits in the Filters popover
+list (`PullRequestRow`), a hairline and `PullRequestDetailView`, in a plain
+`HStack` (widths in `ReviewsLayout`). No split views; the search field sits in the Filters popover
 with project and view and never takes focus on appear. The scope (Requested /
 Mine / All) is `GitHubReviewsViewModel.reviewScope`, saved in
-`AgentHubDefaults.reviewsScope`; the "Review with" agent in
+`AgentHubDefaults.reviewsScope` only when the user picks it (a jump to a
+pull request outside the scope widens to All in memory); the "Review with" agent in
 `AgentHubDefaults.reviewsAgent`. The queue carries no CI data, so a row shows
 its checks icon once its detail has loaded (`checksByPullRequestID`).
 Breadcrumbs: `reviews scope: <x>`, `reviews pr: <repo>#<n>`, `reviews filters:

@@ -20,10 +20,11 @@ enum ShellLayout {
   /// content clears the traffic lights and the sidebar toggle.
   static let collapsedToolbarLeading: CGFloat = 132
   /// Child minimums must fit the window minimum, or NSSplitView can loop
-  /// (CLAUDE.md, layout-loop crash). Reviews (P8) is the widest destination:
-  /// 288 shell sidebar + 400 list + 1 hairline + 200 detail minimum
-  /// (`ReviewsLayout`) + 8 trailing panel inset = 897.
-  static let windowMinWidth: CGFloat = 900
+  /// (CLAUDE.md, layout-loop crash). The widest child is the legacy Sessions
+  /// workflow comparison, still hosted in the shell: an `HSplitView` with two
+  /// 420 pt panes, plus the shell sidebar and the trailing panel inset.
+  /// P6 lowers this to 900. `ReviewsLayoutTests` checks that Reviews fits.
+  static let windowMinWidth: CGFloat = 1137
   static let windowMinHeight: CGFloat = 600
 }
 

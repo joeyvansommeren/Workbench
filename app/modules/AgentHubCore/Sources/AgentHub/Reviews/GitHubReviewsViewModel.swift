@@ -106,11 +106,32 @@ public final class GitHubReviewsViewModel {
   /// its detail has loaded in this run.
   public private(set) var checksByPullRequestID: [String: CIStatus] = [:]
 
+  /// The user picked a scope: show it and save it as their default.
   public func setReviewScope(_ scope: ReviewScope) {
     guard scope != reviewScope else { return }
     reviewScope = scope
     defaults.set(scope.rawValue, forKey: AgentHubDefaults.reviewsScope)
     MainThreadStallMonitor.breadcrumb("reviews scope: \(scope.rawValue)")
+  }
+
+  /// Widens to All when the selected pull request is not, or may soon not be,
+  /// in the current scope: the new shell shows a selection only while it is
+  /// listed. With an unknown login the PR may leave Requested once the login
+  /// arrives. In memory only, so the user's saved default stays.
+  private func widenScopeToShowSelection() {
+    guard reviewScope != .all,
+      let pullRequest = pullRequests.first(where: { $0.id == selectedPullRequestID })
+    else { return }
+    let isOwn = isOwnPullRequest(pullRequest)
+    guard isOwn == nil || !reviewScope.includes(isOwn: isOwn) else { return }
+    reviewScope = .all
+    MainThreadStallMonitor.breadcrumb("reviews scope: all (show selection)")
+  }
+
+  /// Fetches your login when an earlier attempt failed, e.g. before sign-in.
+  private func refreshViewerLoginIfNeeded() async {
+    guard viewerLogin == nil else { return }
+    viewerLogin = await service.viewerLogin()
   }
 
   /// The queue's pull requests in `scope`. Mine and Requested use `isOwnPullRequest`.
@@ -147,10 +168,7 @@ public final class GitHubReviewsViewModel {
       })
     else { return }
     selectedPullRequestID = pullRequest.id
-    // The new shell only shows the selection when it is in the current scope.
-    if !reviewScope.includes(isOwn: isOwnPullRequest(pullRequest)) {
-      setReviewScope(.all)
-    }
+    widenScopeToShowSelection()
     let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     if !query.isEmpty, !pullRequest.title.localizedCaseInsensitiveContains(query) {
       searchText = ""
@@ -230,6 +248,9 @@ public final class GitHubReviewsViewModel {
     async let login = service.viewerLogin()
     await loadProjects()
     viewerLogin = await login
+    if viewerLogin != nil {
+      widenScopeToShowSelection()
+    }
   }
 
   /// Whether `pullRequest` is yours. Unknown login → nil, so callers can refuse to guess.
@@ -273,6 +294,11 @@ public final class GitHubReviewsViewModel {
 
   public func reloadProjects() async {
     await loadProjects()
+    let hadLogin = viewerLogin != nil
+    await refreshViewerLoginIfNeeded()
+    if !hadLogin, viewerLogin != nil {
+      widenScopeToShowSelection()
+    }
   }
 
   public func cancelRefresh() {
