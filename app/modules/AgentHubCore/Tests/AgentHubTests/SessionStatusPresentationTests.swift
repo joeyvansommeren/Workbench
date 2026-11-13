@@ -116,7 +116,6 @@ struct SessionStatusPresentationTests {
       let presentation = SessionStatusPresentation(status: status)
       let actualGroup = StatusGroupCategory.category(for: status)
 
-      // Map our StatusCategory to StatusGroupCategory for comparison
       let mappedCategory: StatusGroupCategory
       switch presentation.category {
       case .working:   mappedCategory = .working
@@ -131,27 +130,20 @@ struct SessionStatusPresentationTests {
     }
   }
 
-  // MARK: - Accessibility labels
+  // MARK: - Accessibility labels (pinned)
 
-  @Test("every status has a non-empty accessibility label")
-  func accessibilityLabels() {
-    let statuses: [SessionStatus?] = [
-      .thinking,
-      .executingTool(name: "Bash"),
-      .waitingForUser,
-      .awaitingApproval(tool: "Bash"),
-      .awaitingApproval(tool: "request_user_input"),
-      .idle,
-      nil,
-    ]
-
-    for status in statuses {
-      let p = SessionStatusPresentation(status: status)
-      #expect(!p.accessibilityLabel.isEmpty,
-        "Status \(String(describing: status)) has empty accessibility label")
-    }
-
-    let pending = SessionStatusPresentation(status: nil, isPending: true)
-    #expect(!pending.accessibilityLabel.isEmpty)
+  @Test("exact accessibility label for each status")
+  func pinnedAccessibilityLabels() {
+    #expect(SessionStatusPresentation(status: .thinking).accessibilityLabel == "Thinking")
+    #expect(SessionStatusPresentation(status: .executingTool(name: "Bash")).accessibilityLabel == "Running tool Bash")
+    #expect(SessionStatusPresentation(status: .waitingForUser).accessibilityLabel == "Your turn")
+    #expect(SessionStatusPresentation(status: .awaitingApproval(tool: "Bash")).accessibilityLabel == "Needs approval")
+    #expect(SessionStatusPresentation(status: .awaitingApproval(tool: "request_user_input")).accessibilityLabel == "Needs input")
+    #expect(SessionStatusPresentation(status: .awaitingApproval(tool: "AskUserQuestion")).accessibilityLabel == "Needs input")
+    #expect(SessionStatusPresentation(status: .idle).accessibilityLabel == "Idle")
+    #expect(SessionStatusPresentation(status: nil).accessibilityLabel == "Idle")
+    #expect(SessionStatusPresentation(status: nil, isPending: true).accessibilityLabel == "Starting")
+    #expect(SessionStatusPresentation(status: .idle, isPending: true).accessibilityLabel == "Starting")
+    #expect(SessionStatusPresentation(status: .thinking, isPending: true).accessibilityLabel == "Thinking")
   }
 }

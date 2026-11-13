@@ -20,8 +20,8 @@ public struct KeyCap: View {
       .font(.system(size: 11, weight: .medium))
       .monospacedDigit()
       .foregroundStyle(Color.wbTextSecondary)
-      .frame(minWidth: 20, minHeight: 20)
       .padding(.horizontal, DesignTokens.Spacing.xs)
+      .frame(minWidth: 20, minHeight: 20)
       .background(Color.wbSurfaceKeycap, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.small))
   }
 }

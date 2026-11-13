@@ -21,9 +21,17 @@ public struct MenuSurface<Content: View>: View {
     VStack(spacing: 0) {
       content()
     }
-    .frame(width: width)
     .padding(DesignTokens.Inset.container)
-    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.container))
+    .frame(width: width)
+    .background {
+      RoundedRectangle(cornerRadius: DesignTokens.Radius.container)
+        .fill(.ultraThinMaterial)
+        .overlay {
+          RoundedRectangle(cornerRadius: DesignTokens.Radius.container)
+            .fill(Color.wbSurfaceOverlay)
+        }
+    }
+    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.container))
     .wbElevation(.overlay)
   }
 }

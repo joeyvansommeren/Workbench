@@ -22,7 +22,7 @@ public struct PropertyCard<Content: View>: View {
     .padding(.horizontal, DesignTokens.Spacing.lg)
     .padding(.vertical, DesignTokens.Spacing.xs)
     .background(Color.wbSurfaceRaised, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.container))
-    .wbElevation(.raised)
+    .wbElevation(.raised, cornerRadius: DesignTokens.Radius.container)
   }
 }
 
@@ -30,15 +30,18 @@ public struct PropertyCard<Content: View>: View {
 public struct PropertyRow<ValueContent: View>: View {
   let label: String
   let systemImage: String?
+  let showsDivider: Bool
   @ViewBuilder let value: () -> ValueContent
 
   public init(
     _ label: String,
     systemImage: String? = nil,
+    showsDivider: Bool = true,
     @ViewBuilder value: @escaping () -> ValueContent
   ) {
     self.label = label
     self.systemImage = systemImage
+    self.showsDivider = showsDivider
     self.value = value
   }
 
@@ -62,7 +65,9 @@ public struct PropertyRow<ValueContent: View>: View {
     .wbText(.body)
     .frame(minHeight: 40)
     .overlay(alignment: .bottom) {
-      Color.wbBorderHairline.frame(height: 1)
+      if showsDivider {
+        Color.wbBorderHairline.frame(height: 1)
+      }
     }
   }
 }

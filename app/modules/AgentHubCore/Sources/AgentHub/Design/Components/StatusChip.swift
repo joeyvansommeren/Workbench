@@ -24,6 +24,8 @@ public struct StatusChip: View {
     HStack(spacing: DesignTokens.Spacing.xsPlus) {
       StatusGlyph(presentation: presentation, size: 10)
       Text(presentation.word)
+        .lineLimit(1)
+        .truncationMode(.tail)
     }
     .wbText(.subheadline, family: .interDisplay)
     .fontWeight(.medium)

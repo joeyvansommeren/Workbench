@@ -10,10 +10,16 @@ import SwiftUI
 /// A removable filter chip.
 public struct FilterChip: View {
   let title: String
+  let accessibilityIdentifier: String?
   let onRemove: () -> Void
 
-  public init(_ title: String, onRemove: @escaping () -> Void) {
+  public init(
+    _ title: String,
+    accessibilityIdentifier: String? = nil,
+    onRemove: @escaping () -> Void
+  ) {
     self.title = title
+    self.accessibilityIdentifier = accessibilityIdentifier
     self.onRemove = onRemove
   }
 
@@ -29,23 +35,33 @@ public struct FilterChip: View {
           .font(.system(size: 9, weight: .semibold))
           .foregroundStyle(Color.wbTextSecondary)
           .frame(width: DesignTokens.Size.controlSmall, height: DesignTokens.Size.controlSmall)
+          .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
+      .accessibilityLabel("Remove filter \(title)")
     }
     .frame(height: DesignTokens.Size.controlSmall)
     .background(Color.wbSurfaceRaised, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.segment))
-    .wbElevation(.control)
+    .wbElevation(.control, cornerRadius: DesignTokens.Radius.segment)
+    .accessibilityIdentifier(accessibilityIdentifier ?? "")
   }
 }
 
 /// A "Filters" button with an active count and a clear action.
 public struct FiltersButton: View {
   let activeCount: Int
+  let accessibilityIdentifier: String?
   let onOpen: () -> Void
   let onClear: () -> Void
 
-  public init(activeCount: Int, onOpen: @escaping () -> Void, onClear: @escaping () -> Void) {
+  public init(
+    activeCount: Int,
+    accessibilityIdentifier: String? = nil,
+    onOpen: @escaping () -> Void,
+    onClear: @escaping () -> Void
+  ) {
     self.activeCount = activeCount
+    self.accessibilityIdentifier = accessibilityIdentifier
     self.onOpen = onOpen
     self.onClear = onClear
   }
@@ -59,13 +75,7 @@ public struct FiltersButton: View {
           Text("Filters")
             .wbText(.bodyEmphasis)
           if activeCount > 0 {
-            Text("\(activeCount)")
-              .font(.system(size: 11, weight: .semibold))
-              .monospacedDigit()
-              .foregroundStyle(Color.wbTextOnAccent)
-              .frame(minWidth: 18, minHeight: 18)
-              .padding(.horizontal, DesignTokens.Spacing.xs)
-              .background(Color.wbAccent, in: Capsule())
+            CountBadge(activeCount, style: .accent)
           }
         }
         .padding(.leading, DesignTokens.Spacing.smPlus)
@@ -77,7 +87,7 @@ public struct FiltersButton: View {
 
       if activeCount > 0 {
         Divider()
-          .frame(height: 18)
+          .frame(height: DesignTokens.Size.tile)
           .overlay(Color.wbBorderHairline)
 
         Button(action: onClear) {
@@ -88,9 +98,11 @@ public struct FiltersButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Clear filters")
       }
     }
     .background(Color.wbSurfaceControl, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
     .wbElevation(.control)
+    .accessibilityIdentifier(accessibilityIdentifier ?? "")
   }
 }

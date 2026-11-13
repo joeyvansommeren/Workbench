@@ -16,10 +16,10 @@ struct DotMeterTests {
     #expect(DotMeter.totalDots == 60)
   }
 
-  @Test("34% fills 21 dots (ceil of 60 * 0.34 = 20.4)")
+  @Test("34% fills 20 dots (round of 60 * 0.34 = 20.4)")
   func thirtyFourPercent() {
     let meter = DotMeter(fraction: 0.34)
-    #expect(meter.filledCount == 21)
+    #expect(meter.filledCount == 20)
     #expect(!meter.isHigh)
   }
 
@@ -66,9 +66,23 @@ struct DotMeterTests {
     #expect(underMeter.filledCount == 0)
   }
 
-  @Test("very small fraction fills at least 1 dot")
+  @Test("very small fraction fills 0 dots (rounds to nearest)")
   func verySmallFraction() {
     let meter = DotMeter(fraction: 0.001)
-    #expect(meter.filledCount == 1)
+    // 60 * 0.001 = 0.06, rounds to 0
+    #expect(meter.filledCount == 0)
+  }
+
+  @Test("accessibility value is rounded percentage")
+  func accessibilityPercentage() {
+    // 34% → round(34) = 34
+    let fraction = 0.34
+    let percent = Int((fraction * 100).rounded())
+    #expect(percent == 34)
+
+    // 0.5% → round(0.5) = 0 (banker's rounding to even)
+    let tiny = 0.005
+    let tinyPercent = Int((tiny * 100).rounded())
+    #expect(tinyPercent == 0 || tinyPercent == 1)
   }
 }

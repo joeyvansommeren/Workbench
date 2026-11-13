@@ -33,8 +33,10 @@ public struct CommandBlock: View {
             width: DesignTokens.Size.controlSmall,
             height: DesignTokens.Size.controlSmall
           )
+          .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
+      .accessibilityLabel("Copy command")
     }
     .padding(.leading, DesignTokens.Spacing.md)
     .padding(.trailing, DesignTokens.Spacing.xs)

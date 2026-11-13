@@ -10,9 +10,17 @@ import SwiftUI
 /// A 16 x 16 checkbox with a check mark when on.
 public struct WBCheckbox: View {
   @Binding var isChecked: Bool
+  let label: String
+  let accessibilityIdentifier: String?
 
-  public init(isChecked: Binding<Bool>) {
+  public init(
+    isChecked: Binding<Bool>,
+    label: String = "Checkbox",
+    accessibilityIdentifier: String? = nil
+  ) {
     self._isChecked = isChecked
+    self.label = label
+    self.accessibilityIdentifier = accessibilityIdentifier
   }
 
   public var body: some View {
@@ -35,6 +43,9 @@ public struct WBCheckbox: View {
       .frame(width: 16, height: 16)
     }
     .buttonStyle(.plain)
+    .accessibilityLabel(label)
+    .accessibilityValue(isChecked ? "checked" : "unchecked")
     .accessibilityAddTraits(isChecked ? .isSelected : [])
+    .accessibilityIdentifier(accessibilityIdentifier ?? "")
   }
 }

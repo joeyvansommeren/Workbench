@@ -28,9 +28,9 @@ public struct DotMeter: View {
     self.fraction = max(0, min(1, fraction))
   }
 
-  /// How many dots are filled.
+  /// How many dots are filled. Round-to-nearest matches the prototype.
   public var filledCount: Int {
-    Int((fraction * Double(Self.totalDots)).rounded(.up))
+    Int((fraction * Double(Self.totalDots)).rounded())
   }
 
   /// Whether the meter uses the attention colour.
@@ -69,6 +69,7 @@ public struct DotMeter: View {
       height: CGFloat(Self.rows) * 4 + CGFloat(Self.rows - 1) * DesignTokens.Spacing.xxs
     )
     .fixedSize()
-    .accessibilityLabel("Context: \(Int(fraction * 100))%")
+    .accessibilityLabel("Context")
+    .accessibilityValue("\(Int((fraction * 100).rounded()))%")
   }
 }

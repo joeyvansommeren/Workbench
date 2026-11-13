@@ -15,10 +15,16 @@ where T.AllCases: RandomAccessCollection {
 
   @Binding var selection: T
   let showCounts: ((T) -> Int?)?
+  let accessibilityIdentifier: String?
 
-  public init(selection: Binding<T>, showCounts: ((T) -> Int?)? = nil) {
+  public init(
+    selection: Binding<T>,
+    showCounts: ((T) -> Int?)? = nil,
+    accessibilityIdentifier: String? = nil
+  ) {
     self._selection = selection
     self.showCounts = showCounts
+    self.accessibilityIdentifier = accessibilityIdentifier
   }
 
   public var body: some View {
@@ -30,18 +36,20 @@ where T.AllCases: RandomAccessCollection {
     .padding(DesignTokens.Inset.control)
     .frame(height: DesignTokens.Size.control)
     .background(Color.wbSurfaceField, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
+    .accessibilityIdentifier(accessibilityIdentifier ?? "")
   }
 
   @ViewBuilder
   private func segmentButton(for item: T) -> some View {
     let isSelected = selection == item
+    let count = showCounts?(item)
 
     Button {
       selection = item
     } label: {
       HStack(spacing: DesignTokens.Spacing.xsPlus) {
         Text(item.description)
-        if let count = showCounts?(item) {
+        if let count {
           Text("\(count)")
             .foregroundStyle(isSelected ? Color.wbTextPrimary : Color.wbTextTertiary)
             .wbText(.subheadline)
@@ -49,20 +57,30 @@ where T.AllCases: RandomAccessCollection {
             .monospacedDigit()
         }
       }
+      .padding(.horizontal, DesignTokens.Spacing.smPlus)
+      .frame(maxHeight: .infinity)
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .wbText(.callout)
     .fontWeight(.medium)
     .foregroundStyle(isSelected ? Color.wbTextPrimary : Color.wbTextSecondary)
-    .padding(.horizontal, DesignTokens.Spacing.smPlus)
-    .frame(maxHeight: .infinity)
     .background {
       if isSelected {
         RoundedRectangle(cornerRadius: DesignTokens.Radius.segment)
           .fill(Color.wbSurfaceSegmentSelected)
-          .wbElevation(.raised)
+          .wbElevation(.raised, cornerRadius: DesignTokens.Radius.segment)
       }
     }
-    .contentShape(Rectangle())
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+    .accessibilityLabel(segmentLabel(item: item, count: count))
+    .accessibilityIdentifier(accessibilityIdentifier.map { "\($0).\(item.description)" } ?? "")
+  }
+
+  private func segmentLabel(item: T, count: Int?) -> String {
+    if let count {
+      return "\(item.description), \(count)"
+    }
+    return item.description
   }
 }

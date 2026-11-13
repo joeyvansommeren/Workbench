@@ -17,10 +17,15 @@ public enum RepositoryTileColor: String, CaseIterable, Sendable {
   case teal
   case orange
 
-  /// Stable colour for a repository path. Worktrees share their parent
-  /// repo's colour when resolved through `WorktreeModuleResolver`.
+  /// Stable colour for a repository path. Normalises trailing slashes
+  /// and Unicode form so `forPath(p) == forPath(p + "/")`.
+  /// Worktrees share their parent repo's colour when resolved through
+  /// `WorktreeModuleResolver`.
   public static func forPath(_ path: String) -> RepositoryTileColor {
-    let hash = path.utf8.reduce(0) { ($0 &+ UInt64($1)) &* 31 }
+    let normalized = WorktreeModuleResolver.normalizedDirectoryPath(
+      path.precomposedStringWithCanonicalMapping
+    )
+    let hash = normalized.utf8.reduce(0) { ($0 &+ UInt64($1)) &* 31 }
     let index = Int(hash % UInt64(allCases.count))
     return allCases[index]
   }

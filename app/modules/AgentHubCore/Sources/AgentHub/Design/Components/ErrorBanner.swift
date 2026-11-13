@@ -33,8 +33,14 @@ public struct ErrorBanner: View {
           Image(systemName: "xmark")
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(Color.wbStatusErrorText)
+            .frame(
+              width: DesignTokens.Size.controlSmall,
+              height: DesignTokens.Size.controlSmall
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Dismiss")
       }
     }
     .padding(.horizontal, DesignTokens.Spacing.md)

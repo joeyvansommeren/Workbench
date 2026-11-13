@@ -236,6 +236,7 @@ struct AgentHubApp: App {
       ComponentGallery()
     }
     .defaultSize(width: 1100, height: 800)
+    .commandsRemoved()
     #endif
   }
 }

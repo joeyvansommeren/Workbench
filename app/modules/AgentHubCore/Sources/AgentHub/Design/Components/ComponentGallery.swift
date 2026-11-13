@@ -18,24 +18,28 @@ public struct ComponentGallery: View {
   public init() {}
 
   public var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 40) {
-        header
-        statusGlyphsSection
-        statusChipsSection
-        buttonsSection
-        segmentedSection
-        controlsSection
-        tilesSection
-        avatarsSection
-        badgesSection
-        metersSection
-        propertyCardSection
-        statesSection
-        commandBlockSection
+    VStack(spacing: 0) {
+      header
+
+      ScrollView {
+        VStack(alignment: .leading, spacing: 40) {
+          statusGlyphsSection
+          statusChipsSection
+          buttonsSection
+          segmentedSection
+          controlsSection
+          tilesSection
+          avatarsSection
+          badgesSection
+          metersSection
+          propertyCardSection
+          statesSection
+          commandBlockSection
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
-      .padding(32)
-      .frame(maxWidth: .infinity, alignment: .leading)
+      .wbRedrawsOnPaletteChange()
     }
     .background(Color.wbSurfaceWindow)
     .frame(minWidth: 900, minHeight: 600)
@@ -58,9 +62,12 @@ public struct ComponentGallery: View {
       .pickerStyle(.segmented)
       .frame(width: 200)
       .onChange(of: palette) { _, newValue in
+        MainThreadStallMonitor.breadcrumb("gallery palette: \(newValue.rawValue)")
         WorkbenchThemeRegistry.shared.setPalette(newValue)
       }
     }
+    .padding(.horizontal, 32)
+    .padding(.vertical, 12)
   }
 
   // MARK: - Status glyphs
@@ -147,9 +154,9 @@ public struct ComponentGallery: View {
 
       // Icon buttons
       HStack(spacing: 12) {
-        IconButton(systemImage: "sidebar.left") {}
-        IconButton(systemImage: "sidebar.left", isToggled: true) {}
-        IconButton(systemImage: "plus", isSmall: true) {}
+        IconButton(systemImage: "sidebar.left", accessibilityLabel: "Toggle sidebar") {}
+        IconButton(systemImage: "sidebar.left", isToggled: true, accessibilityLabel: "Toggle sidebar") {}
+        IconButton(systemImage: "plus", isSmall: true, accessibilityLabel: "Add") {}
       }
 
       // Split button
@@ -188,8 +195,8 @@ public struct ComponentGallery: View {
 
         KeyCaps(["⌘", "K"])
 
-        WBCheckbox(isChecked: $checkboxOn)
-        WBCheckbox(isChecked: $checkboxOff)
+        WBCheckbox(isChecked: $checkboxOn, label: "Option A")
+        WBCheckbox(isChecked: $checkboxOff, label: "Option B")
       }
     }
   }
@@ -227,6 +234,7 @@ public struct ComponentGallery: View {
       HStack(spacing: 12) {
         CountBadge(3)
         CountBadge(12)
+        CountBadge(2, style: .accent)
         if filterVisible {
           FilterChip("bug") { filterVisible = false }
         }
@@ -276,7 +284,7 @@ public struct ComponentGallery: View {
             .wbText(.codeSmall)
             .monospacedDigit()
         }
-        PropertyRow("Session") {
+        PropertyRow("Session", showsDivider: false) {
           StatusChip(status: .executingTool(name: "Bash"))
         }
       }

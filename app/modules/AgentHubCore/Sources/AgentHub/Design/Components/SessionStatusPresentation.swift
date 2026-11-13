@@ -89,15 +89,11 @@ public struct SessionStatusPresentation: Equatable, Sendable {
 
     case .awaitingApproval(let tool):
       self.shape = .filledBang
-      if SessionInteractiveInputTool.matches(tool) {
-        self.category = .attention
-        self.word = "Needs input"
-        self.accessibilityLabel = "Needs input"
-      } else {
-        self.category = .attention
-        self.word = "Needs approval"
-        self.accessibilityLabel = "Needs approval"
-      }
+      self.category = .attention
+      let isInput = SessionInteractiveInputTool.matches(tool)
+      let label = isInput ? "Needs input" : "Needs approval"
+      self.word = label
+      self.accessibilityLabel = label
 
     case .idle, .none:
       self.shape = .ring

@@ -21,8 +21,6 @@ struct RepositoryTileColorTests {
 
   @Test("different paths can map to different colours")
   func differentPaths() {
-    // With only 3 colours, some will collide. But these three
-    // are picked to be different under the hash.
     let paths = [
       "/Users/joey/Projects/Alpha",
       "/Users/joey/Projects/Beta",
@@ -31,24 +29,30 @@ struct RepositoryTileColorTests {
       "/Users/joey/Projects/Epsilon",
     ]
     let colours = Set(paths.map { RepositoryTileColor.forPath($0) })
-    // With 5 paths and 3 colours, at least 2 distinct colours should appear.
     #expect(colours.count >= 2)
   }
 
-  @Test("worktrees share parent repo colour when resolved to the same path")
+  @Test("worktrees share parent repo colour via WorktreeModuleResolver")
   func worktreesShareParent() {
-    // When WorktreeModuleResolver resolves both to the same root,
-    // the same path string is passed in, so the colour matches.
+    // Simulate a worktree path that normalises to the parent root.
     let parentPath = "/Users/joey/Projects/Workbench"
-    let parentColour = RepositoryTileColor.forPath(parentPath)
-    // A worktree that resolves to the same canonical path
-    let worktreeColour = RepositoryTileColor.forPath(parentPath)
-    #expect(parentColour == worktreeColour)
+    let worktreePath = "/Users/joey/Projects/Workbench/"
+    // WorktreeModuleResolver.normalizedDirectoryPath strips the trailing slash.
+    let resolved = WorktreeModuleResolver.normalizedDirectoryPath(worktreePath)
+    #expect(resolved == parentPath)
+    // Both produce the same tile colour.
+    #expect(RepositoryTileColor.forPath(parentPath) == RepositoryTileColor.forPath(worktreePath))
+  }
+
+  @Test("forPath(p) == forPath(p + '/') — trailing slash is normalised")
+  func trailingSlashNormalised() {
+    let base = "/Users/joey/Projects/Workbench"
+    #expect(RepositoryTileColor.forPath(base) == RepositoryTileColor.forPath(base + "/"))
+    #expect(RepositoryTileColor.forPath(base) == RepositoryTileColor.forPath(base + "///"))
   }
 
   @Test("all three colours are reachable")
   func allColoursReachable() {
-    // Brute-force: try many paths until we find all 3 colours.
     var found: Set<RepositoryTileColor> = []
     for i in 0..<1000 {
       found.insert(RepositoryTileColor.forPath("/path/\(i)"))

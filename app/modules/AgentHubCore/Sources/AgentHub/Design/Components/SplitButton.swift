@@ -10,15 +10,18 @@ import SwiftUI
 /// A split button: a primary action on the left and a menu on the right.
 public struct SplitButton<MenuContent: View>: View {
   let title: String
+  let accessibilityIdentifier: String?
   let action: () -> Void
   @ViewBuilder let menu: () -> MenuContent
 
   public init(
     _ title: String,
+    accessibilityIdentifier: String? = nil,
     action: @escaping () -> Void,
     @ViewBuilder menu: @escaping () -> MenuContent
   ) {
     self.title = title
+    self.accessibilityIdentifier = accessibilityIdentifier
     self.action = action
     self.menu = menu
   }
@@ -55,7 +58,9 @@ public struct SplitButton<MenuContent: View>: View {
           topTrailingRadius: DesignTokens.Radius.item
         )
       )
+      .accessibilityLabel("More options")
     }
+    .accessibilityIdentifier(accessibilityIdentifier ?? "")
   }
 }
 

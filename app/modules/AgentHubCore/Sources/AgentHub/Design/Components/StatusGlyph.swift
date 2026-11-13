@@ -3,10 +3,49 @@
 //  AgentHub
 //
 //  Canvas-drawn status glyph in a fixed 12 or 16 pt frame.
-//  Animations gate on AppVisibilityMonitor and respect Reduce Motion.
+//  Animated glyphs use TimelineView so the Canvas redraws each frame.
+//  Animation gates on AppVisibilityMonitor and respects Reduce Motion.
 //
 
 import SwiftUI
+
+// MARK: - Phase maths (pure, testable)
+
+/// Pure phase calculations for animated status glyphs.
+/// Deterministic functions of wall-clock time — no state needed.
+public enum StatusGlyphPhase {
+
+  /// Arc rotation angle at the given date, in degrees.
+  /// Linear: completes a full 360-degree cycle every 0.9 seconds.
+  public static func arcDegrees(at date: Date) -> Double {
+    let t = date.timeIntervalSinceReferenceDate
+    let phase = t.truncatingRemainder(dividingBy: 0.9)
+    return (phase / 0.9) * 360
+  }
+
+  /// Halo scale and opacity at the given date.
+  /// Ease-in-out over 1.6 seconds, auto-reversing, scale 0.75...1.15,
+  /// opacity 0.35...0.12.
+  public static func halo(at date: Date) -> (scale: Double, opacity: Double) {
+    let t = date.timeIntervalSinceReferenceDate
+    let period: Double = 1.6
+    // Triangle wave 0...1...0 over 2 * period (auto-reversing)
+    let phase = t.truncatingRemainder(dividingBy: period * 2)
+    let linear: Double
+    if phase < period {
+      linear = phase / period
+    } else {
+      linear = 1 - (phase - period) / period
+    }
+    // Ease-in-out: smoothstep
+    let eased = linear * linear * (3 - 2 * linear)
+    let scale = 0.75 + eased * (1.15 - 0.75)
+    let opacity = 0.35 + eased * (0.12 - 0.35)
+    return (scale: scale, opacity: opacity)
+  }
+}
+
+// MARK: - StatusGlyph
 
 /// A status glyph drawn as vector shapes in a fixed frame.
 ///
@@ -60,52 +99,55 @@ private struct BreathingDotGlyph: View {
   let presentation: SessionStatusPresentation
   let size: CGFloat
 
-  @State private var animating = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.appVisibility) private var appVisibility
 
-  var body: some View {
-    Canvas { context, canvasSize in
-      let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-      let dotRadius = canvasSize.width * 0.25
-
-      // Halo
-      if !reduceMotion {
-        let haloScale = animating ? 1.15 : 0.75
-        let haloOpacity = animating ? 0.12 : 0.35
-        let haloRadius = (canvasSize.width / 2) * haloScale
-        let haloRect = CGRect(
-          x: center.x - haloRadius,
-          y: center.y - haloRadius,
-          width: haloRadius * 2,
-          height: haloRadius * 2
-        )
-        context.opacity = haloOpacity
-        context.fill(Circle().path(in: haloRect), with: .color(presentation.fillColor))
-        context.opacity = 1
-      }
-
-      // Dot
-      let dotRect = CGRect(
-        x: center.x - dotRadius,
-        y: center.y - dotRadius,
-        width: dotRadius * 2,
-        height: dotRadius * 2
-      )
-      context.fill(Circle().path(in: dotRect), with: .color(presentation.fillColor))
-    }
-    .frame(width: size, height: size)
-    .fixedSize()
-    .onAppear { startAnimation() }
-    .accessibilityLabel(Text(presentation.accessibilityLabel))
-    .animation(
-      reduceMotion ? nil : .easeInOut(duration: 1.6).repeatForever(autoreverses: true),
-      value: animating
+  private var shouldAnimate: Bool {
+    StatusPulsePolicy.shouldPulse(
+      isActiveStatus: true,
+      isAppVisible: appVisibility?.isVisible ?? true,
+      reduceMotion: reduceMotion
     )
   }
 
-  private func startAnimation() {
-    guard !reduceMotion else { return }
-    animating = true
+  var body: some View {
+    TimelineView(.animation(minimumInterval: nil, paused: !shouldAnimate)) { timeline in
+      Canvas { context, canvasSize in
+        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        let dotRadius = canvasSize.width * 0.25
+        let halfWidth = canvasSize.width / 2
+
+        // Halo
+        if shouldAnimate {
+          let haloPhase = StatusGlyphPhase.halo(at: timeline.date)
+          // Clamp scale so halo stays within frame: max radius = halfWidth
+          let maxScale = halfWidth / halfWidth // = 1.0
+          let clampedScale = min(haloPhase.scale, maxScale)
+          let haloRadius = halfWidth * clampedScale
+          let haloRect = CGRect(
+            x: center.x - haloRadius,
+            y: center.y - haloRadius,
+            width: haloRadius * 2,
+            height: haloRadius * 2
+          )
+          context.opacity = haloPhase.opacity
+          context.fill(Circle().path(in: haloRect), with: .color(presentation.fillColor))
+          context.opacity = 1
+        }
+
+        // Dot
+        let dotRect = CGRect(
+          x: center.x - dotRadius,
+          y: center.y - dotRadius,
+          width: dotRadius * 2,
+          height: dotRadius * 2
+        )
+        context.fill(Circle().path(in: dotRect), with: .color(presentation.fillColor))
+      }
+    }
+    .frame(width: size, height: size)
+    .fixedSize()
+    .accessibilityLabel(Text(presentation.accessibilityLabel))
   }
 }
 
@@ -115,42 +157,45 @@ private struct SpinningArcGlyph: View {
   let presentation: SessionStatusPresentation
   let size: CGFloat
 
-  @State private var rotation: Double = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.appVisibility) private var appVisibility
+
+  private var shouldAnimate: Bool {
+    StatusPulsePolicy.shouldPulse(
+      isActiveStatus: true,
+      isAppVisible: appVisibility?.isVisible ?? true,
+      reduceMotion: reduceMotion
+    )
+  }
 
   var body: some View {
-    Canvas { context, canvasSize in
-      let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-      let radius = canvasSize.width / 2 - 1
-      let strokeWidth = canvasSize.width * (1.75 / 12)
+    TimelineView(.animation(minimumInterval: nil, paused: !shouldAnimate)) { timeline in
+      Canvas { context, canvasSize in
+        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        let radius = canvasSize.width / 2 - 1
+        let strokeWidth = canvasSize.width * (1.75 / 12)
 
-      var arcPath = Path()
-      // ~200 degree arc (roughly 17/(17+12) of full circle from CSS dasharray)
-      arcPath.addArc(
-        center: center,
-        radius: radius,
-        startAngle: .degrees(rotation),
-        endAngle: .degrees(rotation + 210),
-        clockwise: false
-      )
+        let rotation = shouldAnimate ? StatusGlyphPhase.arcDegrees(at: timeline.date) : 0
 
-      context.stroke(
-        arcPath,
-        with: .color(presentation.fillColor),
-        style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
-      )
+        var arcPath = Path()
+        arcPath.addArc(
+          center: center,
+          radius: radius,
+          startAngle: .degrees(rotation),
+          endAngle: .degrees(rotation + 210),
+          clockwise: false
+        )
+
+        context.stroke(
+          arcPath,
+          with: .color(presentation.fillColor),
+          style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
+        )
+      }
     }
     .frame(width: size, height: size)
     .fixedSize()
-    .onAppear { startAnimation() }
     .accessibilityLabel(Text(presentation.accessibilityLabel))
-  }
-
-  private func startAnimation() {
-    guard !reduceMotion else { return }
-    withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
-      rotation = 360
-    }
   }
 }
 
