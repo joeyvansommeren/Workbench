@@ -301,6 +301,7 @@ private struct SessionDetailContent: View {
   @State private var liveTerminalStatus: String?
   @State private var isDragging = false
   @State private var isSidePanelExpanded = false
+  @State private var sidePanelDiffModels = SidePanelDiffModelCache()
   @State private var showingNameSheet = false
   @State private var showingFilePicker = false
   @State private var gitHubPopOut: SessionGitHubPopOut?
@@ -641,12 +642,29 @@ private struct SessionDetailContent: View {
   @ViewBuilder
   private var sidePanelBody: some View {
     let segment = segmentBinding.wrappedValue
-    if let content = sidePanelContent(for: segment) {
+    let diffModel = sidePanelDiffModels.model(projectPath: session.projectPath)
+    if segment == .diff, !isSidePanelExpanded {
+      // Compact diff at panel width; "Show full diff" expands to `GitDiffView`.
+      SidePanelDiffView(
+        model: diffModel,
+        refreshKey: SidePanelDiffRefreshKey(
+          summary: viewModel.localDiffSummary(for: session.projectPath),
+          lastActivity: state?.lastActivityAt
+        ),
+        onShowFullDiff: { isSidePanelExpanded = true }
+      )
+      .id("\(item.id)|\(segment.rawValue)")
+    } else if let content = sidePanelContent(for: segment) {
       SidePanelContentView(
         content: content,
         providerKind: providerKind,
         viewModel: viewModel,
         onDismiss: {
+          // The expanded full diff closes back to the compact diff.
+          if segment == .diff, isSidePanelExpanded {
+            isSidePanelExpanded = false
+            return
+          }
           isSidePanelExpanded = false
           if shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
         },
@@ -661,7 +679,10 @@ private struct SessionDetailContent: View {
         isExpanded: isSidePanelExpanded,
         onToggleExpanded: { isSidePanelExpanded.toggle() },
         onCollapseExpandedAfterSend: { isSidePanelExpanded = false },
-        openEditorFilePath: editorState.selectedFilePath
+        openEditorFilePath: editorState.selectedFilePath,
+        // The full diff opens on the compact diff's mode and file.
+        diffInitialMode: segment == .diff ? diffModel.loadedMode : nil,
+        diffInitialSelectedPath: segment == .diff ? diffModel.selectedPath : nil
       )
       .id("\(item.id)|\(segment.rawValue)")
     } else {

@@ -208,3 +208,30 @@ tab, behind `ApprovalResponding` (`Services/ApprovalResponder.swift`).
   Standard / Warm when the flag is on (YAML theme picker hidden), applied live
   by `WorkbenchAppearanceController`. The stored appearance is applied when a
   shell window opens.
+
+## P6b: compact side panel Diff
+
+With the flag on, the side panel's Diff segment shows `SidePanelDiffView`
+instead of the legacy `GitDiffView`: a flat file list (mono path, +n −m), then
+the selected file's hunks at full panel width. Only the code scrolls sideways
+(one horizontal `ScrollView` per hunk); tints and line numbers stay put. No
+GeometryReader.
+
+- **Data:** `SidePanelDiffModel` lists files with `GitDiffServiceProtocol` and
+  fetches the selected file's patch with the new `unifiedPatch(for:…)` (libgit2
+  first, git CLI fallback). `SidePanelDiffParser` (pure) turns it into hunks.
+- **Mode:** automatic until the user picks one in the compact "Branch ▾" menu.
+  Automatic probes `DiffMode` order (branch → staged → unstaged) and takes the
+  first mode with changes, because the header diffstat and "Commit N files…"
+  count every mode. The legacy `GitDiffView` keeps its own rule.
+- **Refresh:** on appear, and when `localDiffSummary` or the session's
+  `lastActivityAt` changes (catches staging and same-count re-edits), at most
+  once per 2 s. The selection survives by relative path, else the first file.
+  The model lives in `SidePanelDiffModelCache` on `SessionDetailContent`, so
+  mode and selection survive the full diff and back.
+- **Cap:** 400 lines per file; patches over 2 MB (`GitDiffError.patchTooLarge`)
+  show a note. "Show full diff" (also in the mode menu, and above a load
+  error) expands the side panel to the legacy `GitDiffView`, opened on the
+  compact view's mode and file; its Close returns to the compact view.
+- **Keys and breadcrumbs:** ↑/↓ move the selection once the list has focus.
+  `side panel diff: file <path>`, `side panel diff: mode <mode>`.

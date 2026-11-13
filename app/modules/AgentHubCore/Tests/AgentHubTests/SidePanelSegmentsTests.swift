@@ -5,6 +5,13 @@ import Testing
 @Suite("SidePanelSegments")
 struct SidePanelSegmentsTests {
 
+  @Test("GitHub draws the pull-request glyph; the legacy menu keeps its symbol")
+  func gitHubIcon() {
+    #expect(SidePanelSegments.icon(for: .gitHub) == .pullRequest)
+    #expect(SidePanelSegments.icon(for: .diff) == .system("plusminus"))
+    #expect(SidePanelSegments.legacyMenuSystemImage(for: .gitHub) == "arrow.triangle.pull")
+  }
+
   @Test("Legacy menu: only GitHub when nothing else applies")
   func minimalMenu() {
     #expect(SidePanelSegments.toolsMenuItems(SidePanelAvailability()) == [.gitHub])

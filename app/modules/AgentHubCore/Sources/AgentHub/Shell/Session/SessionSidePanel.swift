@@ -109,8 +109,7 @@ private struct SidePanelSegmentControl: View {
       selection = segment
     } label: {
       HStack(spacing: DesignTokens.Spacing.xsPlus) {
-        Image(systemName: SidePanelSegments.systemImage(for: segment))
-          .font(.system(size: 11))
+        SidePanelSegmentIconView(icon: SidePanelSegments.icon(for: segment))
         Text(SidePanelSegments.title(for: segment))
         if let count, count > 0 {
           Text("\(count)")
@@ -145,10 +144,13 @@ private struct SidePanelSegmentControl: View {
           selection = segment
         } label: {
           let count = SidePanelSegments.count(for: segment, availability: availability)
-          Label(
-            count.map { "\(SidePanelSegments.title(for: segment)) (\($0))" }
-              ?? SidePanelSegments.title(for: segment),
-            systemImage: SidePanelSegments.systemImage(for: segment))
+          Label {
+            Text(
+              count.map { "\(SidePanelSegments.title(for: segment)) (\($0))" }
+                ?? SidePanelSegments.title(for: segment))
+          } icon: {
+            SidePanelSegmentIconView(icon: SidePanelSegments.icon(for: segment), inMenu: true)
+          }
         }
       }
     } label: {
@@ -169,4 +171,33 @@ private struct SidePanelSegmentControl: View {
     }
     .accessibilityLabel("More side panels")
   }
+}
+
+/// A segment icon: an SF Symbol, or the drawn `PullRequestGlyph`.
+private struct SidePanelSegmentIconView: View {
+  let icon: SidePanelSegmentIcon
+  /// Menus (`NSMenu`) draw images only, so the glyph goes in as a template image.
+  var inMenu = false
+
+  var body: some View {
+    switch icon {
+    case .system(let name):
+      Image(systemName: name)
+        .font(.system(size: 11))
+    case .pullRequest where inMenu:
+      if let image = Self.pullRequestMenuImage {
+        Image(nsImage: image)
+      }
+    case .pullRequest:
+      PullRequestGlyph(size: 12)
+    }
+  }
+
+  @MainActor private static let pullRequestMenuImage: NSImage? = {
+    let renderer = ImageRenderer(content: PullRequestGlyph(size: 16).foregroundStyle(Color.black))
+    renderer.scale = 2
+    let image = renderer.nsImage
+    image?.isTemplate = true
+    return image
+  }()
 }

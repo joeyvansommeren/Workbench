@@ -8,6 +8,7 @@
 //  and the new shell's `SessionSidePanel` host the same panels.
 //
 
+import AgentHubGitDiff
 import AgentHubGitHub
 import SwiftUI
 
@@ -24,6 +25,10 @@ struct SidePanelContentView: View {
   let onToggleExpanded: () -> Void
   let onCollapseExpandedAfterSend: () -> Void
   let openEditorFilePath: String?
+  /// The diff's starting mode and file (new shell "Show full diff"). Nil keeps
+  /// `GitDiffView`'s own auto-select.
+  var diffInitialMode: DiffMode? = nil
+  var diffInitialSelectedPath: String? = nil
 
   var body: some View {
     switch content {
@@ -38,7 +43,9 @@ struct SidePanelContentView: View {
           onDismiss()
           onShowTerminalWithPrompt(prompt, sess)
         },
-        isEmbedded: true
+        isEmbedded: true,
+        initialMode: diffInitialMode,
+        initialSelectedPath: diffInitialSelectedPath
       )
     case .plan(_, let session, let planState):
       PlanView(

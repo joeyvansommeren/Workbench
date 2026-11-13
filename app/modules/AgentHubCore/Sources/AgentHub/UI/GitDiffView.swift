@@ -68,6 +68,11 @@ public struct GitDiffView: View {
   }
 
   private let gitDiffService: any GitDiffServiceProtocol
+  /// Starting mode instead of the cheap-first auto-select (the new shell's
+  /// "Show full diff" opens on the compact panel's mode). Nil keeps auto-select.
+  private let initialMode: DiffMode?
+  /// File to select first when the list contains it; else the first file.
+  private let initialSelectedPath: String?
 
   public init(
     session: CLISession,
@@ -77,7 +82,9 @@ public struct GitDiffView: View {
     providerKind: SessionProviderKind = .claude,
     onInlineRequestSubmit: ((String, CLISession) -> Void)? = nil,
     isEmbedded: Bool = false,
-    gitDiffService: any GitDiffServiceProtocol = GitDiffService()
+    gitDiffService: any GitDiffServiceProtocol = GitDiffService(),
+    initialMode: DiffMode? = nil,
+    initialSelectedPath: String? = nil
   ) {
     self.session = session
     self.projectPath = projectPath
@@ -87,6 +94,8 @@ public struct GitDiffView: View {
     self.onInlineRequestSubmit = onInlineRequestSubmit
     self.isEmbedded = isEmbedded
     self.gitDiffService = gitDiffService
+    self.initialMode = initialMode
+    self.initialSelectedPath = initialSelectedPath
   }
 
   public var body: some View {
@@ -463,6 +472,14 @@ public struct GitDiffView: View {
   // MARK: - Data Loading
 
   private func loadInitialChanges() async {
+    if let initialMode {
+      if diffMode != initialMode {
+        suppressNextDiffModeReload = true
+        diffMode = initialMode
+      }
+      await loadChanges(for: initialMode)
+      return
+    }
     await loadChanges(for: diffMode, autoSelectDefaultMode: true)
   }
 
@@ -519,8 +536,11 @@ public struct GitDiffView: View {
         treeCommonPrefix = treeResult.commonPrefix
         expandedPaths = treeResult.allFolderPaths
 
-        // Auto-select first file
-        if let first = selected.state.files.first {
+        // Auto-select the requested file, else the first file
+        let preferred = initialSelectedPath.flatMap { path in
+          selected.state.files.first { $0.relativePath == path }
+        }
+        if let first = preferred ?? selected.state.files.first {
           selectedFileId = first.id
           loadFileDiff(for: first, mode: selected.mode, generation: generation)
         }
