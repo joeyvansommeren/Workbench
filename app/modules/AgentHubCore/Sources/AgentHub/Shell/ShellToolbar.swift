@@ -19,12 +19,11 @@ enum ShellLayout {
   /// Leading padding of the title row while the sidebar is hidden, so its
   /// content clears the traffic lights and the sidebar toggle.
   static let collapsedToolbarLeading: CGFloat = 132
-  /// Child minimums must fit the window minimum, or NSSplitView can loop
-  /// (CLAUDE.md, layout-loop crash). The widest child is the legacy Sessions
-  /// workflow comparison, still hosted in the shell: an `HSplitView` with two
-  /// 420 pt panes, plus the shell sidebar and the trailing panel inset.
-  /// P6 lowers this to 900. `ReviewsLayoutTests` checks that Reviews fits.
-  static let windowMinWidth: CGFloat = 1137
+  /// Child minimums must fit the window minimum (CLAUDE.md, layout-loop
+  /// crash). No split view is hosted in the shell any more: Reviews (P8) and
+  /// the Sessions detail (P6, `SessionDetailLayout`) both fit 288 + 8 + their
+  /// content minimum. `ReviewsLayoutTests` and `SessionTabsModelTests` check it.
+  static let windowMinWidth: CGFloat = 900
   static let windowMinHeight: CGFloat = 600
 }
 
@@ -108,7 +107,7 @@ private struct ShellSprintToolbarContent: View {
 }
 
 /// The toolbar search field (`.toolbar-search`). Opens the palette (P10).
-private struct ShellSearchButton: View {
+struct ShellSearchButton: View {
   @State private var isHovered = false
 
   var body: some View {

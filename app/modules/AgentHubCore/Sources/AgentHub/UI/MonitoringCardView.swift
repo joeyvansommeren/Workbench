@@ -441,24 +441,14 @@ public struct MonitoringCardView: View {
     onShowGitHub?(session, session.projectPath, linkedPullRequests)
   }
 
-  private static let createPullRequestPrompt =
-    "Make a PR for the current branch. Include the local changes in this worktree and use the session context for the title, body, and validation notes."
-
   private func createPullRequestFromSession() {
     guard let viewModel else { return }
-    guard viewModel.beginCreatingPullRequest(for: session.id) else { return }
-    let key = terminalKey ?? session.id
-    contentMode = .terminal
-    if !viewModel.sendPromptToActiveTerminal(forKey: key, prompt: Self.createPullRequestPrompt) {
-      viewModel.showTerminalWithPrompt(for: session, prompt: Self.createPullRequestPrompt)
-    }
-    viewModel.focusTerminal(forKey: key)
-    // Clear after a short cooldown — the prompt has been sent synchronously, but
-    // keep the button disabled long enough to prevent an accidental double click.
-    Task {
-      try? await Task.sleep(for: .seconds(2))
-      viewModel.endCreatingPullRequest(for: session.id)
-    }
+    CreatePullRequestAction.perform(
+      session: session,
+      terminalKey: terminalKey ?? session.id,
+      viewModel: viewModel,
+      showTerminal: { contentMode = .terminal }
+    )
   }
 
   // MARK: - Header

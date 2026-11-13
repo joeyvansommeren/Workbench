@@ -9,9 +9,11 @@
 //  - selection: whatever selects a session (sidebar tree, palette, router,
 //    a launch) sets `primarySessionId`; the tab opens or is selected here.
 //  - pending → resolved: a launching session's tab takes the real id.
-//  - persistence: open tabs are saved with each provider's workspace state
-//    and merged back once that state is read.
+//  - persistence: this window's tabs go into each provider's saved union
+//    (`OpenSessionTabsAggregate`); the first window takes the saved tabs back.
 //  - pruning: tabs of sessions that went away (archived, stopped) close.
+//
+//  The decisions live in `SessionTabsModel` and are unit tested there.
 //
 
 import SwiftUI
@@ -29,9 +31,10 @@ struct SessionTabsSync: ViewModifier {
   func body(content: Content) -> some View {
     content
       .onAppear {
+        let window = tabsModel.windowID
         tabsModel.onTabsChanged = { [claude, codex] ids in
-          claude.updateOpenSessionTabIds(SessionTabsModel.persistedIDs(in: ids, for: .claude))
-          codex.updateOpenSessionTabIds(SessionTabsModel.persistedIDs(in: ids, for: .codex))
+          claude.updateOpenSessionTabIds(SessionTabsModel.persistedIDs(in: ids, for: .claude), window: window)
+          codex.updateOpenSessionTabIds(SessionTabsModel.persistedIDs(in: ids, for: .codex), window: window)
         }
         restorePersistedTabs()
         followPrimarySelection(navigationModel.primarySessionId)
@@ -53,27 +56,31 @@ struct SessionTabsSync: ViewModifier {
   }
 
   private func followPrimarySelection(_ id: String?) {
-    // Rename pending tabs first, so a resolved selection reuses the tab.
-    tabsModel.migrateResolvedPendingSessions(claude.resolvedPendingSessionHistory, provider: .claude)
-    tabsModel.migrateResolvedPendingSessions(codex.resolvedPendingSessionHistory, provider: .codex)
-    guard let id else { return }
-    tabsModel.open(id)
+    tabsModel.follow(
+      primarySessionId: id,
+      resolvedHistories: [
+        (.claude, claude.resolvedPendingSessionHistory),
+        (.codex, codex.resolvedPendingSessionHistory),
+      ]
+    )
   }
 
   private func restorePersistedTabs() {
-    if let ids = claude.restoredOpenSessionTabIds { tabsModel.restore(ids, provider: .claude) }
-    if let ids = codex.restoredOpenSessionTabIds { tabsModel.restore(ids, provider: .codex) }
+    for (provider, viewModel) in [(SessionProviderKind.claude, claude), (.codex, codex)]
+    where !tabsModel.hasRestored(provider) {
+      if let ids = viewModel.claimRestoredOpenSessionTabIds() {
+        tabsModel.restore(ids, provider: provider)
+      }
+    }
   }
 
   private func pruneTabs(availableIDs: Set<String>) {
-    let shownBefore = navigationModel.primarySessionId
-    tabsModel.prune(availableIDs: availableIDs)
-    // The shown session went away: show the tab the model selected instead.
-    guard let shownBefore, !tabsModel.openTabIDs.contains(shownBefore),
-      navigationModel.primarySessionId == shownBefore
-    else { return }
-    if let next = tabsModel.selectedTabID, availableIDs.contains(next) {
+    let change = tabsModel.prune(availableIDs: availableIDs, shownID: navigationModel.primarySessionId)
+    guard case .show(let next) = change else { return }
+    if let next {
       navigationModel.selectSession(next)
+    } else {
+      navigationModel.primarySessionId = nil
     }
   }
 }

@@ -26,8 +26,20 @@ final class SessionTabsModel {
   /// Side-panel segment per tab.
   private(set) var sidePanelSegments: [String: SidePanelSegment] = [:]
 
+  /// Identifies this window's list in the cross-window persisted union
+  /// (`OpenSessionTabsAggregate`).
+  let windowID = UUID()
+
+  /// True after the user closed the last tab this run. The detail then shows
+  /// its empty state instead of opening a session by itself.
+  private(set) var hasClosedAllTabs = false
+
   /// Called with the full tab list after every change, for persistence.
   @ObservationIgnored var onTabsChanged: (([String]) -> Void)?
+
+  /// Side-panel auto-open bookkeeping (edits and plan), per window so it
+  /// survives tab switches.
+  @ObservationIgnored var autoOpen = SidePanelAutoOpenTracker()
 
   /// Providers whose persisted tabs were already merged in.
   @ObservationIgnored private var restoredProviders: Set<SessionProviderKind> = []
@@ -41,6 +53,7 @@ final class SessionTabsModel {
 
   /// Opens a tab for the session (or selects it when it is already open).
   func open(_ id: String) {
+    hasClosedAllTabs = false
     if !openTabIDs.contains(id) {
       openTabIDs.append(id)
       MainThreadStallMonitor.breadcrumb("tab: open \(id.prefix(20))")
@@ -55,10 +68,18 @@ final class SessionTabsModel {
     MainThreadStallMonitor.breadcrumb("tab: select \(id.prefix(20))")
   }
 
-  /// Closes a tab. When it was selected, the right neighbour is selected,
-  /// else the left one, else nothing. Returns the new selection.
+  /// The user closes a tab. When it was selected, the right neighbour is
+  /// selected, else the left one, else nothing. Returns the new selection.
   @discardableResult
   func close(_ id: String) -> String? {
+    let next = remove(id)
+    if openTabIDs.isEmpty { hasClosedAllTabs = true }
+    return next
+  }
+
+  /// Removes a tab (user close or prune) and moves the selection.
+  @discardableResult
+  private func remove(_ id: String) -> String? {
     guard let index = openTabIDs.firstIndex(of: id) else { return selectedTabID }
     openTabIDs.remove(at: index)
     editorStates[id] = nil
@@ -145,6 +166,29 @@ final class SessionTabsModel {
     if changed { tabsChanged() }
   }
 
+  /// Follows the window's shown session: first renames resolved pending
+  /// tabs (so a resolved selection reuses its tab), then opens or selects it.
+  func follow(
+    primarySessionId: String?,
+    resolvedHistories: [(SessionProviderKind, [UUID: String])]
+  ) {
+    for (provider, history) in resolvedHistories {
+      migrateResolvedPendingSessions(history, provider: provider)
+    }
+    guard let primarySessionId else { return }
+    open(primarySessionId)
+  }
+
+  /// What to show when nothing is shown yet (launch, sessions loading in).
+  /// Never acts after the user closed every tab.
+  func selectionUpkeep(primarySessionId: String?, availableIDs: [String]) -> SelectionUpkeep {
+    guard primarySessionId == nil, !hasClosedAllTabs, !availableIDs.isEmpty else { return .none }
+    if let restored = visibleTabIDs(availableIDs: Set(availableIDs)).first {
+      return .select(restored)
+    }
+    return .selectFirstAvailable
+  }
+
   // MARK: - Persistence
 
   /// Merges a provider's persisted tabs once, after its workspace state was
@@ -153,8 +197,9 @@ final class SessionTabsModel {
     guard !restoredProviders.contains(provider) else { return }
     restoredProviders.insert(provider)
     let newIDs = persistedIDs.filter { !openTabIDs.contains($0) && !Self.isPending($0) }
-    guard !newIDs.isEmpty else { return }
     openTabIDs.append(contentsOf: newIDs)
+    // Always report, even with nothing new: tabs opened before the read was
+    // done were held back from saving until now.
     tabsChanged()
   }
 
@@ -180,13 +225,27 @@ final class SessionTabsModel {
 
   /// Drops tabs whose session went away (archived, stopped, cancelled launch).
   /// Ids never seen this run are kept: a restored session may still be loading.
-  func prune(availableIDs: Set<String>) {
+  ///
+  /// Returns what the window should show next: `.show(id)` when the shown
+  /// session was pruned (its visible neighbour, or nil for nothing), and
+  /// `.unchanged` otherwise, including when the shown session already moved on.
+  @discardableResult
+  func prune(availableIDs: Set<String>, shownID: String? = nil) -> TabSelectionChange {
     everAvailableIDs.formUnion(availableIDs.intersection(openTabIDs))
     let gone = openTabIDs.filter { everAvailableIDs.contains($0) && !availableIDs.contains($0) }
+    guard !gone.isEmpty else { return .unchanged }
+    let visibleBefore = visibleTabIDs(availableIDs: availableIDs.union(gone))
     for id in gone {
       everAvailableIDs.remove(id)
-      close(id)
+      remove(id)
     }
+    guard let shownID, gone.contains(shownID) else { return .unchanged }
+    let remaining = visibleBefore.filter { !gone.contains($0) }
+    let index = visibleBefore.firstIndex(of: shownID) ?? remaining.count
+    let survivorsBefore = visibleBefore[..<index].filter { !gone.contains($0) }.count
+    let next = Self.neighbour(afterRemovingAt: survivorsBefore, in: remaining)
+    if let next { select(next) }
+    return .show(next)
   }
 
   /// The open tabs that resolve to a session right now, in strip order.
@@ -222,4 +281,18 @@ final class SessionTabsModel {
   private func tabsChanged() {
     onTabsChanged?(openTabIDs)
   }
+}
+
+enum TabSelectionChange: Equatable {
+  case unchanged
+  /// Show this session, or nothing.
+  case show(String?)
+}
+
+enum SelectionUpkeep: Equatable {
+  case none
+  /// Show this restored tab.
+  case select(String)
+  /// No tab to restore: let `SessionNavigationModel.ensurePrimarySelection` pick.
+  case selectFirstAvailable
 }

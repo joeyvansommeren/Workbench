@@ -78,12 +78,11 @@ struct SessionHeaderView<ActionsMenu: View>: View {
 
   private var trailing: some View {
     HStack(spacing: DesignTokens.Spacing.xs) {
-      if availableContentModes.count > 1 {
-        ContentModeControl(modes: availableContentModes, selection: $contentMode)
-          .padding(.trailing, DesignTokens.Spacing.xs)
-      }
-      if let contextFraction {
-        ContextMeter(fraction: contextFraction)
+      // In a narrow window the meter compacts before the title truncates.
+      ViewThatFits(in: .horizontal) {
+        modesAndContext(showsLabel: true, showsDots: true)
+        modesAndContext(showsLabel: false, showsDots: true)
+        modesAndContext(showsLabel: false, showsDots: false)
       }
       ToolbarDivider()
       IconButton(
@@ -106,6 +105,18 @@ struct SessionHeaderView<ActionsMenu: View>: View {
       )
       .help(isSidePanelVisible ? "Hide side panel  ⌥⌘0" : "Show side panel  ⌥⌘0")
     }
+  }
+
+  private func modesAndContext(showsLabel: Bool, showsDots: Bool) -> some View {
+    HStack(spacing: DesignTokens.Spacing.xs) {
+      if availableContentModes.count > 1 {
+        ContentModeControl(modes: availableContentModes, selection: $contentMode)
+          .padding(.trailing, DesignTokens.Spacing.xs)
+      }
+      if let contextFraction {
+        ContextMeter(fraction: contextFraction, showsLabel: showsLabel, showsDots: showsDots)
+      }
+    }
     .fixedSize()
   }
 }
@@ -113,13 +124,19 @@ struct SessionHeaderView<ActionsMenu: View>: View {
 /// `.context-meter`: label, 20×3 dot meter, percentage.
 private struct ContextMeter: View {
   let fraction: Double
+  var showsLabel = true
+  var showsDots = true
 
   var body: some View {
     HStack(spacing: DesignTokens.Spacing.sm) {
-      Text("Context")
-        .wbText(.callout)
-        .foregroundStyle(Color.wbTextSecondary)
-      DotMeter(fraction: fraction)
+      if showsLabel {
+        Text("Context")
+          .wbText(.callout)
+          .foregroundStyle(Color.wbTextSecondary)
+      }
+      if showsDots {
+        DotMeter(fraction: fraction)
+      }
       Text("\(Int((min(max(fraction, 0), 1) * 100).rounded()))%")
         .font(.system(size: 12, weight: .medium))
         .monospacedDigit()

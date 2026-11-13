@@ -26,6 +26,7 @@ struct SessionDetailView: View {
   @Environment(\.sessionNavigationModel) private var navigationModel
   @Environment(\.sessionsActionCoordinator) private var actionCoordinator
   @Environment(SessionTabsModel.self) private var tabsModel
+  @Environment(WorkbenchShellModel.self) private var shellModel
 
   @AppStorage(AgentHubDefaults.selectedSidePanelProvider)
   private var selectedProviderRaw: String = "Claude"
@@ -74,9 +75,11 @@ struct SessionDetailView: View {
     }
     .onAppear {
       consumeRouterRequests()
-      openFirstSessionIfNothingIsOpen()
+      runSelectionUpkeep()
+      tabsModel.autoOpen.start(items: items.compactMap(autoOpenItem))
     }
     .task { await workspaceViewModel.load() }
+    .task(id: pendingCIFailureRequestID) { await consumeCIFailureActionRequest() }
     .onChange(of: agentHub?.globalSessionSelectionRouter.selectionRequest?.id) { _, _ in
       consumeRouterRequests()
     }
@@ -88,6 +91,9 @@ struct SessionDetailView: View {
     }
     .onChange(of: itemIDs) { _, _ in
       consumeRouterRequests()
+      // Sessions load after the view appears; pick what to show once they do.
+      runSelectionUpkeep()
+      tabsModel.autoOpen.prune(activeSessionIDs: Set(items.map(\.session.id)))
     }
     .onChange(of: claudeViewModel.pendingFileOpen?.filePath) { _, _ in
       consumePendingFileOpen(from: claudeViewModel, providerKind: .claude)
@@ -134,20 +140,90 @@ struct SessionDetailView: View {
 
   // MARK: - Selection upkeep
 
-  /// First visit with no tabs at all: open the newest session, like the
-  /// legacy view always showed one. Closing every tab later leaves the empty
-  /// state instead.
-  private func openFirstSessionIfNothingIsOpen() {
-    guard let navigationModel, tabsModel.openTabIDs.isEmpty, navigationModel.primarySessionId == nil
+  /// While nothing is shown (launch, sessions still loading): show the first
+  /// restored tab, else the newest session. Never after the user closed every
+  /// tab this run; then the empty state stays. Decision: `SessionTabsModel`.
+  private func runSelectionUpkeep() {
+    guard let navigationModel,
+      navigationModel.selectedWorkspaceID == nil,
+      navigationModel.selectedModuleLandingPath == nil,
+      agentHub?.globalSessionSelectionRouter.selectionRequest == nil
     else { return }
-    let standalone = items.filter { item in
-      item.isPending
-        || workspaceViewModel.workspaceID(owningSession: item.session.id, provider: item.providerKind) == nil
+    switch tabsModel.selectionUpkeep(primarySessionId: navigationModel.primarySessionId, availableIDs: itemIDs) {
+    case .none:
+      break
+    case .select(let id):
+      navigationModel.selectSession(id)
+    case .selectFirstAvailable:
+      // Workspace-owned sessions show inside their workspace, never as a tab.
+      let standalone = items.filter { item in
+        item.isPending
+          || workspaceViewModel.workspaceID(owningSession: item.session.id, provider: item.providerKind) == nil
+      }
+      navigationModel.ensurePrimarySelection(
+        items: ShellSessionItems.snapshots(standalone),
+        hasRouterRequest: false
+      )
     }
-    navigationModel.ensurePrimarySelection(
-      items: ShellSessionItems.snapshots(standalone),
-      hasRouterRequest: agentHub?.globalSessionSelectionRouter.selectionRequest != nil
+  }
+
+  private func autoOpenItem(_ item: ProjectableSessionItem) -> MonitoringAutoOpenSidePanelItem? {
+    guard !item.isPending else { return nil }
+    return MonitoringAutoOpenSidePanelItem(
+      itemID: item.id,
+      providerKind: item.providerKind,
+      session: item.session,
+      state: viewModel(for: item.providerKind).monitorStates[item.session.id]
     )
+  }
+
+  // MARK: - CI-failure notification actions (same flow as the legacy panel)
+
+  private var pendingCIFailureRequestID: UUID? {
+    agentHub?.gitHubCIFailureActionRouter.pendingRequest?.id
+  }
+
+  /// The notification can arrive with the session not loaded yet, so wait
+  /// briefly for it before acting.
+  private func consumeCIFailureActionRequest() async {
+    guard let router = agentHub?.gitHubCIFailureActionRouter, let request = router.pendingRequest else { return }
+    guard let providerKind = request.payload.providerKind else {
+      router.markConsumed(request)
+      return
+    }
+    let itemID = GlobalSessionSelectionRequest.itemId(
+      providerKind: providerKind,
+      sessionId: request.payload.sessionId
+    )
+    for _ in 0..<CIFailureFixAction.waitAttempts {
+      guard router.pendingRequest?.id == request.id else { return }
+      if let item = items.first(where: { $0.id == itemID }), !item.isPending {
+        router.markConsumed(request)
+        handleCIFailureAction(request, item: item)
+        return
+      }
+      do {
+        try await Task.sleep(for: CIFailureFixAction.waitInterval)
+      } catch {
+        return
+      }
+    }
+    router.markConsumed(request)
+  }
+
+  private func handleCIFailureAction(_ request: GitHubCIFailureActionRequest, item: ProjectableSessionItem) {
+    let viewModel = viewModel(for: item.providerKind)
+    navigationModel?.selectSession(item.id)
+    switch request.action {
+    case .openGitHubPanel:
+      tabsModel.setSidePanelSegment(.gitHub, for: item.id)
+      if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
+    case .fixCI:
+      guard CIFailureFixAction.canFix(viewModel: viewModel) else { return }
+      tabsModel.setContentMode(.terminal, for: item.id, defaultProjectPath: item.session.projectPath)
+      viewModel.focusTerminal(forKey: item.session.id)
+      CIFailureFixAction.send(request.payload, session: item.session, viewModel: viewModel)
+    }
   }
 
   private func consumeRouterRequests() {
@@ -371,6 +447,9 @@ private struct SessionDetailContent: View {
           .allowsHitTesting(false)
       }
     }
+    .onChange(of: autoOpenCandidate?.key) { _, _ in
+      openAutoSidePanelIfNeeded()
+    }
     .task(id: session.id) {
       // Codex sessions only stream while live monitoring runs for them.
       if providerKind == .codex, !item.isPending {
@@ -471,6 +550,23 @@ private struct SessionDetailContent: View {
 
   // MARK: - Side panel
 
+  private var autoOpenCandidate: MonitoringAutoOpenSidePanelCandidate? {
+    guard !item.isPending else { return nil }
+    return tabsModel.autoOpen.candidate(
+      for: MonitoringAutoOpenSidePanelItem(
+        itemID: item.id, providerKind: providerKind, session: session, state: state))
+  }
+
+  /// Edits and Plan open by themselves when the agent produces them (legacy
+  /// rules, `SidePanelAutoOpenTracker`), showing the side panel if hidden.
+  private func openAutoSidePanelIfNeeded() {
+    guard let candidate = autoOpenCandidate else { return }
+    let shown = shellModel.sidePanelVisible ? segmentBinding.wrappedValue : nil
+    guard let segment = tabsModel.autoOpen.decide(candidate, shownSegment: shown) else { return }
+    tabsModel.setSidePanelSegment(segment, for: item.id)
+    if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
+  }
+
   private var sidePanelAvailability: SidePanelAvailability {
     let capabilities = viewModel.projectCapabilities(for: session.projectPath)
     return SidePanelAvailability(
@@ -520,12 +616,11 @@ private struct SessionDetailContent: View {
     if isSidePanelExpanded {
       panel.frame(maxWidth: .infinity)
     } else {
-      // Fixed bounds, no geometry: 400 default, 320–520 by drag. The maximum
-      // keeps content visible at the 900 pt window minimum P8 targets.
+      // Fixed bounds, no geometry (`SessionDetailLayout`).
       ResizablePanelContainer(
         side: .trailing,
-        minWidth: 320,
-        maxWidth: 520,
+        minWidth: SessionDetailLayout.sidePanelMinWidth,
+        maxWidth: SessionDetailLayout.sidePanelMaxWidth,
         defaultWidth: DesignTokens.Width.sidePanel,
         userDefaultsKey: AgentHubDefaults.sidePanelWidth
       ) {
@@ -620,28 +715,35 @@ private struct SessionDetailContent: View {
   }
 
   private func commitChanges() {
-    let fileCount = viewModel.localDiffSummary(for: session.projectPath)?.fileCount ?? 0
-    contentModeBinding.wrappedValue = .terminal
     CommitChangesAction.perform(
-      session: session, terminalKey: terminalKey, fileCount: fileCount, viewModel: viewModel)
+      session: session,
+      terminalKey: terminalKey,
+      fileCount: viewModel.localDiffSummary(for: session.projectPath)?.fileCount ?? 0,
+      viewModel: viewModel,
+      showTerminal: { contentModeBinding.wrappedValue = .terminal }
+    )
   }
 
-  private static let createPullRequestPrompt =
-    "Make a PR for the current branch. Include the local changes in this worktree and use the session context for the title, body, and validation notes."
-
-  /// Same prompt and cooldown as the legacy card's "Create PR".
   private func createPullRequest() {
-    guard viewModel.beginCreatingPullRequest(for: session.id) else { return }
-    contentModeBinding.wrappedValue = .terminal
-    if !viewModel.sendPromptToActiveTerminal(forKey: terminalKey, prompt: Self.createPullRequestPrompt) {
-      viewModel.showTerminalWithPrompt(for: session, prompt: Self.createPullRequestPrompt)
-    }
-    viewModel.focusTerminal(forKey: terminalKey)
-    Task {
-      try? await Task.sleep(for: .seconds(2))
-      viewModel.endCreatingPullRequest(for: session.id)
-    }
+    CreatePullRequestAction.perform(
+      session: session,
+      terminalKey: terminalKey,
+      viewModel: viewModel,
+      showTerminal: { contentModeBinding.wrappedValue = .terminal }
+    )
   }
+}
+
+/// Width budget of the session detail. Must fit the shell's minimum window
+/// with the sidebar: 288 + 8 + content minimum + side panel minimum ≤ 900
+/// (checked by `SessionTabsModelTests`). The panel's drag maximum is a user
+/// choice and may squeeze the content at the smallest window.
+enum SessionDetailLayout {
+  static let contentMinWidth: CGFloat = 260
+  static let sidePanelMinWidth: CGFloat = 320
+  static let sidePanelMaxWidth: CGFloat = 520
+
+  static var minimumWidth: CGFloat { contentMinWidth + sidePanelMinWidth }
 }
 
 private struct SessionTranscript: Identifiable {

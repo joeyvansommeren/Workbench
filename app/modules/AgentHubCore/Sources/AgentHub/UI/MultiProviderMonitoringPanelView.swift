@@ -1959,27 +1959,9 @@ public struct MultiProviderMonitoringPanelView: View {
     session: CLISession,
     viewModel: CLISessionsViewModel
   ) {
-    guard let fixService = viewModel.agentHubProvider?.gitHubCIFixService else { return }
+    guard CIFailureFixAction.canFix(viewModel: viewModel) else { return }
     setContentMode(.terminal, for: item)
-    Task {
-      let prompt = await fixService.buildFixPrompt(
-        projectPath: payload.projectPath,
-        prNumber: payload.prNumber,
-        prTitle: payload.prTitle,
-        branchName: payload.branchName,
-        failedChecks: payload.failedChecks.map {
-          GitHubCIFixPromptBuilder.FailedCheck(
-            name: $0.name,
-            workflowName: $0.workflowName,
-            detailsUrl: $0.detailsUrl
-          )
-        }
-      )
-      if !viewModel.sendPromptToActiveTerminal(forKey: session.id, prompt: prompt) {
-        viewModel.showTerminalWithPrompt(for: session, prompt: prompt)
-      }
-      viewModel.focusTerminal(forKey: session.id)
-    }
+    CIFailureFixAction.send(payload, session: session, viewModel: viewModel)
   }
 
   private func showTerminalWithPrompt(

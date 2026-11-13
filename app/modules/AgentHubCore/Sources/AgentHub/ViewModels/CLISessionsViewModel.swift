@@ -179,18 +179,33 @@ public final class CLISessionsViewModel {
   /// workflow and review links from silently restoring a closed session.
   public private(set) var archivedSessionIds: Set<String> = []
 
-  /// Session tabs open in the new shell for this provider, in tab order.
-  /// Nil until the persisted workspace state has been read this run, so a
-  /// window never mistakes "not read yet" for "no tabs".
+  /// Session tabs saved at the last run, for this provider. Nil until the
+  /// persisted workspace state has been read this run, so a window never
+  /// mistakes "not read yet" for "no tabs". Windows take it through
+  /// `claimRestoredOpenSessionTabIds()`.
   private(set) var restoredOpenSessionTabIds: [String]?
-  /// The ids saved with the workspace state. Set by the shell's tabs model.
+  @ObservationIgnored private var hasClaimedRestoredOpenSessionTabIds = false
+  /// The ids saved with the workspace state: the ordered union of every
+  /// window's tabs (`OpenSessionTabsAggregate`).
   @ObservationIgnored private var openSessionTabIds: [String] = []
+  @ObservationIgnored private var openSessionTabsAggregate = OpenSessionTabsAggregate()
 
-  /// Stores this provider's open tab ids and saves the workspace state
-  /// (gated on a successful read, like every workspace-state save).
-  func updateOpenSessionTabIds(_ ids: [String]) {
-    guard ids != openSessionTabIds else { return }
-    openSessionTabIds = ids
+  /// The saved tabs, handed to the first window that asks after the read.
+  /// Later windows get an empty list, so they never reopen tabs another
+  /// window has since closed. Nil while the read is still pending.
+  func claimRestoredOpenSessionTabIds() -> [String]? {
+    guard let restoredOpenSessionTabIds else { return nil }
+    guard !hasClaimedRestoredOpenSessionTabIds else { return [] }
+    hasClaimedRestoredOpenSessionTabIds = true
+    return restoredOpenSessionTabIds
+  }
+
+  /// Stores one window's open tab ids for this provider and saves the union
+  /// of all windows (gated on a successful read, like every workspace-state save).
+  func updateOpenSessionTabIds(_ ids: [String], window: UUID) {
+    let union = openSessionTabsAggregate.update(window: window, ids: ids)
+    guard union != openSessionTabIds else { return }
+    openSessionTabIds = union
     persistWorkspaceState()
   }
 
