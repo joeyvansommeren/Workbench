@@ -60,3 +60,17 @@ its checks icon once its detail has loaded (`checksByPullRequestID`).
 Breadcrumbs: `reviews scope: <x>`, `reviews pr: <repo>#<n>`, `reviews filters:
 open`, `reviews agent`, `reviews start review`, `reviews open session`.
 The legacy `GitHubReviewsView` is unchanged for the flag-off path.
+
+## P9: Sprint
+
+`.sprint` shows `SprintDestinationView` (`Jira/`), toolbar `SprintToolbarContent`
+(`Sprint/`): the sprint or cycle name and a days-left chip ("Sprint" when Linear
+has no active cycle). As in the prototype, Jira | Linear, All | Mine and Filters
+sit in the board's list head, not the toolbar. Jira and Linear map to the
+tracker-neutral `SprintColumnItem`s (`Sprint/SprintBoardItems.swift`), drawn by
+`SprintBoardView`: up to 4 equal columns, more scroll sideways with
+`containerRelativeFrame`; no GeometryReader. The ticket detail is a 380 pt
+trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
+`JiraTicketDetailView` / `LinearIssueDetailView`. With no saved tracker, Sprint
+opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
+`sprint tracker: …`, `sprint filter: …`, `sprint ticket: open|close|start …`.

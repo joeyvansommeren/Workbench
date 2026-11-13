@@ -52,7 +52,7 @@ struct ShellToolbar: View {
     case .reviews:
       ShellToolbarTitle(text: "Reviews")
     case .sprint:
-      ShellSprintToolbarContent()
+      SprintToolbarContent()
     }
   }
 }
@@ -101,24 +101,6 @@ private struct ShellSessionsToolbarContent: View {
       action: onNewSession
     )
     .help("New session  ⌘N")
-  }
-}
-
-private struct ShellSprintToolbarContent: View {
-  @Environment(WorkbenchShellModel.self) private var shellModel
-
-  var body: some View {
-    HStack(spacing: DesignTokens.Spacing.md) {
-      ShellToolbarTitle(text: "Sprint")
-      WorkbenchSegmentedControl(
-        selection: Binding(
-          get: { shellModel.sprintTracker },
-          set: { shellModel.setSprintTracker($0) }
-        ),
-        accessibilityIdentifier: "shell.sprintTracker"
-      )
-      .fixedSize()
-    }
   }
 }
 
