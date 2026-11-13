@@ -46,3 +46,18 @@ child. `ShellLayout.windowMinWidth` is 1288 while the legacy Reviews view is
 hosted: its `NavigationSplitView` sidebar (min 260) + divider + PR `HSplitView`
 (350 + divider + 380) = 992, plus the 288 shell sidebar and the 8 pt panel
 inset. P8 lowers it to 900 when it replaces Reviews.
+
+## P9: Sprint
+
+`.sprint` shows `SprintDestinationView` (`Jira/`), toolbar `SprintToolbarContent`
+(`Sprint/`): the sprint or cycle name and a days-left chip ("Sprint" when Linear
+has no active cycle). As in the prototype, Jira | Linear, All | Mine and Filters
+sit in the board's list head, not the toolbar. Jira and Linear map to the
+tracker-neutral `SprintColumnItem`s (`Sprint/SprintBoardItems.swift`), drawn by
+`SprintBoardView`: up to 4 equal columns, more scroll sideways with
+`containerRelativeFrame`; no GeometryReader. The ticket detail is a 380 pt
+trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
+`JiraTicketDetailView` / `LinearIssueDetailView`. With no saved tracker, Sprint
+opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
+`sprint tracker: …`, `sprint filter: …`, `sprint ticket: open|close|start …`.
+`SprintTracker.myOpenCount(jira:linear:)` is the Sprint sidebar count (P5).
