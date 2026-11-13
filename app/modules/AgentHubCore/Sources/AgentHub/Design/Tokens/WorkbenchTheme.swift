@@ -108,8 +108,11 @@ public enum PalettePreference: String, CaseIterable, Sendable, Identifiable {
 /// 1. Replaces `current` with the new theme.
 /// 2. Invalidates the dynamic `NSColor` cache so tokens resolve fresh.
 /// 3. Bumps `revision`, an observable counter that SwiftUI views can
-///    read (via `.id(registry.revision)` or `.onChange`) to redraw.
-/// 4. Re-applies `NSApp.appearance` to force AppKit to redraw.
+///    read (via `.wbRedrawsOnPaletteChange()` / `.id(registry.revision)`)
+///    to redraw.
+/// 4. Re-applies `NSApp.appearance` for the explicit light/dark case.
+///    The appearance toggle alone does not redraw SwiftUI colour tokens;
+///    views must also observe `revision` via `.wbRedrawsOnPaletteChange()`.
 ///
 /// The mechanism is in place now. A settings UI or test can call
 /// `setPalette(_:)` and windows redraw immediately.
@@ -143,9 +146,9 @@ public final class WorkbenchThemeRegistry {
     // Bump revision so observable SwiftUI dependents redraw.
     revision += 1
 
-    // Force AppKit to redraw existing windows by toggling appearance.
-    // Setting the same appearance value still triggers a
-    // `viewDidChangeEffectiveAppearance` pass.
+    // Re-apply NSApp.appearance for the explicit light/dark case.
+    // This does not redraw SwiftUI colour tokens on its own;
+    // views must also observe `revision` via `.wbRedrawsOnPaletteChange()`.
     // NSApp is nil outside a running app (unit tests), so guard instead of unwrapping.
     guard let app = NSApp else { return }
     let saved = app.appearance

@@ -168,6 +168,10 @@ struct AgentHubApp: App {
       // Split views have no toolbar toggle; View › Toggle Sidebar (⌃⌘S) replaces it.
       SidebarCommands()
 
+      #if DEBUG
+      ComponentGalleryCommands()
+      #endif
+
       CommandMenu("Navigate") {
         Button("Workflows") {
           AgentHubAppCommand.selectWorkspace(.workflows)
@@ -226,5 +230,28 @@ struct AgentHubApp: App {
         .agentHub(appDelegate.provider)
         .font(.geist(size: 13))
     }
+
+    #if DEBUG
+    Window("Component Gallery", id: "component-gallery") {
+      ComponentGallery()
+    }
+    .defaultSize(width: 1100, height: 800)
+    .commandsRemoved()
+    #endif
   }
 }
+
+#if DEBUG
+/// Debug builds only: Window › Component Gallery (⌥⌘G) opens the P2 component gallery.
+/// A `Window` scene with an id is not reachable without an explicit command.
+private struct ComponentGalleryCommands: Commands {
+  @Environment(\.openWindow) private var openWindow
+
+  var body: some Commands {
+    CommandGroup(after: .windowList) {
+      Button("Component Gallery") { openWindow(id: "component-gallery") }
+        .keyboardShortcut("g", modifiers: [.command, .option])
+    }
+  }
+}
+#endif
