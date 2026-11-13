@@ -305,6 +305,15 @@ public final class AgentHubProvider {
   /// Routes CI-failure notification taps into the monitoring UI
   public private(set) lazy var gitHubCIFailureActionRouter: GitHubCIFailureActionRouter = .init()
 
+  // MARK: - Session Navigation
+
+  /// Shared navigation model for the Sessions section. Both the legacy
+  /// `MultiProviderSessionsListView` and the new shell read and write this.
+  private(set) lazy var sessionNavigationModel: SessionNavigationModel = .init()
+
+  /// Shared action coordinator for session sheets, alerts and archive flows.
+  private(set) lazy var sessionsActionCoordinator: SessionsActionCoordinator = .init()
+
   // MARK: - Global Session Control Panel
 
   /// Routes global-panel session selections into the main sessions UI.
