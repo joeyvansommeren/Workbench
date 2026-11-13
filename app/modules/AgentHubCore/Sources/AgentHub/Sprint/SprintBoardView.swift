@@ -321,8 +321,7 @@ private struct SprintTicketFooterView: View {
       .help("Open session")
       .accessibilityLabel("Open session: \(providerName), \(presentation.accessibilityLabel)")
     case .pullRequest(let number, let isMerged):
-      Image(systemName: "arrow.triangle.pull")
-        .font(.system(size: DesignTokens.Size.iconSmall - 2))
+      PullRequestGlyph(size: DesignTokens.Size.iconSmall)
       // Verbatim: a PR number never gets a grouping separator ("#1.843").
       Text(verbatim: "#\(number)")
         .wbText(.codeSmall)
