@@ -21,6 +21,7 @@ struct JiraTicketDetailView: View {
   let pullRequests: [GitHubProjectPullRequest]?
   let isLoadingPullRequests: Bool
   let onRefreshPullRequests: () -> Void
+  let isStartingSession: Bool
   let onStart: (SessionProviderKind) -> Void
   let onOpenSession: (JiraLinkedSession) -> Void
   let onClose: () -> Void
@@ -45,6 +46,7 @@ struct JiraTicketDetailView: View {
           JiraPickUpCard(
             repositoryPath: $repositoryPath,
             repositories: repositories,
+            isStartingSession: isStartingSession,
             onStart: onStart
           )
           descriptionBlock
@@ -172,6 +174,7 @@ private struct JiraTicketFields: View {
 private struct JiraPickUpCard: View {
   @Binding var repositoryPath: String?
   let repositories: [SelectedRepository]
+  let isStartingSession: Bool
   let onStart: (SessionProviderKind) -> Void
 
   var body: some View {
@@ -224,10 +227,15 @@ private struct JiraPickUpCard: View {
     Button {
       onStart(provider)
     } label: {
-      Label("Start \(title)", systemImage: "play.fill")
+      HStack(spacing: 4) {
+        if isStartingSession {
+          ProgressView().controlSize(.small)
+        }
+        Label("Start \(title)", systemImage: "play.fill")
+      }
     }
     .buttonStyle(ProviderActionButtonStyle(provider: provider))
-    .disabled(repositoryPath == nil)
+    .disabled(repositoryPath == nil || isStartingSession)
   }
 }
 

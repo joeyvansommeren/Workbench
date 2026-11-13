@@ -18,6 +18,7 @@ struct ResourceLinksPanel<TrailingAccessory: View>: View {
   var currentPullRequest: GitHubPullRequest? = nil
   var onOpenCurrentPullRequest: ((GitHubPullRequest) -> Void)? = nil
   var localDiffSummary: LocalDiffSummary? = nil
+  var isCreatingPullRequest: Bool = false
   var onCreatePullRequest: (() -> Void)? = nil
   @ViewBuilder var trailingAccessory: () -> TrailingAccessory
 
@@ -65,6 +66,7 @@ struct ResourceLinksPanel<TrailingAccessory: View>: View {
                   let onCreatePullRequest {
           CreatePullRequestChip(
             summary: localDiffSummary,
+            isCreating: isCreatingPullRequest,
             action: onCreatePullRequest
           )
         }
@@ -190,14 +192,19 @@ private struct ResourceLinkChip: View {
 
 private struct CreatePullRequestChip: View {
   let summary: LocalDiffSummary
+  let isCreating: Bool
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
       HStack(spacing: 8) {
-        Image(systemName: "arrow.triangle.pull")
-          .font(.caption2)
-          .foregroundStyle(.green)
+        if isCreating {
+          ProgressView().controlSize(.small)
+        } else {
+          Image(systemName: "arrow.triangle.pull")
+            .font(.caption2)
+            .foregroundStyle(.green)
+        }
 
         Text("Create PR")
           .font(.geist(size: 10))
@@ -225,7 +232,8 @@ private struct CreatePullRequestChip: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .help("Ask the session to create a pull request for \(summary.fileCount) changed files")
+    .disabled(isCreating)
+    .help(isCreating ? "Creating pull request…" : "Ask the session to create a pull request for \(summary.fileCount) changed files")
     .accessibilityLabel("Create pull request for \(summary.fileCount) changed files")
   }
 

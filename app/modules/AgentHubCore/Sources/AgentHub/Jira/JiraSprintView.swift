@@ -113,6 +113,7 @@ struct JiraSprintView: View {
             column: column,
             selectedTicketKey: viewModel.selectedTicketKey,
             canStart: viewModel.repositoryPath != nil,
+            startingSessionKeys: viewModel.startingSessionKeys,
             linkedSessions: linkedSessions,
             onOpen: {
               viewModel.openTicket($0.key)
@@ -148,6 +149,7 @@ struct JiraSprintView: View {
         pullRequests: viewModel.pullRequestsByTicket[ticket.key],
         isLoadingPullRequests: viewModel.loadingPullRequestKeys.contains(ticket.key),
         onRefreshPullRequests: { viewModel.loadPullRequestsIfNeeded(for: ticket.key, force: true) },
+        isStartingSession: viewModel.startingSessionKeys.contains(ticket.key),
         onStart: { provider in start(ticket, provider) },
         onOpenSession: onOpenSession,
         onClose: viewModel.closeTicket
@@ -179,8 +181,12 @@ struct JiraSprintView: View {
       viewModel.openTicket(ticket.key)
       return
     }
+    guard viewModel.beginStartingSession(for: ticket.key) else { return }
     let detailed = viewModel.selectedTicket?.key == ticket.key ? viewModel.selectedTicket ?? ticket : ticket
-    Task { await onStart(detailed, provider, path) }
+    Task {
+      defer { viewModel.endStartingSession(for: ticket.key) }
+      await onStart(detailed, provider, path)
+    }
   }
 }
 

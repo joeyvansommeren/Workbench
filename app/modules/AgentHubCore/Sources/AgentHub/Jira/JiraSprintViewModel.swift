@@ -86,6 +86,8 @@ public final class JiraSprintViewModel {
   public private(set) var loadingPullRequestKeys: Set<String> = []
   /// Result of the last pick-up's move to In Progress, shown in the detail panel.
   public private(set) var statusNotice: StatusNotice?
+  /// Ticket keys with a session launch in flight (prevents double starts).
+  public private(set) var startingSessionKeys = Set<String>()
   private var loadedStatuses: [(name: String, category: String?)] = []
 
   // MARK: Sync
@@ -612,6 +614,17 @@ public final class JiraSprintViewModel {
   }
 
   // MARK: - Launch
+
+  /// Returns true if the ticket key was not already in flight and is now marked.
+  /// Returns false if a launch is already in progress for this key.
+  public func beginStartingSession(for key: String) -> Bool {
+    startingSessionKeys.insert(key).inserted
+  }
+
+  /// Clears the in-flight state for a ticket key.
+  public func endStartingSession(for key: String) {
+    startingSessionKeys.remove(key)
+  }
 
   /// Builds the agent prompt, using the full ticket (with description) when it can be read.
   public func launchPrompt(for ticket: JiraTicketSnapshot) async -> String {

@@ -13,6 +13,7 @@ struct JiraBoardColumnView: View {
   let column: JiraSprintViewModel.BoardColumn
   let selectedTicketKey: String?
   let canStart: Bool
+  let startingSessionKeys: Set<String>
   let linkedSessions: [String: [JiraLinkedSession]]
   let onOpen: (JiraTicketSnapshot) -> Void
   let onOpenSession: (JiraLinkedSession) -> Void
@@ -131,9 +132,9 @@ struct JiraBoardColumnView: View {
     Button("Open Details") { onOpen(ticket) }
     Divider()
     Button("Pick Up with Claude") { onStart(ticket, .claude) }
-      .disabled(!canStart)
+      .disabled(!canStart || startingSessionKeys.contains(ticket.key))
     Button("Pick Up with Codex") { onStart(ticket, .codex) }
-      .disabled(!canStart)
+      .disabled(!canStart || startingSessionKeys.contains(ticket.key))
     Divider()
     if let url = browseURL(ticket) {
       Button("Open in Jira") { NSWorkspace.shared.open(url) }

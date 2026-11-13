@@ -345,6 +345,7 @@ public struct MonitoringCardView: View {
         providerKind: providerKind,
         currentPullRequest: sessionGitHubQuickAccessViewModel.currentBranchPR,
         localDiffSummary: localDiffSummary,
+        isCreatingPullRequest: viewModel?.creatingPullRequestSessionIDs.contains(session.id) ?? false,
         onCreatePullRequest: createPullRequestFromSession
       ) {
         Button {
@@ -693,12 +694,19 @@ public struct MonitoringCardView: View {
 
   private func createPullRequestFromSession() {
     guard let viewModel else { return }
+    guard viewModel.beginCreatingPullRequest(for: session.id) else { return }
     let key = terminalKey ?? session.id
     contentMode = .terminal
     if !viewModel.sendPromptToActiveTerminal(forKey: key, prompt: Self.createPullRequestPrompt) {
       viewModel.showTerminalWithPrompt(for: session, prompt: Self.createPullRequestPrompt)
     }
     viewModel.focusTerminal(forKey: key)
+    // Clear after a short cooldown — the prompt has been sent synchronously, but
+    // keep the button disabled long enough to prevent an accidental double click.
+    Task {
+      try? await Task.sleep(for: .seconds(2))
+      viewModel.endCreatingPullRequest(for: session.id)
+    }
   }
 
   // MARK: - Header

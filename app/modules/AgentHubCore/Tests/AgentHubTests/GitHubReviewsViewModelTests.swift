@@ -905,4 +905,26 @@ struct GitHubReviewsViewModelTests {
     defaults.removePersistentDomain(forName: suiteName)
     return defaults
   }
+
+  @Test("Second review start for the same PR ID is rejected while the first is in flight")
+  func doubleReviewStartGuard() async {
+    let viewModel = GitHubReviewsViewModel(
+      service: GitHubProjectReviewServiceStub(),
+      sessionStore: nil,
+      userDefaults: isolatedDefaults())
+
+    #expect(viewModel.beginStartingReview(for: "PR-1") == true)
+    #expect(viewModel.startingReviewPRIDs.contains("PR-1"))
+
+    // A second attempt for the same PR must be rejected.
+    #expect(viewModel.beginStartingReview(for: "PR-1") == false)
+
+    // A different PR must still be allowed.
+    #expect(viewModel.beginStartingReview(for: "PR-2") == true)
+
+    // Clearing the PR allows starting again.
+    viewModel.endStartingReview(for: "PR-1")
+    #expect(!viewModel.startingReviewPRIDs.contains("PR-1"))
+    #expect(viewModel.beginStartingReview(for: "PR-1") == true)
+  }
 }
