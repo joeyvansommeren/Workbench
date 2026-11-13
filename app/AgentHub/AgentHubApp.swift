@@ -145,7 +145,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 struct AgentHubApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+  /// Which window root this process uses. Read once: the root view, the menus
+  /// and the window style stay fixed until relaunch. The launch argument
+  /// `-com.agenthub.features.appleShell YES|NO` overrides it (argument domain).
+  private let usesAppleShell: Bool
+
   init() {
+    usesAppleShell = AppleShellLaunchFlag.isEnabled
     // Must run before any terminal/watcher/subprocess spawns: Finder-launched
     // apps inherit a 256 open-file soft limit, which a busy hub exhausts.
     FileDescriptorLimits.raiseSoftLimit()
@@ -157,60 +163,7 @@ struct AgentHubApp: App {
   }
 
   var body: some Scene {
-    WindowGroup {
-      AgentHubOperationsView()
-        .agentHub(appDelegate.provider)
-        // Default for any Text without an explicit font, so nothing falls back to SF Pro.
-        .font(.geist(size: 13))
-    }
-    .windowStyle(.hiddenTitleBar)
-    .commands {
-      // Split views have no toolbar toggle; View › Toggle Sidebar (⌃⌘S) replaces it.
-      SidebarCommands()
-
-      #if DEBUG
-      ComponentGalleryCommands()
-      #endif
-
-      CommandMenu("Navigate") {
-        Button("Workflows") {
-          AgentHubAppCommand.selectWorkspace(.workflows)
-        }
-        .keyboardShortcut("1", modifiers: .command)
-
-        Button("Reviews") {
-          AgentHubAppCommand.selectWorkspace(.reviews)
-        }
-        .keyboardShortcut("2", modifiers: .command)
-
-        Button("Sessions") {
-          AgentHubAppCommand.selectWorkspace(.sessions)
-        }
-        .keyboardShortcut("3", modifiers: .command)
-
-        Button("Sprint") {
-          AgentHubAppCommand.selectWorkspace(.sprint)
-        }
-        .keyboardShortcut("4", modifiers: .command)
-
-        Button("Linear") {
-          AgentHubAppCommand.selectWorkspace(.linear)
-        }
-        .keyboardShortcut("5", modifiers: .command)
-
-        Divider()
-
-        Button("Resume Session by ID…") {
-          AgentHubAppCommand.resumeSessionByID()
-        }
-        .keyboardShortcut("r", modifiers: [.command, .shift])
-
-        Button("Archive Current Session") {
-          AgentHubAppCommand.archiveCurrentSession()
-        }
-        .keyboardShortcut("a", modifiers: [.command, .option])
-      }
-    }
+    mainWindow
 
     MenuBarExtra(
       isInserted: Binding(
@@ -238,6 +191,85 @@ struct AgentHubApp: App {
     .defaultSize(width: 1100, height: 800)
     .commandsRemoved()
     #endif
+  }
+
+  /// One window group for both roots: scenes cannot branch at this deployment
+  /// target, but views and commands can.
+  private var mainWindow: some Scene {
+    WindowGroup {
+      if usesAppleShell {
+        WorkbenchShellView()
+          .agentHub(appDelegate.provider)
+          // Default for any Text without an explicit style: Inter Display body.
+          .font(WorkbenchTextStyle.body.font())
+      } else {
+        AgentHubOperationsView()
+          .agentHub(appDelegate.provider)
+          // Default for any Text without an explicit font, so nothing falls back to SF Pro.
+          .font(.geist(size: 13))
+      }
+    }
+    // Both roots draw their own top bar. The new shell's is a 52 pt row
+    // (Variant B, AgentHubCore Shell/README.md).
+    .windowStyle(.hiddenTitleBar)
+    .commands {
+      if usesAppleShell {
+        ShellCommands()
+      } else {
+        LegacyWorkspaceCommands()
+      }
+
+      #if DEBUG
+      ComponentGalleryCommands()
+      #endif
+    }
+  }
+}
+
+/// The legacy root's menus, unchanged: View › Toggle Sidebar and Navigate.
+private struct LegacyWorkspaceCommands: Commands {
+  var body: some Commands {
+    // Split views have no toolbar toggle; View › Toggle Sidebar (⌃⌘S) replaces it.
+    SidebarCommands()
+
+    CommandMenu("Navigate") {
+      Button("Workflows") {
+        AgentHubAppCommand.selectWorkspace(.workflows)
+      }
+      .keyboardShortcut("1", modifiers: .command)
+
+      Button("Reviews") {
+        AgentHubAppCommand.selectWorkspace(.reviews)
+      }
+      .keyboardShortcut("2", modifiers: .command)
+
+      Button("Sessions") {
+        AgentHubAppCommand.selectWorkspace(.sessions)
+      }
+      .keyboardShortcut("3", modifiers: .command)
+
+      Button("Sprint") {
+        AgentHubAppCommand.selectWorkspace(.sprint)
+      }
+      .keyboardShortcut("4", modifiers: .command)
+
+      Button("Linear") {
+        AgentHubAppCommand.selectWorkspace(.linear)
+      }
+      .keyboardShortcut("5", modifiers: .command)
+
+      Divider()
+
+      Button("Resume Session by ID…") {
+        AgentHubAppCommand.resumeSessionByID()
+      }
+      .keyboardShortcut("r", modifiers: [.command, .shift])
+
+      Button("Archive Current Session") {
+        AgentHubAppCommand.archiveCurrentSession()
+      }
+      .keyboardShortcut("a", modifiers: [.command, .option])
+    }
   }
 }
 

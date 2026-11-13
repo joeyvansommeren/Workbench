@@ -156,6 +156,7 @@ let package = Package(
         .product(name: "CodeEditLanguages", package: "CodeEditLanguages"),
       ],
       path: "Sources/AgentHub",
+      exclude: ["Shell/README.md"],
       resources: [
         .copy("Design/Theme/BundledThemes"),
         .copy("Resources/ClaudeHook"),

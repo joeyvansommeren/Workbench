@@ -17,12 +17,13 @@ public struct SettingsView: View {
   @State private var aiConfigViewModel = AIConfigSettingsViewModel()
   @State private var isClaudeConfigurationExpanded = true
   @State private var isCodexConfigurationExpanded = true
-  @State private var pendingTerminalBackend: EmbeddedTerminalBackend?
-  @State private var showTerminalBackendRelaunchAlert = false
+  @State private var pendingRelaunch: PendingRelaunch?
+  @State private var showRelaunchAlert = false
   @State private var cliEnvironmentVariables = CLIEnvironmentOverrides.variables
   @State private var githubPromptLibrary = GitHubPromptLibrary.shared
 
   @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
+  @AppStorage(AgentHubDefaults.appleShellEnabled) private var appleShellEnabled = false
   @AppStorage(AgentHubDefaults.smartModeEnabled)
   private var smartModeEnabled: Bool = false
 
@@ -209,21 +210,21 @@ public struct SettingsView: View {
     }
     .alert(
       "Relaunch Workbench?",
-      isPresented: $showTerminalBackendRelaunchAlert,
-      presenting: pendingTerminalBackend
-    ) { backend in
+      isPresented: $showRelaunchAlert,
+      presenting: pendingRelaunch
+    ) { relaunch in
       Button("Cancel", role: .cancel) {
-        pendingTerminalBackend = nil
+        pendingRelaunch = nil
       }
       Button("Relaunch") {
-        terminalBackendRawValue = backend.rawValue
-        pendingTerminalBackend = nil
+        if case .terminalBackend(let backend) = relaunch {
+          terminalBackendRawValue = backend.rawValue
+        }
+        pendingRelaunch = nil
         agentHub?.relaunchApplication()
       }
-    } message: { backend in
-      Text(
-        "Switching to \(backend.label) requires relaunching Workbench. Running terminals will be closed during relaunch."
-      )
+    } message: { relaunch in
+      Text(relaunch.message)
     }
   }
 
@@ -238,6 +239,23 @@ public struct SettingsView: View {
 
   private var generalSettingsForm: some View {
     Form {
+      Section("Interface") {
+        // The shell is chosen once at launch (AgentHubApp), so a change needs a relaunch.
+        HStack {
+          settingsToggle(
+            title: "New interface",
+            description: "Relaunch to apply",
+            isOn: $appleShellEnabled
+          )
+          Spacer()
+          Button("Relaunch") {
+            pendingRelaunch = .interface
+            showRelaunchAlert = true
+          }
+          // Only useful when the choice differs from what this process runs.
+          .disabled(appleShellEnabled == AppleShellLaunchFlag.isEnabled)
+        }
+      }
       Section("Sessions") {
         settingsToggle(
           title: "Enable Chat",
@@ -688,12 +706,12 @@ public struct SettingsView: View {
         let requestedBackend = EmbeddedTerminalBackend(rawValue: newValue) ?? .ghostty
         guard requestedBackend != activeTerminalBackend else {
           terminalBackendRawValue = requestedBackend.rawValue
-          pendingTerminalBackend = nil
+          pendingRelaunch = nil
           return
         }
 
-        pendingTerminalBackend = requestedBackend
-        showTerminalBackendRelaunchAlert = true
+        pendingRelaunch = .terminalBackend(requestedBackend)
+        showRelaunchAlert = true
       }
     )
   }
@@ -824,6 +842,25 @@ private extension ElementInspectorDataLevel {
       "Legacy compact payload with the core styles and no DOM neighborhood context."
     case .full:
       "Expanded CSS capture with parent, sibling, and child context for deeper debugging."
+    }
+  }
+}
+
+// MARK: - Relaunch confirmation
+
+/// Why Settings asks to relaunch. Both reasons close running terminals.
+private enum PendingRelaunch {
+  case terminalBackend(EmbeddedTerminalBackend)
+  case interface
+
+  var message: String {
+    switch self {
+    case .terminalBackend(let backend):
+      return
+        "Switching to \(backend.label) requires relaunching Workbench. Running terminals will be closed during relaunch."
+    case .interface:
+      return
+        "Switching the interface requires relaunching Workbench. Running terminals will be closed during relaunch."
     }
   }
 }

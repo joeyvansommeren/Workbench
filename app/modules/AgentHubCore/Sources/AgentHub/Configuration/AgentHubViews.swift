@@ -111,15 +111,14 @@ public struct AgentHubOperationsView: View {
               claudeSessionsViewModel: agentHub.claudeSessionsViewModel,
               codexSessionsViewModel: agentHub.codexSessionsViewModel,
               onReview: { pullRequest, provider, template in
-                await startReview(
+                await launchActions(agentHub).startReview(
                   pullRequest,
                   provider: provider,
-                  template: template,
-                  agentHub: agentHub
+                  template: template
                 )
               },
               onOpenSession: { link in
-                openReviewSession(link, agentHub: agentHub)
+                launchActions(agentHub).openReviewSession(link)
               }
             )
           } else {
@@ -140,11 +139,10 @@ public struct AgentHubOperationsView: View {
                 isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
                 isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
                 onStart: { ticket, provider, repositoryPath in
-                  await startJiraTicket(
+                  await launchActions(agentHub).startJiraTicket(
                     ticket,
                     provider: provider,
-                    repositoryPath: repositoryPath,
-                    agentHub: agentHub
+                    repositoryPath: repositoryPath
                   )
                 },
                 onOpenSession: { agentHub.showSession($0) }
@@ -167,11 +165,10 @@ public struct AgentHubOperationsView: View {
               isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
               isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
               onStart: { issue, provider, repositoryPath in
-                await startLinearIssue(
+                await launchActions(agentHub).startLinearIssue(
                   issue,
                   provider: provider,
-                  repositoryPath: repositoryPath,
-                  agentHub: agentHub
+                  repositoryPath: repositoryPath
                 )
               },
               onOpenSession: { agentHub.showLinearSession($0) }
@@ -205,31 +202,13 @@ public struct AgentHubOperationsView: View {
       of: agentHub?.claudeSessionsViewModel.resolvedPendingSessionHistory ?? [:]
     ) { _, resolutions in
       guard let agentHub else { return }
-      Task {
-        await agentHub.gitHubReviewsViewModel.resolveReviewLaunches(
-          resolutions,
-          provider: .claude
-        )
-        applyReviewSessionTitles(provider: .claude, agentHub: agentHub)
-      }
-      for (sessionID, name) in agentHub.jiraSprintViewModel.takeSessionNames(resolved: resolutions) {
-        agentHub.claudeSessionsViewModel.setCustomName(name, forSessionId: sessionID)
-      }
+      launchActions(agentHub).handleResolvedPendingSessions(resolutions, provider: .claude)
     }
     .onChange(
       of: agentHub?.codexSessionsViewModel.resolvedPendingSessionHistory ?? [:]
     ) { _, resolutions in
       guard let agentHub else { return }
-      Task {
-        await agentHub.gitHubReviewsViewModel.resolveReviewLaunches(
-          resolutions,
-          provider: .codex
-        )
-        applyReviewSessionTitles(provider: .codex, agentHub: agentHub)
-      }
-      for (sessionID, name) in agentHub.jiraSprintViewModel.takeSessionNames(resolved: resolutions) {
-        agentHub.codexSessionsViewModel.setCustomName(name, forSessionId: sessionID)
-      }
+      launchActions(agentHub).handleResolvedPendingSessions(resolutions, provider: .codex)
     }
     .task {
       guard let agentHub else { return }
@@ -243,7 +222,7 @@ public struct AgentHubOperationsView: View {
     .sheet(isPresented: $isResumingByID) {
       if let agentHub {
         ResumeSessionByIDSheet(
-          onResume: { id in await resumeSession(id: id, agentHub: agentHub) },
+          onResume: { id in await launchActions(agentHub).resumeSession(id: id) },
           onDismiss: { isResumingByID = false }
         )
       }
@@ -311,217 +290,8 @@ public struct AgentHubOperationsView: View {
     section = .sessions
   }
 
-  private func startReview(
-    _ pullRequest: GitHubProjectPullRequest,
-    provider: SessionProviderKind,
-    template: GitHubPromptTemplate,
-    agentHub: AgentHubProvider
-  ) async {
-    guard let project = agentHub.gitHubReviewsViewModel.selectedProject,
-      let view = agentHub.gitHubReviewsViewModel.selectedView
-    else { return }
-
-    let repositories = WorktreeModuleResolver.mergedRepositories(
-      agentHub.claudeSessionsViewModel.selectedRepositories
-        + agentHub.codexSessionsViewModel.selectedRepositories
-    )
-    guard
-      let repositoryPath = localRepositoryPath(
-        named: pullRequest.repositoryName,
-        repositories: repositories
-      )
-    else {
-      agentHub.gitHubReviewsViewModel.presentLaunchError(
-        "No local checkout found for \(pullRequest.repositoryNameWithOwner). Add that repository in Sessions first."
-      )
-      return
-    }
-
-    let sessionsViewModel =
-      provider == .claude
-      ? agentHub.claudeSessionsViewModel
-      : agentHub.codexSessionsViewModel
-    let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(repositoryPath)
-    let target = WorktreeBranch(
-      name: pullRequest.title,
-      path: normalizedPath,
-      isWorktree: false,
-      isExpanded: true
-    )
-    let prompt = GitHubPromptLibrary.shared.renderedPrompt(
-      template: template,
-      context: GitHubPromptContext(
-        pullRequest: pullRequest,
-        project: project,
-        view: view,
-        provider: provider
-      )
-    )
-
-    sessionsViewModel.addRepository(at: normalizedPath)
-    guard
-      let pendingID = sessionsViewModel.startAutomatedSessionInHub(
-        target,
-        initialPrompt: prompt
-      )
-    else {
-      agentHub.gitHubReviewsViewModel.presentLaunchError(
-        "Could not start the \(provider.rawValue) pull request session."
-      )
-      return
-    }
-    await agentHub.gitHubReviewsViewModel.registerReviewLaunch(
-      for: pullRequest,
-      provider: provider,
-      pendingID: pendingID,
-      projectPath: normalizedPath
-    )
-    await agentHub.gitHubReviewsViewModel.resolveReviewLaunches(
-      sessionsViewModel.resolvedPendingSessionHistory,
-      provider: provider
-    )
-    applyReviewSessionTitles(provider: provider, agentHub: agentHub)
-  }
-
-  /// Looks the id up in Claude and Codex at once and opens whichever has it.
-  private func resumeSession(id: String, agentHub: AgentHubProvider) async -> Bool {
-    async let claude = agentHub.claudeSessionsViewModel.resumeSession(id: id)
-    async let codex = agentHub.codexSessionsViewModel.resumeSession(id: id)
-    let (claudeSession, codexSession) = await (claude, codex)
-    guard let session = claudeSession ?? codexSession else { return false }
-    let provider: SessionProviderKind = claudeSession != nil ? .claude : .codex
-    agentHub.globalSessionSelectionRouter.select(
-      providerKind: provider,
-      sessionId: session.id,
-      projectPath: session.projectPath,
-      session: session
-    )
-    section = .sessions
-    return true
-  }
-
-  private func startJiraTicket(
-    _ ticket: JiraTicketSnapshot,
-    provider: SessionProviderKind,
-    repositoryPath: String,
-    agentHub: AgentHubProvider
-  ) async {
-    let sessionsViewModel =
-      provider == .claude
-      ? agentHub.claudeSessionsViewModel
-      : agentHub.codexSessionsViewModel
-    let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(repositoryPath)
-    let prompt = await agentHub.jiraSprintViewModel.launchPrompt(for: ticket)
-
-    sessionsViewModel.addRepository(at: normalizedPath)
-    sessionsViewModel.startNewSessionInHub(
-      WorktreeBranch(
-        name: ticket.key,
-        path: normalizedPath,
-        isWorktree: false,
-        isExpanded: true
-      ),
-      initialPrompt: prompt
-    )
-    if let pendingID = sessionsViewModel.lastCreatedPendingId {
-      agentHub.jiraSprintViewModel.registerPendingSession(pendingID, for: ticket)
-    }
-    section = .sessions
-    // An agent picking up a To do ticket means work started.
-    await agentHub.jiraSprintViewModel.markInProgressIfNeeded(ticket.key)
-  }
-
-  private func startLinearIssue(
-    _ issue: LinearIssue,
-    provider: SessionProviderKind,
-    repositoryPath: String,
-    agentHub: AgentHubProvider
-  ) async {
-    let sessionsViewModel =
-      provider == .claude
-      ? agentHub.claudeSessionsViewModel
-      : agentHub.codexSessionsViewModel
-    let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(repositoryPath)
-    let prompt = await agentHub.linearViewModel.launchPrompt(for: issue)
-
-    sessionsViewModel.addRepository(at: normalizedPath)
-    sessionsViewModel.startNewSessionInHub(
-      WorktreeBranch(
-        name: issue.identifier,
-        path: normalizedPath,
-        isWorktree: false,
-        isExpanded: true
-      ),
-      initialPrompt: prompt
-    )
-    if let pendingID = sessionsViewModel.lastCreatedPendingId {
-      agentHub.linearViewModel.registerPendingSession(pendingID, for: issue)
-    }
-    section = .sessions
-    await agentHub.linearViewModel.markStartedIfNeeded(issue.id)
-  }
-
-  private func applyReviewSessionTitles(
-    provider: SessionProviderKind,
-    agentHub: AgentHubProvider
-  ) {
-    let sessionsViewModel =
-      provider == .claude
-      ? agentHub.claudeSessionsViewModel
-      : agentHub.codexSessionsViewModel
-    for (sessionID, title) in agentHub.gitHubReviewsViewModel.linkedSessionTitles(
-      provider: provider
-    ) {
-      sessionsViewModel.setCustomName(title, forSessionId: sessionID)
-    }
-  }
-
-  private func openReviewSession(
-    _ link: GitHubReviewSessionLink,
-    agentHub: AgentHubProvider
-  ) {
-    let sessionsViewModel =
-      link.provider == .claude
-      ? agentHub.claudeSessionsViewModel
-      : agentHub.codexSessionsViewModel
-    if !link.isPending, !sessionsViewModel.isMonitoring(sessionId: link.session.id) {
-      sessionsViewModel.startMonitoring(session: link.session)
-    }
-    agentHub.globalSessionSelectionRouter.select(
-      providerKind: link.provider,
-      sessionId: link.session.id,
-      projectPath: link.session.projectPath,
-      itemId: link.itemID,
-      session: link.isPending ? nil : link.session
-    )
-    section = .sessions
-  }
-
-  private func localRepositoryPath(
-    named repositoryName: String,
-    repositories: [SelectedRepository]
-  ) -> String? {
-    if let repository = repositories.first(where: {
-      $0.name.localizedCaseInsensitiveCompare(repositoryName) == .orderedSame
-        || URL(fileURLWithPath: $0.path).lastPathComponent
-          .localizedCaseInsensitiveCompare(repositoryName) == .orderedSame
-    }) {
-      return repository.path
-    }
-
-    let home = FileManager.default.homeDirectoryForCurrentUser.path
-    let candidates = [
-      "\(home)/LocalDocuments/Github/\(repositoryName)",
-      "\(home)/Documents/GitHub/\(repositoryName)",
-      "\(home)/Developer/\(repositoryName)",
-      "\(home)/Projects/\(repositoryName)",
-    ]
-    return candidates.first { candidate in
-      var isDirectory: ObjCBool = false
-      return FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory)
-        && isDirectory.boolValue
-        && FileManager.default.fileExists(atPath: "\(candidate)/.git")
-    }
+  private func launchActions(_ agentHub: AgentHubProvider) -> WorkspaceLaunchActions {
+    WorkspaceLaunchActions(agentHub: agentHub, showSessions: { section = .sessions })
   }
 }
 
@@ -693,7 +463,7 @@ private struct WorkspaceSwitcherBar: View {
 // MARK: - ResumeSessionByIDSheet
 
 /// Paste a session id (or a `claude --resume …` / `codex resume …` command).
-private struct ResumeSessionByIDSheet: View {
+struct ResumeSessionByIDSheet: View {
   let onResume: (String) async -> Bool
   let onDismiss: () -> Void
 

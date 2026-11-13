@@ -337,6 +337,30 @@ final class SessionNavigationModel {
     primarySessionId = nil
   }
 
+  /// Select a session row, clearing the module landing and workspace focus.
+  func selectSession(_ itemID: String) {
+    MainThreadStallMonitor.breadcrumb("nav: select \(itemID.prefix(20))")
+    workflowComparisonState.showStandaloneContent()
+    selectedWorkspaceID = nil
+    selectedModuleLandingPath = nil
+    primarySessionId = itemID
+  }
+
+  /// Selects the session a launch just created, then clears the view model's
+  /// one-shot `lastCreatedPendingId`. Safe to call at any time, so a launch
+  /// started while Sessions is off screen (Sprint, Reviews) is still selected.
+  /// Returns false when there is nothing to consume.
+  @discardableResult
+  func consumeCreatedPendingSession(
+    provider: SessionProviderKind,
+    viewModel: CLISessionsViewModel
+  ) -> Bool {
+    guard let pendingID = viewModel.lastCreatedPendingId else { return false }
+    selectPendingSession(provider: provider, pendingID: pendingID)
+    viewModel.lastCreatedPendingId = nil
+    return true
+  }
+
   /// React to a newly created pending session.
   func selectPendingSession(provider: SessionProviderKind, pendingID: UUID) {
     MainThreadStallMonitor.breadcrumb("nav: selectPending \(provider.rawValue)")
