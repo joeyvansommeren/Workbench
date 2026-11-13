@@ -101,15 +101,31 @@ public struct MultiProviderSessionsListView: View {
   @State private var launchExpandRequestID = 0
   @State private var pendingAddedModulePaths: [String] = []
 
-  // MARK: - Shared state (delegated to provider-owned models)
+  // MARK: - Shared state (per-window models via environment)
   //
-  // These computed properties proxy to `SessionNavigationModel` and
-  // `SessionsActionCoordinator` on the provider, making the models
-  // the single source of truth while every existing reference in this
-  // file keeps compiling unchanged.
+  // The models are owned as `@State` by `AgentHubOperationsView` (one set per
+  // window) and injected through environment keys. When the view is hosted
+  // standalone (e.g. the public `AgentHubSessionsView` without an operations
+  // view ancestor), local fallback instances keep the view functional.
 
-  private var navModel: SessionNavigationModel { agentHub!.sessionNavigationModel }
-  private var actionCoordinator: SessionsActionCoordinator { agentHub!.sessionsActionCoordinator }
+  @Environment(\.sessionNavigationModel) private var envNavModel
+  @Environment(\.sessionsActionCoordinator) private var envActionCoordinator
+  @State private var fallbackNavModel: SessionNavigationModel?
+  @State private var fallbackActionCoordinator: SessionsActionCoordinator?
+
+  private var navModel: SessionNavigationModel {
+    envNavModel ?? fallbackNavModel ?? {
+      let m = SessionNavigationModel()
+      // Cannot assign @State in a computed property; initialized in onAppear.
+      return m
+    }()
+  }
+  private var actionCoordinator: SessionsActionCoordinator {
+    envActionCoordinator ?? fallbackActionCoordinator ?? {
+      let c = SessionsActionCoordinator()
+      return c
+    }()
+  }
 
   private var primarySessionId: String? {
     get { navModel.primarySessionId }
@@ -264,6 +280,13 @@ public struct MultiProviderSessionsListView: View {
       commandPaletteOverlay
     }
     .onAppear {
+      // Ensure fallback models exist when no environment ancestor provides them.
+      if envNavModel == nil, fallbackNavModel == nil {
+        fallbackNavModel = SessionNavigationModel()
+      }
+      if envActionCoordinator == nil, fallbackActionCoordinator == nil {
+        fallbackActionCoordinator = SessionsActionCoordinator()
+      }
       if multiLaunchViewModel == nil {
         multiLaunchViewModel = makeLaunchViewModel()
       }
@@ -272,6 +295,10 @@ public struct MultiProviderSessionsListView: View {
       consumeGlobalWorkflowComparisonIfNeeded()
       ensurePrimarySelection()
       scheduleInitialGitHubStateRefreshIfNeeded()
+    }
+    .onDisappear {
+      actionCoordinator.clearTransientPresentation()
+      navModel.clearTransientNavigation()
     }
     .task {
       await workspaceViewModel.load()
@@ -315,6 +342,13 @@ public struct MultiProviderSessionsListView: View {
       syncPendingModuleRows()
       syncModuleLandingSelection()
       ensurePrimarySelection()
+    }
+    .onChange(of: selectedWorkspaceID) { old, new in
+      // When the selected workspace is cleared (e.g. closed), re-pick a
+      // session so the detail pane is not blank.
+      if old != nil, new == nil {
+        ensurePrimarySelection()
+      }
     }
     .onChange(of: orderedSelectedFolderPaths) { _, _ in
       syncPendingModuleRows()
@@ -2261,14 +2295,21 @@ public struct MultiProviderSessionsListView: View {
     navModel.handleResolvedSessions(resolutions, provider: provider, viewModel: viewModel)
   }
 
+  /// Maps `SelectedSessionItem`s to `SessionItemSnapshot`s.
+  private func sessionSnapshots(
+    from items: [SelectedSessionItem]? = nil
+  ) -> [SessionItemSnapshot] {
+    (items ?? selectedSessionItems).map {
+      SessionItemSnapshot(
+        id: $0.id, providerKind: $0.providerKind,
+        sessionId: $0.session.id, isPending: $0.isPending)
+    }
+  }
+
   private func ensurePrimarySelection(items prebuiltItems: [SelectedSessionItem]? = nil) {
     let items = (prebuiltItems ?? selectedSessionItems).filter { !isWorkspaceOwned($0) }
     navModel.ensurePrimarySelection(
-      items: items.map {
-        SessionItemSnapshot(
-          id: $0.id, providerKind: $0.providerKind,
-          sessionId: $0.session.id, isPending: $0.isPending)
-      },
+      items: sessionSnapshots(from: items),
       hasRouterRequest: agentHub?.globalSessionSelectionRouter.selectionRequest != nil
     )
   }
@@ -2279,12 +2320,8 @@ public struct MultiProviderSessionsListView: View {
       claudeViewModel: claudeViewModel,
       codexViewModel: codexViewModel,
       workspaceViewModel: workspaceViewModel,
-      selectedSessionItems: selectedSessionItems.map {
-        SessionItemSnapshot(
-          id: $0.id, providerKind: $0.providerKind,
-          sessionId: $0.session.id, isPending: $0.isPending)
-      },
-      colorScheme: colorScheme == .dark ? .dark : .light,
+      selectedSessionItems: { self.sessionSnapshots() },
+      colorScheme: colorScheme,
       setAuxiliaryShellVisible: { setAuxiliaryShellVisible($0) },
       selectedProviderRawSetter: { selectedProviderRaw = $0 }
     )
@@ -2295,7 +2332,7 @@ public struct MultiProviderSessionsListView: View {
       router: agentHub?.globalSessionSelectionRouter,
       claudeViewModel: claudeViewModel,
       codexViewModel: codexViewModel,
-      availableItemIDs: Set(selectedSessionItems.map(\.id))
+      availableItemIDs: { Set(self.selectedSessionItems.map(\.id)) }
     )
   }
 

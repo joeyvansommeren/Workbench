@@ -40,7 +40,8 @@ struct SessionNode: Identifiable, Equatable {
 
 /// One branch row in the tree.
 struct BranchNode: Identifiable, Equatable {
-  /// Composite id: "\(repoPath)|\(branchName)"
+  /// Composite id: `"\(repoPath)|\(worktreePath ?? "")|\(name)"` so identical
+  /// branch names in different worktrees cannot collide.
   let id: String
   let name: String
   let worktreePath: String?
@@ -269,9 +270,14 @@ enum SessionTreeProjection {
     // Build branch nodes.
     return orderedKeys.compactMap { key -> BranchNode? in
       guard let branchItems = grouped[key] else { return nil }
-      let branchId = "\(repoPath)|\(key.name)"
-      let isWorktree = key.worktreePath != nil
-        && branchWorktrees[key.name]?.isWorktree == true
+      // Include the worktree path so identical branch names in different
+      // worktrees produce distinct ids.
+      let branchId = "\(repoPath)|\(key.worktreePath ?? "")|\(key.name)"
+      // Derive isWorktree from the resolved worktree, not just name lookup.
+      let resolvedWorktree = key.worktreePath.flatMap { path in
+        branchWorktrees.values.first { $0.path == path }
+      }
+      let isWorktree = resolvedWorktree?.isWorktree == true
 
       // Sort by activity (newest first).
       let sorted = branchItems.sorted { lhs, rhs in
@@ -280,7 +286,7 @@ enum SessionTreeProjection {
       }
 
       // Paging: show loadMoreIncrement * pages sessions.
-      let pages = loadedPages[branchId] ?? 1
+      let pages = max(1, loadedPages[branchId] ?? 1)
       let visibleCount = min(sorted.count, pages * loadMoreIncrement)
       let visible = Array(sorted.prefix(visibleCount))
       let hasMore = visibleCount < sorted.count

@@ -8,6 +8,7 @@
 
 import AgentHubGitHub
 import Foundation
+import SwiftUI
 
 /// Holds the primary session selection, module landing, workspace focus,
 /// workflow comparison state, and session history navigation. Shared between
@@ -46,6 +47,17 @@ final class SessionNavigationModel {
 
   init() {}
 
+  // MARK: - Transient State
+
+  /// Resets navigation state that should not survive the Sessions view leaving
+  /// the tree. Selection (`primarySessionId`, `selectedWorkspaceID`,
+  /// `selectedModuleLandingPath`) intentionally persists within the window so a
+  /// tab-switch round-trip keeps the selection.
+  func clearTransientNavigation() {
+    scrollToSessionId = nil
+    didScheduleInitialGitHubStateRefresh = false
+  }
+
   // MARK: - History Navigation
 
   /// Moves the primary selection forward or backward through the navigable
@@ -69,6 +81,7 @@ final class SessionNavigationModel {
       return
     }
 
+    MainThreadStallMonitor.breadcrumb("nav: history \(direction) -> \(nextID.prefix(20))")
     workflowComparisonState.showStandaloneContent()
     selectedModuleLandingPath = nil
     primarySessionId = nextID
@@ -109,8 +122,8 @@ final class SessionNavigationModel {
     claudeViewModel: CLISessionsViewModel,
     codexViewModel: CLISessionsViewModel,
     workspaceViewModel: AgentWorkspacesViewModel,
-    selectedSessionItems: [SessionItemSnapshot],
-    colorScheme: ColorSchemeValue,
+    selectedSessionItems: () -> [SessionItemSnapshot],
+    colorScheme: ColorScheme,
     setAuxiliaryShellVisible: (Bool) -> Void,
     selectedProviderRawSetter: (String) -> Void
   ) -> Bool {
@@ -129,7 +142,8 @@ final class SessionNavigationModel {
       viewModel.ensureLiveMonitoring(sessionId: request.sessionId)
     }
 
-    guard let item = selectedSessionItems.first(where: { $0.id == request.itemId }) else {
+    // Evaluate after monitoring starts so newly-monitored sessions are visible.
+    guard let item = selectedSessionItems().first(where: { $0.id == request.itemId }) else {
       return false
     }
 
@@ -151,6 +165,7 @@ final class SessionNavigationModel {
       primarySessionId = request.itemId
     }
     scrollToSessionId = request.itemId
+    MainThreadStallMonitor.breadcrumb("nav: consumed selection \(request.itemId.prefix(20))")
     router.markConsumed(request)
     return true
   }
@@ -162,7 +177,7 @@ final class SessionNavigationModel {
     router: GlobalSessionSelectionRouter?,
     claudeViewModel: CLISessionsViewModel,
     codexViewModel: CLISessionsViewModel,
-    availableItemIDs: Set<String>
+    availableItemIDs: () -> Set<String>
   ) -> Bool {
     guard let router,
       let request = router.comparisonRequest ?? router.activeComparison
@@ -192,8 +207,10 @@ final class SessionNavigationModel {
       }
     }
 
-    guard availableItemIDs.contains(request.implementation.itemID),
-      availableItemIDs.contains(request.review.itemID)
+    // Evaluate after monitoring starts so newly-monitored sessions are visible.
+    let ids = availableItemIDs()
+    guard ids.contains(request.implementation.itemID),
+      ids.contains(request.review.itemID)
     else {
       return false
     }
@@ -203,6 +220,7 @@ final class SessionNavigationModel {
     workflowComparisonState.retainAndPresent(request)
     primarySessionId = request.implementation.itemID
     scrollToSessionId = request.implementation.itemID
+    MainThreadStallMonitor.breadcrumb("nav: consumed comparison \(request.id)")
     router.markConsumed(request)
     return true
   }
@@ -236,20 +254,6 @@ final class SessionNavigationModel {
 
   // MARK: - Workflow Comparison Helpers
 
-  var workflowComparisonBinding: Binding<WorkflowSessionComparisonRequest?> {
-    Binding(
-      get: { [weak self] in self?.workflowComparisonState.presentedComparison },
-      set: { [weak self] comparison in
-        guard let self else { return }
-        if let comparison {
-          self.workflowComparisonState.retainAndPresent(comparison)
-        } else {
-          self.closeWorkflowComparison(router: nil)
-        }
-      }
-    )
-  }
-
   func closeWorkflowComparison(router: GlobalSessionSelectionRouter?) {
     let comparison = workflowComparisonState.close()
     router?.closeComparison(comparison)
@@ -274,15 +278,22 @@ final class SessionNavigationModel {
       return
     }
 
+    // Mark only after we confirm the delayed task will actually run.
     didScheduleInitialGitHubStateRefresh = true
     Task { @MainActor in
       try? await Task.sleep(for: .seconds(3))
       guard !Task.isCancelled else { return }
+      let resolvedTargets = targets()
+      guard !resolvedTargets.isEmpty else {
+        // Nothing to refresh — allow a future mount to retry.
+        didScheduleInitialGitHubStateRefresh = false
+        return
+      }
       scheduleGitHubStateRefresh(
         limit: 12,
         showsIndicator: false,
         observationService: observationService,
-        targets: targets
+        targets: { resolvedTargets }
       )
     }
   }
@@ -304,16 +315,14 @@ final class SessionNavigationModel {
 
     isRefreshingGitHubStates = true
     Task { @MainActor in
+      defer { isRefreshingGitHubStates = false }
       for target in targetList {
         await observationService.refresh(target)
         try? await Task.sleep(for: .milliseconds(120))
       }
-      if !showsIndicator {
-        isRefreshingGitHubStates = false
-        return
+      if showsIndicator {
+        try? await Task.sleep(for: .milliseconds(350))
       }
-      try? await Task.sleep(for: .milliseconds(350))
-      isRefreshingGitHubStates = false
     }
   }
 
@@ -321,6 +330,7 @@ final class SessionNavigationModel {
 
   /// Select a module landing page, clearing other selections.
   func selectEmptyModule(_ path: String) {
+    MainThreadStallMonitor.breadcrumb("nav: selectEmptyModule")
     workflowComparisonState.showStandaloneContent()
     selectedWorkspaceID = nil
     selectedModuleLandingPath = path
@@ -329,6 +339,7 @@ final class SessionNavigationModel {
 
   /// React to a newly created pending session.
   func selectPendingSession(provider: SessionProviderKind, pendingID: UUID) {
+    MainThreadStallMonitor.breadcrumb("nav: selectPending \(provider.rawValue)")
     workflowComparisonState.showStandaloneContent()
     selectedWorkspaceID = nil
     primarySessionId = SidebarSessionItemID.pending(provider: provider, pendingId: pendingID)
@@ -346,17 +357,7 @@ struct SessionItemSnapshot {
   let isPending: Bool
 }
 
-// MARK: - ColorSchemeValue
-
-/// A simple value type so the navigation model does not import SwiftUI.
-enum ColorSchemeValue {
-  case light
-  case dark
-}
-
 // MARK: - Binding helper
-
-import SwiftUI
 
 extension SessionNavigationModel {
   /// Two-way binding for the workflow comparison, wired to the given router for

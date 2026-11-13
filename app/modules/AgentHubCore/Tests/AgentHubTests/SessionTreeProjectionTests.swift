@@ -195,6 +195,65 @@ struct SessionTreeProjectionTests {
 
     #expect(tree[0].tile == "W")
   }
+
+  // MARK: - Duplicate branch names across worktrees
+
+  @Test("Duplicate branch names in different worktrees get distinct branch node ids")
+  func duplicateBranchNamesDistinctIds() {
+    let repo = SelectedRepository(
+      path: "/tmp/Repo",
+      worktrees: [
+        WorktreeBranch(name: "main", path: "/tmp/Repo", isWorktree: false),
+        WorktreeBranch(name: "main", path: "/tmp/Repo-wt", isWorktree: true),
+      ]
+    )
+
+    let items = [
+      projectable("s1", projectPath: "/tmp/Repo", branchName: "main", timestamp: 200),
+      projectable("s2", projectPath: "/tmp/Repo-wt", branchName: "main", timestamp: 100),
+    ]
+
+    let tree = SessionTreeProjection.project(items: items, repositories: [repo])
+
+    #expect(tree.count == 1)
+    #expect(tree[0].branches.count == 2)
+    // Both have the name "main" but different ids.
+    #expect(tree[0].branches[0].id != tree[0].branches[1].id)
+    #expect(tree[0].branches[0].name == "main")
+    #expect(tree[0].branches[1].name == "main")
+  }
+
+  // MARK: - loadedPages clamping
+
+  @Test("loadedPages of 0 or negative is clamped to 1 page")
+  func loadedPagesClampedToOne() {
+    let repo = SelectedRepository(path: "/tmp/Repo")
+    var items: [ProjectableSessionItem] = []
+    for i in 0..<8 {
+      items.append(
+        projectable("s\(i)", projectPath: "/tmp/Repo", branchName: "main", timestamp: Double(100 - i))
+      )
+    }
+
+    let tree1 = SessionTreeProjection.project(items: items, repositories: [repo])
+    let branchId = tree1[0].branches[0].id
+
+    // loadedPages = 0 should still show 1 page (5 sessions)
+    let tree0 = SessionTreeProjection.project(
+      items: items,
+      repositories: [repo],
+      loadedPages: [branchId: 0]
+    )
+    #expect(tree0[0].branches[0].sessions.count == 5)
+
+    // loadedPages = -1 should also be clamped
+    let treeNeg = SessionTreeProjection.project(
+      items: items,
+      repositories: [repo],
+      loadedPages: [branchId: -1]
+    )
+    #expect(treeNeg[0].branches[0].sessions.count == 5)
+  }
 }
 
 // MARK: - Helpers

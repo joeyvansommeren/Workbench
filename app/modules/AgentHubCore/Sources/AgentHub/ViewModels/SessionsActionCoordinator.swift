@@ -89,6 +89,22 @@ final class SessionsActionCoordinator {
 
   init() {}
 
+  // MARK: - Transient State
+
+  /// Resets all sheet, alert and undo state so stale presentation does not
+  /// resurface when the Sessions view re-enters the tree.
+  func clearTransientPresentation() {
+    archiveUndo = nil
+    createWorktreeContext = nil
+    startSessionSheetContext = nil
+    gitHubSheetItem = nil
+    projectDetailsSheetItem = nil
+    sessionFileSheetItem = nil
+    removeConfirmation = nil
+    worktreeModuleDeleteConfirmation = nil
+    workspacePendingCloseID = nil
+  }
+
   // MARK: - Archive
 
   /// Archives sessions immediately; the undo toast is the safety net.
@@ -125,7 +141,7 @@ final class SessionsActionCoordinator {
     let title: String
     if archivable.count == 1, let item = archivable.first {
       let name = customNameForItem(item) ?? item.session.slug ?? item.session.shortId
-      title = "Archived \"\(name)\""
+      title = "Archived \u{201C}\(name)\u{201D}"
     } else {
       title = "Archived \(archivable.count) sessions\(groupName.map { " in \($0)" } ?? "")"
     }
@@ -420,7 +436,8 @@ final class SessionsActionCoordinator {
     workspaceViewModel: AgentWorkspacesViewModel,
     navigationModel: SessionNavigationModel
   ) {
-    if navigationModel.selectedWorkspaceID == workspaceID {
+    let wasSelected = navigationModel.selectedWorkspaceID == workspaceID
+    if wasSelected {
       navigationModel.selectedWorkspaceID = nil
     }
     Task {

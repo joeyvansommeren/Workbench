@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import Testing
@@ -7,7 +8,7 @@ import Testing
 @Suite("Sessions action coordinator")
 @MainActor
 struct SessionsActionCoordinatorTests {
-  @Test("Archive sets the undo toast with a single session title")
+  @Test("Archive sets the undo toast with a single session title using curly quotes")
   func archiveSetsUndoSingleSession() {
     let coordinator = SessionsActionCoordinator()
     let session = CLISession(id: "s1", projectPath: "/tmp/Repo")
@@ -33,7 +34,7 @@ struct SessionsActionCoordinatorTests {
     )
 
     #expect(coordinator.archiveUndo != nil)
-    #expect(coordinator.archiveUndo?.title == "Archived \"my session\"")
+    #expect(coordinator.archiveUndo?.title == "Archived \u{201C}my session\u{201D}")
     #expect(coordinator.archiveUndo?.entries.count == 1)
   }
 
@@ -181,6 +182,85 @@ struct SessionsActionCoordinatorTests {
     // With no custom name, slug, or shortId, it falls back to shortId.
     #expect(coordinator.archiveUndo?.title.hasPrefix("Archived") == true)
   }
+
+  // MARK: - Clear Transient Presentation
+
+  @Test("Clear transient presentation resets all sheets and undo")
+  func clearTransientPresentation() {
+    let coordinator = SessionsActionCoordinator()
+    coordinator.archiveUndo = ArchivedSessionsUndo(
+      entries: [
+        ArchivedSessionsUndo.Entry(
+          provider: .claude,
+          session: CLISession(id: "s1", projectPath: "/tmp"),
+          wasPinned: false
+        ),
+      ],
+      title: "Archived"
+    )
+    coordinator.workspacePendingCloseID = "ws-1"
+    coordinator.removeConfirmation = RemoveConfirmation(
+      title: "Remove?", message: "msg", action: {}
+    )
+
+    coordinator.clearTransientPresentation()
+
+    #expect(coordinator.archiveUndo == nil)
+    #expect(coordinator.workspacePendingCloseID == nil)
+    #expect(coordinator.removeConfirmation == nil)
+    #expect(coordinator.createWorktreeContext == nil)
+    #expect(coordinator.startSessionSheetContext == nil)
+    #expect(coordinator.gitHubSheetItem == nil)
+    #expect(coordinator.projectDetailsSheetItem == nil)
+    #expect(coordinator.worktreeModuleDeleteConfirmation == nil)
+  }
+
+  // MARK: - Remove Worktree Module Focus
+
+  @Test("removeWorktreeModuleFocus clears matching landing path")
+  func removeWorktreeModuleFocusClearsLanding() {
+    let coordinator = SessionsActionCoordinator()
+    let nav = SessionNavigationModel()
+    let claudeVM = makeTestViewModel()
+    let codexVM = makeTestViewModel()
+    let workspaceVM = makeTestWorkspaceViewModel()
+
+    let wt = WorktreeBranch(name: "feature", path: "/tmp/Repo-feature", isWorktree: true)
+    // Must match the normalized path (no trailing slash).
+    nav.selectedModuleLandingPath = "/tmp/Repo-feature"
+
+    coordinator.removeWorktreeModuleFocus(
+      wt,
+      claudeViewModel: claudeVM,
+      codexViewModel: codexVM,
+      workspaceViewModel: workspaceVM,
+      navigationModel: nav
+    )
+
+    #expect(nav.selectedModuleLandingPath == nil)
+  }
+
+  @Test("removeWorktreeModuleFocus leaves unrelated landing path")
+  func removeWorktreeModuleFocusLeavesUnrelated() {
+    let coordinator = SessionsActionCoordinator()
+    let nav = SessionNavigationModel()
+    let claudeVM = makeTestViewModel()
+    let codexVM = makeTestViewModel()
+    let workspaceVM = makeTestWorkspaceViewModel()
+
+    let wt = WorktreeBranch(name: "feature", path: "/tmp/Repo-feature", isWorktree: true)
+    nav.selectedModuleLandingPath = "/tmp/OtherRepo"
+
+    coordinator.removeWorktreeModuleFocus(
+      wt,
+      claudeViewModel: claudeVM,
+      codexViewModel: codexVM,
+      workspaceViewModel: workspaceVM,
+      navigationModel: nav
+    )
+
+    #expect(nav.selectedModuleLandingPath == "/tmp/OtherRepo")
+  }
 }
 
 // MARK: - Helpers
@@ -194,6 +274,16 @@ private func makeTestViewModel() -> CLISessionsViewModel {
     cliConfiguration: CLICommandConfiguration(command: "claude", mode: .claude),
     providerKind: .claude,
     approvalNotificationService: CoordTestApprovalNotificationService()
+  )
+}
+
+@MainActor
+private func makeTestWorkspaceViewModel() -> AgentWorkspacesViewModel {
+  AgentWorkspacesViewModel(
+    store: nil,
+    metadataStore: nil,
+    terminalSurfaceFactory: CoordTestTerminalSurfaceFactory(),
+    sessionCoordinator: CoordTestSessionCoordinator()
   )
 }
 
@@ -229,4 +319,46 @@ private final class CoordTestApprovalNotificationService: ApprovalNotificationSe
     sessionId: String, toolName: String, projectPath: String?,
     model: String?, lastMessage: String?
   ) {}
+}
+
+private final class CoordTestTerminalSurfaceFactory: EmbeddedTerminalSurfaceFactory {
+  func makeSurface(for backend: EmbeddedTerminalBackend) -> any EmbeddedTerminalSurface {
+    CoordTestTerminalSurface()
+  }
+}
+
+private final class CoordTestTerminalSurface: NSView, EmbeddedTerminalSurface {
+  var view: NSView { self }
+  var currentProcessPID: Int32?
+  var onUserInteraction: (() -> Void)?
+  var onRequestShowEditor: (() -> Void)?
+  var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)?
+  func updateContext(terminalSessionKey: String?, sessionViewModel: CLISessionsViewModel?) {}
+  func configure(
+    sessionId: String?, projectPath: String, cliConfiguration: CLICommandConfiguration,
+    initialPrompt: String?, initialInputText: String?, launchContext: String?,
+    isDark: Bool, dangerouslySkipPermissions: Bool, permissionModePlan: Bool,
+    worktreeName: String?, metadataStore: SessionMetadataStore?
+  ) {}
+  func configureShell(projectPath: String, isDark: Bool, shellPath: String?) {}
+  func restart(sessionId: String?, projectPath: String, cliConfiguration: CLICommandConfiguration) {}
+  func terminateProcess() {}
+  func resetPromptDeliveryFlag() {}
+  func sendPromptIfNeeded(_ prompt: String) {}
+  func submitPromptImmediately(_ prompt: String) -> Bool { false }
+  func typeText(_ text: String) {}
+  func typeInitialTextIfNeeded(_ text: String) {}
+  func syncAppearance(isDark: Bool, fontSize: CGFloat, fontFamily: String, theme: RuntimeTheme?) {}
+  func focus() {}
+}
+
+private final class CoordTestSessionCoordinator: AgentWorkspaceSessionCoordinating {
+  func cliConfiguration(for provider: SessionProviderKind) -> CLICommandConfiguration {
+    CLICommandConfiguration(command: "claude", mode: .claude)
+  }
+  func monitorDetectedSession(_ result: AccessorySessionDetectionResult) async {}
+  func restorePersistedSessions(_ references: [AgentWorkspaceSessionReference]) async {}
+  func activity(for links: [AgentWorkspaceSessionLink]) -> AgentWorkspaceActivity {
+    .idle
+  }
 }
