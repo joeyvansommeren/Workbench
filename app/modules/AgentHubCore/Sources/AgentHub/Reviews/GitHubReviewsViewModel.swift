@@ -53,6 +53,8 @@ public final class GitHubReviewsViewModel {
   public private(set) var errorMessage: String?
   private(set) var recoveryIssue: GitHubReviewRecoveryIssue?
   public private(set) var sessionLinkErrorMessage: String?
+  /// Pull request IDs with a review session launch in flight (prevents double starts).
+  public private(set) var startingReviewPRIDs = Set<String>()
 
   // Table state lives here, not in the view: the Reviews view is rebuilt every
   // time the user comes back from a session, and @State would reset the order.
@@ -591,5 +593,17 @@ public final class GitHubReviewsViewModel {
 
   private func cacheKey(projectID: String, viewID: String) -> String {
     "\(projectID)::\(viewID)"
+  }
+
+  // MARK: - Session launch guard
+
+  /// Returns true if the pull request ID was not already in flight and is now marked.
+  public func beginStartingReview(for prID: String) -> Bool {
+    startingReviewPRIDs.insert(prID).inserted
+  }
+
+  /// Clears the in-flight state for a pull request ID.
+  public func endStartingReview(for prID: String) {
+    startingReviewPRIDs.remove(prID)
   }
 }

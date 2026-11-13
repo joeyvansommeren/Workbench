@@ -810,6 +810,19 @@ public final class CLISessionsViewModel {
     return text
   }
 
+  // MARK: - Create PR guard
+
+  /// Returns true if the session was not already creating a PR and is now marked.
+  public func beginCreatingPullRequest(for sessionID: String) -> Bool {
+    creatingPullRequestSessionIDs.insert(sessionID).inserted
+  }
+
+  /// Clears the create-PR in-flight state for a session. The caller should use a
+  /// short delay so the button stays disabled long enough to prevent double sends.
+  public func endCreatingPullRequest(for sessionID: String) {
+    creatingPullRequestSessionIDs.remove(sessionID)
+  }
+
   public func sendPromptToActiveTerminal(forKey key: String, prompt: String) -> Bool {
     guard let terminal = activeTerminals[key] else {
       return false
@@ -1947,6 +1960,9 @@ public final class CLISessionsViewModel {
 
   /// Cached project-level local/branch diff summaries keyed by normalized project path.
   public private(set) var localDiffSummaries: [String: LocalDiffSummary] = [:]
+
+  /// Session IDs with a "create PR" command in flight (prevents double sends).
+  public private(set) var creatingPullRequestSessionIDs = Set<String>()
 
   /// Combine cancellables for monitoring subscriptions (keyed by session ID)
   private var monitoringCancellables: [String: AnyCancellable] = [:]

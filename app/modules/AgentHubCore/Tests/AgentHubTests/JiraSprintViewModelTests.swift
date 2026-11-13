@@ -268,6 +268,26 @@ struct JiraSprintViewModelTests {
     #expect(!fallback.contains("Description:"))
   }
 
+  @Test("Second start for the same ticket key is rejected while the first is in flight")
+  func doubleStartGuard() async {
+    let viewModel = JiraSprintViewModel(
+      service: MockJiraSprintService(tickets: Self.sprintTickets), userDefaults: Self.makeDefaults())
+
+    #expect(viewModel.beginStartingSession(for: "XFA-1") == true)
+    #expect(viewModel.startingSessionKeys.contains("XFA-1"))
+
+    // A second attempt for the same key must be rejected.
+    #expect(viewModel.beginStartingSession(for: "XFA-1") == false)
+
+    // A different key must still be allowed.
+    #expect(viewModel.beginStartingSession(for: "XFA-2") == true)
+
+    // Clearing the key allows starting again.
+    viewModel.endStartingSession(for: "XFA-1")
+    #expect(!viewModel.startingSessionKeys.contains("XFA-1"))
+    #expect(viewModel.beginStartingSession(for: "XFA-1") == true)
+  }
+
   private static let sprintTickets = [
     ticket("XFA-1", "Todo mine", status: "To Do", category: "new", assignee: me),
     ticket("XFA-2", "Busy", status: "In Progress", category: "indeterminate", assignee: gijs),

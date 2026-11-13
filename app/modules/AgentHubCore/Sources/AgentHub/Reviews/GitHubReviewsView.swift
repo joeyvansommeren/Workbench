@@ -94,7 +94,11 @@ struct GitHubReviewsView: View {
           customMessageContext = nil
           let template = GitHubPromptLibrary.customMessageTemplate(
             message: message, includePullRequestContext: includeContext)
-          Task { await onReview(context.pullRequest, context.provider, template) }
+          guard viewModel.beginStartingReview(for: context.pullRequest.id) else { return }
+          Task {
+            defer { viewModel.endStartingReview(for: context.pullRequest.id) }
+            await onReview(context.pullRequest, context.provider, template)
+          }
         }
       )
     }
@@ -660,10 +664,15 @@ struct GitHubReviewsView: View {
     provider: SessionProviderKind,
     pullRequest: GitHubProjectPullRequest
   ) -> some View {
-    Menu {
+    let isStarting = viewModel.startingReviewPRIDs.contains(pullRequest.id)
+    return Menu {
       ForEach(promptLibrary.templates) { template in
         Button(template.name) {
-          Task { await onReview(pullRequest, provider, template) }
+          guard viewModel.beginStartingReview(for: pullRequest.id) else { return }
+          Task {
+            defer { viewModel.endStartingReview(for: pullRequest.id) }
+            await onReview(pullRequest, provider, template)
+          }
         }
       }
       Divider()
@@ -672,11 +681,17 @@ struct GitHubReviewsView: View {
           pullRequest: pullRequest, provider: provider)
       }
     } label: {
-      Text(provider.rawValue)
+      HStack(spacing: 4) {
+        if isStarting {
+          ProgressView().controlSize(.small)
+        }
+        Text(provider.rawValue)
+      }
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
-    .help("Choose a prompt to run with \(provider.rawValue)")
+    .disabled(isStarting)
+    .help(isStarting ? "Starting session…" : "Choose a prompt to run with \(provider.rawValue)")
   }
 
   /// One action for every visible pull request that no session works on yet,
@@ -703,13 +718,15 @@ struct GitHubReviewsView: View {
       )
     }
     .menuStyle(.borderlessButton)
-    .disabled(unlinked.isEmpty)
+    .disabled(unlinked.isEmpty || !viewModel.startingReviewPRIDs.isEmpty)
     .opacity(unlinked.isEmpty ? 0 : 1)
     .help(
-      viewModel.viewerLogin == nil
-        ? "Determining your GitHub account…"
-        : unlinked.isEmpty
-          ? "Every pull request by someone else already has a session"
+      !viewModel.startingReviewPRIDs.isEmpty
+        ? "Sessions are being started…"
+        : viewModel.viewerLogin == nil
+          ? "Determining your GitHub account…"
+          : unlinked.isEmpty
+            ? "Every pull request by someone else already has a session"
           : "Start one session per pull request by someone else that has no linked session yet (yours are skipped)")
   }
 
@@ -761,6 +778,8 @@ struct GitHubReviewsView: View {
     Task {
       // Sequential: each launch registers its session link before the next starts.
       for pullRequest in launch.pullRequests {
+        guard viewModel.beginStartingReview(for: pullRequest.id) else { continue }
+        defer { viewModel.endStartingReview(for: pullRequest.id) }
         await onReview(pullRequest, launch.provider, launch.template)
       }
     }
