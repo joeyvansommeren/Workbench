@@ -795,10 +795,11 @@ struct GitHubReviewsView: View {
 
   private func reviewCountLabel(visible: Int) -> String {
     let total = viewModel.pullRequests.count
+    let label = total == 1 ? "pull request" : "pull requests"
     guard !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      return "\(total) pull requests"
+      return "\(total) \(label)"
     }
-    return "\(visible) of \(total) pull requests"
+    return "\(visible) of \(total) \(label)"
   }
 
   @ViewBuilder

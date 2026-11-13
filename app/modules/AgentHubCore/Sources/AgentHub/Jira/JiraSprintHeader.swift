@@ -80,6 +80,7 @@ struct JiraSprintHeader: View {
     .buttonStyle(.borderless)
     .disabled(viewModel.state == .loading)
     .help("Refresh sprint")
+    .accessibilityLabel("Refresh sprint")
     .keyboardShortcut("r", modifiers: .command)
   }
 }
@@ -154,7 +155,8 @@ private struct JiraSprintSwitcher: View {
         parts.append("not started")
       }
     }
-    parts.append("\(viewModel.sprintTickets.count) tickets")
+    let ticketCount = viewModel.sprintTickets.count
+    parts.append("\(ticketCount) \(ticketCount == 1 ? "ticket" : "tickets")")
     return parts.joined(separator: " · ")
   }
 
@@ -266,6 +268,6 @@ private struct JiraAssigneeChip: View {
         .contentShape(Circle())
     }
     .buttonStyle(.plain)
-    .help("\(assignee.name)\(isMe ? " (you)" : "") · \(assignee.ticketCount) tickets")
+    .help("\(assignee.name)\(isMe ? " (you)" : "") · \(assignee.ticketCount) \(assignee.ticketCount == 1 ? "ticket" : "tickets")")
   }
 }

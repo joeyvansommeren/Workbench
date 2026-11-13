@@ -1418,7 +1418,7 @@ public final class AgentWorkflowDashboardViewModel {
             provider: assignment.provider,
             role: .reviewer,
             roleConfidence: .high,
-            roleReason: "Started by AgentHub as the independent reviewer"
+            roleReason: "Started by Workbench as the independent reviewer"
           )
         } else if implementerIDs.contains(assignment.id) {
           adjusted = DetectedAgentSession(
@@ -1426,7 +1426,7 @@ public final class AgentWorkflowDashboardViewModel {
             provider: assignment.provider,
             role: .implementer,
             roleConfidence: .high,
-            roleReason: "Selected by AgentHub as the implementation session"
+            roleReason: "Selected by Workbench as the implementation session"
           )
         } else {
           adjusted = assignment

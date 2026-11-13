@@ -208,7 +208,7 @@ public struct SettingsView: View {
       applyingThemeSelectionId = nil
     }
     .alert(
-      "Relaunch AgentHub?",
+      "Relaunch Workbench?",
       isPresented: $showTerminalBackendRelaunchAlert,
       presenting: pendingTerminalBackend
     ) { backend in
@@ -222,7 +222,7 @@ public struct SettingsView: View {
       }
     } message: { backend in
       Text(
-        "Switching to \(backend.label) requires relaunching AgentHub. Running terminals will be closed during relaunch."
+        "Switching to \(backend.label) requires relaunching Workbench. Running terminals will be closed during relaunch."
       )
     }
   }
@@ -297,7 +297,7 @@ public struct SettingsView: View {
       Section("Claude Code integration") {
         settingsToggle(
           title: "Enable approval hooks",
-          description: "Detects pending Edit/Bash/etc. approvals in real time. Installs a hook into each monitored project's .claude/settings.local.json (gitignored) only while AgentHub is actively watching the session.",
+          description: "Detects pending Edit/Bash/etc. approvals in real time. Installs a hook into each monitored project's .claude/settings.local.json (gitignored) only while Workbench is actively watching the session.",
           isOn: $claudeApprovalHooksEnabled
         )
         .onChange(of: claudeApprovalHooksEnabled) { _, newValue in

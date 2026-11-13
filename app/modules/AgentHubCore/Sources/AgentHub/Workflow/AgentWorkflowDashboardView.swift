@@ -1022,6 +1022,7 @@ private struct DetectedAgentSessionRow: View {
       .menuStyle(.borderlessButton)
       .fixedSize()
       .help("Session actions")
+      .accessibilityLabel("Session actions")
     }
     .padding(.vertical, DesignTokens.Spacing.xs)
     .accessibilityElement(children: .contain)

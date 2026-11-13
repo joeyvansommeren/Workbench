@@ -38,9 +38,9 @@ private enum QuickFileSearchPhase: Equatable {
       case .ready:
         return "Local fallback is ready if Spotlight has no indexed match."
       case .building:
-        return "AgentHub is also building a local fallback for unindexed files."
+        return "Workbench is also building a local fallback for unindexed files."
       case .idle:
-        return "AgentHub will build a local fallback if Spotlight has no indexed match."
+        return "Workbench will build a local fallback if Spotlight has no indexed match."
       }
     case .warmingLocalIndex:
       return "Spotlight is taking longer than usual; the local scanner is catching up."

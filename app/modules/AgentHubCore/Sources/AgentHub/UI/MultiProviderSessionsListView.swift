@@ -1342,9 +1342,9 @@ public struct MultiProviderSessionsListView: View {
     if sessionCount > 0 {
       let threadLabel = sessionCount == 1 ? "thread" : "threads"
       return "This will archive \(sessionCount) focused \(threadLabel) "
-        + "and stop focusing \(name) in AgentHub. The worktree stays on disk."
+        + "and stop focusing \(name) in Workbench. The worktree stays on disk."
     }
-    return "This will stop focusing \(name) in AgentHub. The worktree stays on disk."
+    return "This will stop focusing \(name) in Workbench. The worktree stays on disk."
   }
 
   private func isTrackedRepositoryModule(_ modulePath: String) -> Bool {
@@ -1638,7 +1638,7 @@ public struct MultiProviderSessionsListView: View {
                       : {
                         archiveSessions(group.items, groupName: group.displayName)
                       },
-                    removeTitle: worktreeModule == nil ? "Remove" : "Remove from AgentHub",
+                    removeTitle: worktreeModule == nil ? "Remove" : "Remove from Workbench",
                     onRemove: section.isFolderGroup
                       ? nil
                       : removeAction(
@@ -2093,7 +2093,7 @@ public struct MultiProviderSessionsListView: View {
       .help("About Browse all Sessions")
       .popover(isPresented: $showBrowseInfo, arrowEdge: isBrowseExpanded ? .bottom : .top) {
         Text(
-          "Find all local Claude and Codex sessions started from the terminal and bring them into AgentHub."
+          "Find all local Claude and Codex sessions started from the terminal and bring them into Workbench."
         )
         .font(.geist(size: 12))
         .foregroundColor(.secondary)
