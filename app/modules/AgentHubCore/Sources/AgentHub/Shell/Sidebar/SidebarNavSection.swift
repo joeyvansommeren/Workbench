@@ -43,7 +43,7 @@ struct SidebarNavSection: View {
     // re-render the sidebar.
     let tracker = shellModel.sprintTracker
     return SidebarNavCounts(
-      reviewQueueCount: agentHub.gitHubReviewsViewModel.pullRequests.count,
+      reviewQueueCount: agentHub.gitHubReviewsViewModel.count(for: .requested),
       tracker: tracker,
       jiraOpenTicketCount: tracker == .jira ? agentHub.jiraSprintViewModel.myOpenTicketCount : 0,
       linearOpenIssueCount: tracker == .linear ? agentHub.linearViewModel.myOpenIssueCount : 0

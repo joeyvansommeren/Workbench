@@ -9,7 +9,7 @@
 import Foundation
 
 struct SidebarNavCounts: Equatable {
-  /// Pull requests waiting in the review queue; `nil` hides the count.
+  /// Pull requests waiting for my review (the Requested scope); `nil` hides the count.
   let reviews: Int?
   /// My open tickets in the selected tracker; `nil` hides the count.
   let sprint: Int?
@@ -20,7 +20,7 @@ struct SidebarNavCounts: Equatable {
   }
 
   /// - Parameters:
-  ///   - reviewQueueCount: Pull requests in the review queue.
+  ///   - reviewQueueCount: Pull requests in the Requested review scope.
   ///   - tracker: The tracker Sprint shows; picks which ticket count is used.
   ///   - jiraOpenTicketCount: My open Jira tickets in the active sprint.
   ///   - linearOpenIssueCount: My open Linear issues.
