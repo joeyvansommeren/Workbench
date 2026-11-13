@@ -334,7 +334,7 @@ private struct WorktreeInventoryRow: View {
 
       HStack(spacing: 8) {
         WorktreeInventoryBadge(
-          title: worktree.isFocusedInAgentHub ? "In AgentHub" : "External",
+          title: worktree.isFocusedInAgentHub ? "In Workbench" : "External",
           systemImage: worktree.isFocusedInAgentHub ? "scope" : "externaldrive",
           isProminent: worktree.isFocusedInAgentHub,
           helpText: worktree.isFocusedInAgentHub
@@ -347,7 +347,7 @@ private struct WorktreeInventoryRow: View {
             title: worktree.providerLabel,
             systemImage: "terminal",
             isProminent: false,
-            helpText: "Providers with AgentHub session history for this worktree."
+            helpText: "Providers with Workbench session history for this worktree."
           )
         }
 

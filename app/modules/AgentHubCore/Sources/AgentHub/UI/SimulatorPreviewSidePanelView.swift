@@ -744,7 +744,7 @@ struct SimulatorPreviewSidePanelView: View {
       ContentUnavailableView(
         "Choose a Run Destination",
         systemImage: "iphone.gen3",
-        description: Text("Pick the simulator or device this project should use. AgentHub remembers the choice per project and worktree.")
+        description: Text("Pick the simulator or device this project should use. Workbench remembers the choice per project and worktree.")
       )
       .frame(maxHeight: 220)
 

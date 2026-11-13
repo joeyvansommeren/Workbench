@@ -216,7 +216,7 @@ struct ChatTranscriptView: View {
       ChatEmptyState(
         title: "Transcript not found",
         systemImage: "doc.questionmark",
-        message: "\(targetName) has not written this file, or it was moved. AgentHub loads it when it appears. If nothing happens, try again or check the terminal.",
+        message: "\(targetName) has not written this file, or it was moved. Workbench loads it when it appears. If nothing happens, try again or check the terminal.",
         detail: transcriptPath,
         onRetry: { loader.load(path: transcriptPath, provider: providerKind) },
         onShowTerminal: onShowTerminal)

@@ -505,7 +505,7 @@ public struct AgentHubSessionsView: View {
       Image(systemName: "exclamationmark.triangle")
         .font(.largeTitle)
         .foregroundStyle(.secondary)
-      Text("AgentHub provider not found")
+      Text("Workbench provider not found")
         .font(.headline)
       Text("Add .agentHub() modifier to a parent view")
         .font(.caption)
@@ -541,7 +541,7 @@ public struct AgentHubMenuBarContent: View {
         sessionsViewModel: provider.sessionsViewModel
       )
     } else {
-      Text("AgentHub provider not found")
+      Text("Workbench provider not found")
         .foregroundStyle(.secondary)
     }
   }

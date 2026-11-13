@@ -49,7 +49,7 @@ struct WorkspaceSwitcher: View {
         .fill(Color.primary.opacity(0.045))
     )
     .accessibilityElement(children: .contain)
-    .accessibilityLabel("AgentHub workspace")
+    .accessibilityLabel("Workbench workspace")
   }
 }
 

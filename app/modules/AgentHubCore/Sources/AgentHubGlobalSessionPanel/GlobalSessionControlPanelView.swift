@@ -416,7 +416,7 @@ public struct GlobalSessionControlPanelView: View {
           .font(.secondaryDefault)
           .foregroundStyle(.primary)
 
-        Text("Start or select sessions in AgentHub.")
+        Text("Start or select sessions in Workbench.")
           .font(.secondaryCaption)
           .foregroundStyle(.secondary)
           .lineLimit(1)
@@ -438,7 +438,7 @@ public struct GlobalSessionControlPanelView: View {
         .font(.secondaryLarge)
         .foregroundStyle(.primary)
 
-      Text("Start or select sessions in AgentHub to show them here.")
+      Text("Start or select sessions in Workbench to show them here.")
         .font(.secondarySmall)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)

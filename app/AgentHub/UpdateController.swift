@@ -19,9 +19,11 @@ final class UpdateController {
   var canCheckForUpdates = false
 
   init() {
-    // Create the updater controller with default UI
+    // Workbench has no release feed of its own. The upstream feed would replace
+    // this fork with upstream builds, so the updater never starts. Pull upstream
+    // changes with git instead (see WORKBENCH.md).
     updaterController = SPUStandardUpdaterController(
-      startingUpdater: true,
+      startingUpdater: false,
       updaterDelegate: nil,
       userDriverDelegate: nil
     )

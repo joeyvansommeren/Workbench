@@ -39,7 +39,7 @@ struct VoiceAPIKeySettingsSection: View {
     } header: {
       Text("OpenAI")
     } footer: {
-      Text("AgentHub uses this key only for dictation and realtime voice.")
+      Text("Workbench uses this key only for dictation and realtime voice.")
     }
   }
 }

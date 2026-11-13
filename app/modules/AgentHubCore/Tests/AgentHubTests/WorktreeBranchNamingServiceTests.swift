@@ -268,7 +268,7 @@ struct WorktreeBranchNamingServiceTests {
     #expect(result.source == WorktreeBranchNameSource.deterministicFallback)
     #expect(cancellationRecorder.snapshot() == 1)
     #expect(progressRecorder.lastProgress() == .completed(
-      message: "Branch naming reached the 15-second limit, so AgentHub used a fallback name",
+      message: "Branch naming reached the 15-second limit, so Workbench used a fallback name",
       source: .deterministicFallback,
       branchNames: ["feature/investigate-timeout-path-abcdef"]
     ))

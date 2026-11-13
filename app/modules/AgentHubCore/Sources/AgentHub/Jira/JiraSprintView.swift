@@ -193,7 +193,7 @@ private struct JiraSprintErrorView: View {
       Label("Could not load Jira", systemImage: "exclamationmark.triangle")
     } description: {
       Text(message)
-      Text("AgentHub reads Jira through the Atlassian CLI (`acli`).")
+      Text("Workbench reads Jira through the Atlassian CLI (`acli`).")
     } actions: {
       HStack {
         Button(viewModel.isConnecting ? "Waiting for browser…" : "Connect Jira") {

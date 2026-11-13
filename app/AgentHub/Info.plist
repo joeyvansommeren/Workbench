@@ -2,8 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>CFBundleDisplayName</key>
+  <string>Workbench</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>AgentHub uses the microphone when you start dictation or a realtime voice conversation.</string>
+  <string>Workbench uses the microphone when you start dictation or a realtime voice conversation.</string>
   <key>ATSApplicationFontsPath</key>
   <string>Fonts</string>
   <key>UTExportedTypeDeclarations</key>
@@ -15,20 +17,16 @@
         <string>public.data</string>
       </array>
       <key>UTTypeDescription</key>
-      <string>AgentHub GitHub Context Item</string>
+      <string>Workbench GitHub Context Item</string>
       <key>UTTypeIdentifier</key>
       <string>com.agenthub.github.context-item</string>
     </dict>
   </array>
   <key>NSUserNotificationsUsageDescription</key>
-  <string>AgentHub sends notifications when a Claude or Codex session requires tool approval.</string>
+  <string>Workbench sends notifications when a Claude or Codex session requires tool approval.</string>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>AgentHub can embed the iOS Simulator window so you can monitor your app alongside your Claude Code session.</string>
-  <key>SUFeedURL</key>
-  <string>https://raw.githubusercontent.com/jamesrochabrun/AgentHub/main/appcast.xml</string>
-  <key>SUPublicEDKey</key>
-  <string>pO7P6I38ASSahcPiqdbndrMvTc4o/yWDnGfV2voJCEw=</string>
+  <string>Workbench can embed the iOS Simulator window so you can monitor your app alongside your Claude Code session.</string>
   <key>SUEnableAutomaticChecks</key>
-  <true/>
+  <false/>
 </dict>
 </plist>

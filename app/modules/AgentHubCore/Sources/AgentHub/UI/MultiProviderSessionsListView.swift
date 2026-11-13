@@ -1234,7 +1234,7 @@ public struct MultiProviderSessionsListView: View {
     if let worktreeModule {
       return {
         removeConfirmation = RemoveConfirmation(
-          title: "Remove \(group.displayName) from AgentHub?",
+          title: "Remove \(group.displayName) from Workbench?",
           message: worktreeRemovalMessage(
             name: group.displayName,
             sessionCount: worktreeSessionCount

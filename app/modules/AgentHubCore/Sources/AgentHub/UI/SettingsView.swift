@@ -506,7 +506,7 @@ public struct SettingsView: View {
           Text("Theme")
         } footer: {
           if let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-            Text("AgentHub v\(appVersion)")
+            Text("Workbench v\(appVersion)")
               .font(.caption)
           }
         }
@@ -721,7 +721,7 @@ public struct SettingsView: View {
           .foregroundColor(.orange)
       }
 
-      Text("Layered on top of your Ghostty configuration, for AgentHub terminals only. The app backdrop updates immediately; fresh terminal processes may require relaunch.")
+      Text("Layered on top of your Ghostty configuration, for Workbench terminals only. The app backdrop updates immediately; fresh terminal processes may require relaunch.")
         .font(.caption)
         .foregroundColor(.secondary)
     }
