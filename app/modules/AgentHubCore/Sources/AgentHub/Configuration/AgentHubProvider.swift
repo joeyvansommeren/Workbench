@@ -425,6 +425,9 @@ public final class AgentHubProvider {
   public private(set) lazy var subagentDiscoveryService: any SubagentDiscoveryServiceProtocol =
     SubagentDiscoveryService(codexDataPath: configuration.codexDataPath)
 
+  /// Linear issues that can be handed to Claude or Codex.
+  public private(set) lazy var linearViewModel = LinearViewModel()
+
   /// Open-sprint Jira tickets that can be handed to Claude or Codex.
   public private(set) lazy var jiraSprintViewModel = JiraSprintViewModel(
     pullRequestSearch: gitHubProjectReviewService,

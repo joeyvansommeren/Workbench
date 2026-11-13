@@ -12,6 +12,7 @@ public enum AgentHubWorkspaceSection: String, CaseIterable, Identifiable, Sendab
   case reviews = "Reviews"
   case sessions = "Sessions"
   case sprint = "Sprint"
+  case linear = "Linear"
 
   public var id: Self { self }
 }

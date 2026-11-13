@@ -7,6 +7,7 @@
 
 import AgentHubGitHub
 import AgentWorkflowJiraCLI
+import AgentWorkflowLinear
 import SwiftUI
 
 // MARK: - RemoveTitleToolbarModifier
@@ -139,6 +140,31 @@ public struct AgentHubOperationsView: View {
                 )
               },
               onOpenSession: { agentHub.showSession($0) }
+            )
+          } else {
+            ContentUnavailableView(
+              "AgentHub provider not found",
+              systemImage: "exclamationmark.triangle"
+            )
+          }
+        case .linear:
+          if let agentHub {
+            LinearBoardView(
+              viewModel: agentHub.linearViewModel,
+              repositories: WorktreeModuleResolver.mergedRepositories(
+                agentHub.claudeSessionsViewModel.selectedRepositories
+                  + agentHub.codexSessionsViewModel.selectedRepositories
+              ),
+              linkedSessions: agentHub.linearLinkedSessions(),
+              onStart: { issue, provider, repositoryPath in
+                await startLinearIssue(
+                  issue,
+                  provider: provider,
+                  repositoryPath: repositoryPath,
+                  agentHub: agentHub
+                )
+              },
+              onOpenSession: { agentHub.showLinearSession($0) }
             )
           } else {
             ContentUnavailableView(
@@ -390,6 +416,36 @@ public struct AgentHubOperationsView: View {
     await agentHub.jiraSprintViewModel.markInProgressIfNeeded(ticket.key)
   }
 
+  private func startLinearIssue(
+    _ issue: LinearIssue,
+    provider: SessionProviderKind,
+    repositoryPath: String,
+    agentHub: AgentHubProvider
+  ) async {
+    let sessionsViewModel =
+      provider == .claude
+      ? agentHub.claudeSessionsViewModel
+      : agentHub.codexSessionsViewModel
+    let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(repositoryPath)
+    let prompt = await agentHub.linearViewModel.launchPrompt(for: issue)
+
+    sessionsViewModel.addRepository(at: normalizedPath)
+    sessionsViewModel.startNewSessionInHub(
+      WorktreeBranch(
+        name: issue.identifier,
+        path: normalizedPath,
+        isWorktree: false,
+        isExpanded: true
+      ),
+      initialPrompt: prompt
+    )
+    if let pendingID = sessionsViewModel.lastCreatedPendingId {
+      agentHub.linearViewModel.registerPendingSession(pendingID, for: issue)
+    }
+    section = .sessions
+    await agentHub.linearViewModel.markStartedIfNeeded(issue.id)
+  }
+
   private func applyReviewSessionTitles(
     provider: SessionProviderKind,
     agentHub: AgentHubProvider
@@ -609,6 +665,9 @@ private struct WorkspaceSwitcherBar: View {
       WorkspaceSwitcherItem(
         section: .sprint, systemImage: "rectangle.split.3x1", shortcut: "4",
         count: agentHub?.jiraSprintViewModel.myOpenTicketCount),
+      WorkspaceSwitcherItem(
+        section: .linear, systemImage: "line.3.horizontal", shortcut: "5",
+        count: agentHub?.linearViewModel.myOpenIssueCount),
     ]
   }
 }

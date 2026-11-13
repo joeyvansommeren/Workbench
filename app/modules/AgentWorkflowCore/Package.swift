@@ -15,6 +15,10 @@ let package = Package(
     .library(
       name: "AgentWorkflowJiraCLI",
       targets: ["AgentWorkflowJiraCLI"]
+    ),
+    .library(
+      name: "AgentWorkflowLinear",
+      targets: ["AgentWorkflowLinear"]
     )
   ],
   dependencies: [
@@ -44,9 +48,23 @@ let package = Package(
         .swiftLanguageMode(.v5)
       ]
     ),
+    .target(
+      name: "AgentWorkflowLinear",
+      dependencies: ["AgentWorkflowCore"],
+      swiftSettings: [
+        .swiftLanguageMode(.v5)
+      ]
+    ),
     .testTarget(
       name: "AgentWorkflowJiraCLITests",
       dependencies: ["AgentWorkflowJiraCLI"],
+      swiftSettings: [
+        .swiftLanguageMode(.v5)
+      ]
+    ),
+    .testTarget(
+      name: "AgentWorkflowLinearTests",
+      dependencies: ["AgentWorkflowLinear"],
       swiftSettings: [
         .swiftLanguageMode(.v5)
       ]
