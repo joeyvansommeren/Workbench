@@ -506,9 +506,9 @@ public struct AgentHubSessionsView: View {
         .font(.largeTitle)
         .foregroundStyle(.secondary)
       Text("Workbench provider not found")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
       Text("Add .agentHub() modifier to a parent view")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -638,7 +638,7 @@ private struct ResumeSessionByIDSheet: View {
       }
       TextField("Session ID", text: $text)
         .textFieldStyle(.roundedBorder)
-        .font(.jetBrainsMono(size: 12))
+        .font(.mono(size: 12))
         .focused($isFocused)
         .onSubmit(resume)
         .onChange(of: text) { _, _ in notFound = false }

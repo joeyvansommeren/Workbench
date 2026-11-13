@@ -168,10 +168,10 @@ struct SimulatorRecordingOverlayView: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text(title)
-          .font(.caption.weight(.semibold))
+          .font(.geist(size: 10, weight: .semibold))
         if let detail {
           Text(detail)
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)

@@ -19,7 +19,7 @@ struct VoiceBehaviorSettingsSection: View {
         VStack(alignment: .leading, spacing: 2) {
           Text("Use Screenshots")
           Text("Let voice conversations capture a display or region for coding sessions")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
         }
       }
@@ -28,7 +28,7 @@ struct VoiceBehaviorSettingsSection: View {
         VStack(alignment: .leading, spacing: 2) {
           Text("Allow interrupting the assistant")
           Text("Keeps the mic live while the assistant speaks. Without headphones, speaker echo can cut replies short — leave this off on open speakers.")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
         }
       }
@@ -37,7 +37,7 @@ struct VoiceBehaviorSettingsSection: View {
         VStack(alignment: .leading, spacing: 2) {
           Text("Show transcript text")
           Text("Show live conversation text in the voice panel instead of the voice visualizer")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
         }
       }

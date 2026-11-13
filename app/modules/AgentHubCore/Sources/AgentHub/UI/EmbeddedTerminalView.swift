@@ -93,7 +93,7 @@ public struct EmbeddedTerminalView: NSViewRepresentable {
   @Environment(\.runtimeTheme) private var runtimeTheme
   @Environment(\.isTerminalConcealed) private var isConcealed
   @AppStorage(AgentHubDefaults.terminalFontSize) private var terminalFontSize: Double = 12
-  @AppStorage(AgentHubDefaults.terminalFontFamily) private var terminalFontFamily: String = "SF Mono"
+  @AppStorage(AgentHubDefaults.terminalFontFamily) private var terminalFontFamily: String = "Geist Mono"
 
   let terminalKey: String  // Key for terminal storage (session ID or "pending-{pendingId}")
   let sessionId: String?  // Optional: nil for new sessions, set for resume
@@ -247,7 +247,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   private var lastAppliedColorFingerprint: TerminalAppearanceSync.ColorFingerprint?
   private var currentIsDark = true
   private var currentFontSize: CGFloat = 12
-  private var currentFontFamily = "SF Mono"
+  private var currentFontFamily = "Geist Mono"
   private var currentTheme: RuntimeTheme?
   private var terminalPidMap: [ObjectIdentifier: pid_t] = [:]
   private var localEventMonitor: Any?
@@ -538,7 +538,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
     protectedAgentTab?.terminalView.send(txt: text)
   }
 
-  public func syncAppearance(isDark: Bool, fontSize: CGFloat, fontFamily: String = "SF Mono", theme: RuntimeTheme? = nil) {
+  public func syncAppearance(isDark: Bool, fontSize: CGFloat, fontFamily: String = "Geist Mono", theme: RuntimeTheme? = nil) {
     currentIsDark = isDark
     currentFontSize = max(fontSize, 8)
     currentFontFamily = fontFamily
@@ -552,7 +552,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   /// and the set of terminal views are unchanged — `syncAppearance` runs on
   /// every SwiftUI re-render, and SwiftTerm's font setter rebuilds the font
   /// set, recomputes cell dimensions, and relayouts unconditionally.
-  public func updateFont(size: CGFloat, family: String = "SF Mono") {
+  public func updateFont(size: CGFloat, family: String = "Geist Mono") {
     let resolvedSize = max(size, 8)
     let fingerprint = TerminalAppearanceSync.FontFingerprint(
       family: family,
@@ -564,7 +564,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
     }
 
     let font = NSFont(name: family, size: resolvedSize)
-      ?? NSFont(name: "SF Mono", size: resolvedSize)
+      ?? NSFont(name: "Geist Mono", size: resolvedSize)
       ?? NSFont.monospacedSystemFont(ofSize: resolvedSize, weight: .regular)
     for terminal in allTerminalViews {
       terminal.font = font
@@ -626,7 +626,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   /// the next `syncAppearance` reapplies the real font/theme to every view.
   private func applyInitialAppearance(to terminal: TerminalView, isDark: Bool) {
     let fontSize: CGFloat = 12
-    let font = NSFont(name: "SF Mono", size: fontSize)
+    let font = NSFont(name: "Geist Mono", size: fontSize)
       ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
     terminal.font = font
 
@@ -774,7 +774,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
 
     configureTerminalAppearance(terminal, isDark: isDark)
     terminal.font = NSFont(name: currentFontFamily, size: currentFontSize)
-      ?? NSFont(name: "SF Mono", size: currentFontSize)
+      ?? NSFont(name: "Geist Mono", size: currentFontSize)
       ?? NSFont.monospacedSystemFont(ofSize: currentFontSize, weight: .regular)
 
     return terminal

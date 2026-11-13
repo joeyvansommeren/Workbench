@@ -9,7 +9,7 @@ struct GitHubReviewDetailView: View {
     VStack(spacing: 0) {
       HStack {
         Text("\(request.repositoryNameWithOwner) #\(request.number)")
-          .font(.headline).textSelection(.enabled)
+          .font(.geist(size: 13, weight: .bold)).textSelection(.enabled)
         Spacer()
         Button {
           Task { await viewModel.loadSelectedDetail() }
@@ -32,7 +32,7 @@ struct GitHubReviewDetailView: View {
           }
           if let date = viewModel.detailUpdatedAt {
             Text("Last refreshed \(date.formatted(date: .omitted, time: .standard))")
-              .font(.caption).foregroundStyle(.secondary)
+              .font(.geist(size: 10)).foregroundStyle(.secondary)
           }
           if let detail = viewModel.selectedDetail {
             details(detail)
@@ -49,14 +49,14 @@ struct GitHubReviewDetailView: View {
 
   private func details(_ detail: GitHubReviewDetail) -> some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text(detail.pullRequest.title).font(.title2).textSelection(.enabled)
+      Text(detail.pullRequest.title).font(.geist(size: 17)).textSelection(.enabled)
       HStack {
         Label(detail.pullRequest.state, systemImage: detail.pullRequest.stateIcon)
         if detail.pullRequest.isDraft { Text("Draft") }
         if let decision = detail.pullRequest.reviewDecision { ReviewDecisionBadge(decision: decision) }
       }
       Text("\(detail.pullRequest.headRefName) → \(detail.pullRequest.baseRefName)")
-        .font(.caption.monospaced()).textSelection(.enabled)
+        .font(.mono(size: 10)).textSelection(.enabled)
       if let url = URL(string: detail.pullRequest.url) {
         Link("Open on GitHub", destination: url)
       }
@@ -64,7 +64,7 @@ struct GitHubReviewDetailView: View {
         Text(body).textSelection(.enabled)
       }
       Divider()
-      Text("Checks").font(.headline)
+      Text("Checks").font(.geist(size: 13, weight: .bold))
       if let checks = detail.pullRequest.statusCheckRollup, !checks.isEmpty {
         ForEach(checks) { check in
           HStack {
@@ -75,7 +75,7 @@ struct GitHubReviewDetailView: View {
         }
       } else { Text("No checks reported").foregroundStyle(.secondary) }
       Divider()
-      Text("Conversation").font(.headline)
+      Text("Conversation").font(.geist(size: 13, weight: .bold))
       if (detail.pullRequest.comments ?? []).isEmpty && detail.reviews.isEmpty && detail.inlineComments.isEmpty {
         Text("No comments or reviews yet").foregroundStyle(.secondary)
       }
@@ -84,12 +84,12 @@ struct GitHubReviewDetailView: View {
       }
       ForEach(detail.reviews) { review in
         GitHubCommentCard(author: review.author, createdAt: review.submittedAt,
-          commentBody: review.body, trailingHeader: AnyView(Text(review.state).font(.caption)))
+          commentBody: review.body, trailingHeader: AnyView(Text(review.state).font(.geist(size: 10))))
       }
       ForEach(detail.inlineComments) { comment in
         GitHubCommentCard(author: comment.author, createdAt: comment.createdAt,
           commentBody: comment.body,
-          trailingHeader: AnyView(Text(comment.path ?? "Code comment").font(.caption).lineLimit(1)))
+          trailingHeader: AnyView(Text(comment.path ?? "Code comment").font(.geist(size: 10)).lineLimit(1)))
       }
     }
   }

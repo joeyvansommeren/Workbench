@@ -116,7 +116,7 @@ public enum AgentHubDefaults {
   public static let terminalFontSize = "\(keyPrefix)terminal.fontSize"
 
   /// Terminal font family name
-  /// Type: String (default: "SF Mono")
+  /// Type: String (default: "Geist Mono")
   public static let terminalFontFamily = "\(keyPrefix)terminal.fontFamily"
 
   /// Embedded terminal backend

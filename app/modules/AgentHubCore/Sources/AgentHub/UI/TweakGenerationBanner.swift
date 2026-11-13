@@ -18,14 +18,14 @@ struct TweakGenerationBanner: View {
       TimelineView(.periodic(from: startedAt, by: 1)) { context in
         let elapsedTime = Self.elapsedTime(from: startedAt, to: context.date)
         Text(elapsedTime)
-          .font(.caption.monospacedDigit())
+          .font(.geist(size: 10).monospacedDigit())
           .foregroundStyle(.tertiary)
           .frame(maxWidth: .infinity, alignment: .trailing)
           .accessibilityLabel("Elapsed time")
           .accessibilityValue(elapsedTime)
       }
     }
-    .font(.caption)
+    .font(.geist(size: 10))
     .foregroundStyle(.secondary)
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(10)

@@ -129,10 +129,10 @@ public struct PlanView: View {
           .foregroundColor(.brandPrimary)
 
         Text("Plan")
-          .font(.title3.weight(.semibold))
+          .font(.geist(size: 15, weight: .semibold))
 
         Text(planState.fileName)
-          .font(.system(.subheadline, design: .monospaced))
+          .font(.mono(size: 11))
           .foregroundColor(.secondary)
       }
 
@@ -141,12 +141,12 @@ public struct PlanView: View {
       // Session info
       HStack(spacing: 8) {
         Text(session.shortId)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
 
         if let branch = session.branchName {
           Text("[\(branch)]")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
         }
       }
@@ -167,7 +167,7 @@ public struct PlanView: View {
             Image(systemName: isReviewMode ? "doc.text.fill" : "pencil.and.list.clipboard")
               .font(.caption)
             Text(isReviewMode ? "Preview" : "Review")
-              .font(.caption)
+              .font(.geist(size: 10))
           }
           .overlay(alignment: .topTrailing) {
             if commentsState.hasComments && !isReviewMode {
@@ -199,7 +199,7 @@ public struct PlanView: View {
       ProgressView()
         .controlSize(.small)
       Text("Loading plan...")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -214,11 +214,11 @@ public struct PlanView: View {
         .foregroundColor(.red)
 
       Text("Failed to load plan")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text(message)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
     }
@@ -283,7 +283,7 @@ public struct PlanView: View {
         HStack(spacing: 8) {
           // Line number
           Text("\(lineNumber)")
-            .font(.system(.caption2, design: .monospaced))
+            .font(.mono(size: 10))
             .foregroundStyle(.tertiary)
             .frame(minWidth: 32, alignment: .trailing)
 
@@ -294,7 +294,7 @@ public struct PlanView: View {
 
           // Line content
           Text(line.isEmpty ? " " : line)
-            .font(.system(.body, design: .monospaced))
+            .font(.mono(size: 13))
             .foregroundColor(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .lineLimit(1)

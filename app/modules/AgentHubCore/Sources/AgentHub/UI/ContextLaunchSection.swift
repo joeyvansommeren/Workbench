@@ -71,7 +71,7 @@ struct ContextLaunchSection: View {
           .lineLimit(1)
         if viewModel.attachedContextProfile?.isDefault == true && viewModel.pendingContextSelection == nil {
           Text("default")
-            .font(.system(size: 8, weight: .semibold))
+            .font(.geist(size: 8, weight: .semibold))
             .padding(.horizontal, 4)
             .padding(.vertical, 1)
             .background(Capsule().fill(Color.brandPrimary.opacity(0.15)))

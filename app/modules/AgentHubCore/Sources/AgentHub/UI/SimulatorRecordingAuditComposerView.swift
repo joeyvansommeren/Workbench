@@ -37,7 +37,7 @@ struct SimulatorRecordingAuditComposerView: View {
             Image(systemName: "paperplane.fill")
               .font(.system(size: 11, weight: .semibold))
             Text("Send")
-              .font(.system(size: 12, weight: .semibold))
+              .font(.geist(size: 12, weight: .semibold))
           }
           .foregroundStyle(.white)
           .padding(.horizontal, 12)

@@ -79,7 +79,7 @@ struct SimulatorAnnotationTrayView: View {
         HStack(spacing: 8) {
           countBadge
           Text("\(countText) \(commentsWord)")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.geist(size: 13, weight: .semibold))
             .foregroundStyle(.primary)
           Spacer(minLength: 8)
         }
@@ -121,7 +121,7 @@ struct SimulatorAnnotationTrayView: View {
             .font(.system(size: 11, weight: .semibold))
 
           Text("Send")
-            .font(.system(size: 12, weight: .semibold))
+            .font(.geist(size: 12, weight: .semibold))
         }
       }
       .foregroundStyle(.white)
@@ -171,7 +171,7 @@ struct SimulatorAnnotationTrayView: View {
           SimulatorAnnotationPinBadge(number: number, size: 20)
 
           Text(annotationTargetLabel(for: annotation))
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .font(.mono(size: 11, weight: .semibold))
             .foregroundStyle(.primary)
             .lineLimit(1)
 
@@ -193,7 +193,7 @@ struct SimulatorAnnotationTrayView: View {
 
         if let target = annotation.target?.summary {
           Text(target)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.mono(size: 11))
             .foregroundStyle(.secondary)
             .lineLimit(2)
             .truncationMode(.middle)
@@ -208,7 +208,7 @@ struct SimulatorAnnotationTrayView: View {
 
         TextField("Comment", text: textBinding(for: annotation), axis: .vertical)
           .textFieldStyle(.plain)
-          .font(.system(size: 12))
+          .font(.geist(size: 12))
           .foregroundStyle(.primary.opacity(0.92))
           .lineLimit(1...3)
           .padding(.horizontal, 8)
@@ -239,7 +239,7 @@ struct SimulatorAnnotationTrayView: View {
           Image(systemName: "trash")
             .font(.system(size: 11))
           Text("Clear all")
-            .font(.system(size: 12, weight: .medium))
+            .font(.geist(size: 12, weight: .medium))
         }
         .foregroundStyle(.secondary)
         .contentShape(Rectangle())
@@ -251,7 +251,7 @@ struct SimulatorAnnotationTrayView: View {
       Spacer(minLength: 0)
 
       Text("Click the simulator to add another")
-        .font(.system(size: 11))
+        .font(.geist(size: 11))
         .foregroundStyle(.tertiary)
         .lineLimit(1)
         .truncationMode(.tail)

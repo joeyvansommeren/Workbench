@@ -66,7 +66,7 @@ struct WebPreviewInspectorRail: View {
   private var pendingEditsFooter: some View {
     HStack(spacing: 10) {
       Text(viewModel.saveStatusText)
-        .font(.system(size: 11))
+        .font(.geist(size: 11))
         .foregroundStyle(.secondary)
         .lineLimit(2)
 
@@ -101,20 +101,20 @@ struct WebPreviewInspectorRail: View {
 
       VStack(alignment: .leading, spacing: 4) {
         Text(viewModel.relativeFilePath ?? "No mapped source")
-          .font(.system(size: 13, weight: .semibold))
+          .font(.geist(size: 13, weight: .semibold))
           .lineLimit(1)
           .truncationMode(.middle)
 
         if let selectorSummary = viewModel.selectorSummary {
           Text(selectorSummary)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.mono(size: 11))
             .foregroundStyle(.secondary)
             .lineLimit(2)
         }
 
         if let sourceHint = viewModel.primarySourceHintDisplay {
           Label(sourceHint, systemImage: "scope")
-            .font(.system(size: 11, design: .monospaced))
+            .font(.mono(size: 11))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -123,13 +123,13 @@ struct WebPreviewInspectorRail: View {
 
         if let parentContext = viewModel.parentContext {
           Text("Inside \(parentContext.tagName.lowercased())")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.geist(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
         }
 
         if let parentContextSummary = viewModel.parentContextSummary {
           Text(parentContextSummary)
-            .font(.system(size: 11))
+            .font(.geist(size: 11))
             .foregroundStyle(.secondary)
             .lineLimit(2)
         }
@@ -138,7 +138,7 @@ struct WebPreviewInspectorRail: View {
           Text(viewModel.confidenceDisplayText)
           Text(viewModel.saveStatusText)
         }
-        .font(.system(size: 11))
+        .font(.geist(size: 11))
         .foregroundStyle(statusColor)
       }
 
@@ -187,7 +187,7 @@ struct WebPreviewInspectorRail: View {
           viewModel.selectTab(tab)
         } label: {
           Text(tab.title)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.geist(size: 12, weight: .semibold))
             .foregroundStyle(viewModel.selectedTab == tab ? Color.primary : Color.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
@@ -288,7 +288,7 @@ struct WebPreviewInspectorRail: View {
           )
         } else {
           Text(viewModel.contentDisplayText)
-            .font(.system(size: 13))
+            .font(.geist(size: 13))
             .foregroundStyle(viewModel.contentDisplayText == "—" ? .secondary : .primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
@@ -409,14 +409,14 @@ struct WebPreviewInspectorRail: View {
     VStack(spacing: 0) {
       HStack {
         Text("Code")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.geist(size: 12, weight: .semibold))
           .foregroundStyle(.secondary)
 
         Spacer()
 
         if let relativeFilePath = viewModel.relativeFilePath {
           Text(relativeFilePath)
-            .font(.system(.caption2, design: .monospaced))
+            .font(.mono(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -486,7 +486,7 @@ struct WebPreviewInspectorRail: View {
   ) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       Text(title)
-        .font(.system(size: 12, weight: .semibold))
+        .font(.geist(size: 12, weight: .semibold))
         .foregroundStyle(.secondary)
 
       content()
@@ -506,7 +506,7 @@ struct WebPreviewInspectorRail: View {
   ) -> some View {
     HStack(spacing: 10) {
       Text(title)
-        .font(.system(size: 12))
+        .font(.geist(size: 12))
         .foregroundStyle(.secondary)
 
       Spacer()
@@ -515,7 +515,7 @@ struct WebPreviewInspectorRail: View {
         editableControl(title: title, property: property)
       } else {
         Text(value.isEmpty ? "—" : value)
-          .font(.system(size: 12, design: .monospaced))
+          .font(.mono(size: 12))
           .foregroundStyle(value.isEmpty ? .secondary : .primary)
       }
     }
@@ -524,13 +524,13 @@ struct WebPreviewInspectorRail: View {
   private func readOnlyValueRow(title: String, value: String) -> some View {
     HStack(spacing: 10) {
       Text(title)
-        .font(.system(size: 12))
+        .font(.geist(size: 12))
         .foregroundStyle(.secondary)
 
       Spacer()
 
       Text(value)
-        .font(.system(size: 12, design: .monospaced))
+        .font(.mono(size: 12))
         .foregroundStyle(.primary)
     }
   }
@@ -560,13 +560,13 @@ struct WebPreviewInspectorRail: View {
         text: styleBinding(for: property)
       )
       .textFieldStyle(.roundedBorder)
-      .font(.system(size: 12, design: .monospaced))
+      .font(.mono(size: 12))
       .multilineTextAlignment(property.supportsColorPicking ? .leading : .trailing)
       .frame(maxWidth: property.supportsColorPicking ? 132 : 92)
 
       if let unit = viewModel.detachedUnit(for: property) {
         Text(unit)
-          .font(.system(size: 12, design: .monospaced))
+          .font(.mono(size: 12))
           .foregroundStyle(.secondary)
           .frame(minWidth: 24, alignment: .leading)
       }
@@ -587,7 +587,7 @@ struct WebPreviewInspectorRail: View {
 
   private func statusBanner(_ text: String, color: Color) -> some View {
     Text(text)
-      .font(.system(size: 12))
+      .font(.geist(size: 12))
       .foregroundStyle(color)
       .padding(10)
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -603,7 +603,7 @@ struct WebPreviewInspectorRail: View {
 
   private func tagBadge(_ text: String) -> some View {
     Text(text)
-      .font(.system(size: 11, weight: .semibold, design: .monospaced))
+      .font(.mono(size: 11, weight: .semibold))
       .foregroundStyle(.white)
       .padding(.horizontal, 7)
       .padding(.vertical, 3)

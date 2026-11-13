@@ -23,11 +23,11 @@ struct WebPreviewLaunchOptionsView: View {
         .foregroundColor(.secondary.opacity(0.7))
 
       Text("Choose Preview Source")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text("No live localhost URL is available for this session yet. Ask the agent to launch localhost, or open a static fallback when one exists.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 40)
@@ -46,7 +46,7 @@ struct WebPreviewLaunchOptionsView: View {
 
       if let statusMessage {
         Text(statusMessage)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
           .multilineTextAlignment(.center)
           .padding(.horizontal, 40)

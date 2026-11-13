@@ -31,7 +31,7 @@ public struct SessionsBrowserPanel: View {
       // Header
       HStack {
         Text("Hub Sessions")
-          .font(.subheadline.weight(.semibold))
+          .font(.geist(size: 11, weight: .semibold))
           .foregroundColor(.secondary)
         Spacer()
       }
@@ -72,11 +72,11 @@ public struct SessionsBrowserPanel: View {
         .foregroundColor(.secondary.opacity(0.5))
 
       Text("No Sessions in Hub")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text("Select sessions from \"All Sessions\" to monitor them here.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary.opacity(0.8))
         .multilineTextAlignment(.center)
         .padding(.horizontal, 24)
@@ -97,11 +97,11 @@ public struct SessionsBrowserPanel: View {
   private func moduleSectionHeader(name: String, count: Int) -> some View {
     HStack {
       Text(name)
-        .font(.caption.weight(.semibold))
+        .font(.geist(size: 10, weight: .semibold))
         .foregroundColor(.secondary)
       Spacer()
       Text("\(count)")
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary.opacity(0.7))
     }
     .padding(.horizontal, 4)
@@ -145,11 +145,11 @@ public struct SessionsBrowserPanel: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text("Starting session...")
-          .font(.system(.subheadline, weight: .medium))
+          .font(.geist(size: 11, weight: .medium))
           .foregroundColor(.primary)
 
         Text(URL(fileURLWithPath: pending.worktree.path).lastPathComponent)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
 

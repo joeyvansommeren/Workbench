@@ -28,10 +28,10 @@ struct AgentWorkspaceRow: View {
 
         VStack(alignment: .leading, spacing: 2) {
           Text(viewModel.displayName(for: workspace))
-            .font(.callout.weight(.medium))
+            .font(.geist(size: 12, weight: .medium))
             .lineLimit(1)
           Text(metadataText)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
         }
 

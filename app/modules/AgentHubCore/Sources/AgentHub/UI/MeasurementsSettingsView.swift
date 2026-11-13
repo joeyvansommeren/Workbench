@@ -108,9 +108,9 @@ private struct MeasurementProjectRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
               Text(group.displayName)
-                .font(.body)
+                .font(.geist(size: 13))
               Text(group.projectPath)
-                .font(.caption2)
+                .font(.geist(size: 10))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.head)
@@ -122,7 +122,7 @@ private struct MeasurementProjectRow: View {
         Spacer(minLength: 8)
 
         Text(subtitle)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .fixedSize()
 
@@ -162,9 +162,9 @@ private struct MeasurementSettingsRow: View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       VStack(alignment: .leading, spacing: 1) {
         Text(measurement.title)
-          .font(.caption)
+          .font(.geist(size: 10))
         Text(detail)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.tertiary)
       }
 
@@ -200,9 +200,9 @@ private struct MeasurementsUnscopedRow: View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       VStack(alignment: .leading, spacing: 2) {
         Text(count == 1 ? "1 measurement with no project" : "\(count) measurements with no project")
-          .font(.body)
+          .font(.geist(size: 13))
         Text("These were recorded before Workbench could resolve their project, so no panel can show them.")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
@@ -221,9 +221,9 @@ private struct MeasurementsSettingsEmptyState: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("No measurements recorded")
-        .font(.body)
+        .font(.geist(size: 13))
       Text("When a session analyzes something — a git aggregation, a test-timing run, a query — it records the result here and in that project's Measurements panel.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
     }

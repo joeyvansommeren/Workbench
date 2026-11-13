@@ -188,7 +188,7 @@ public struct GitDiffView: View {
             Image(systemName: "text.bubble.fill")
               .font(.caption)
             Text("\(commentsState.commentCount)")
-              .font(.caption.bold())
+              .font(.geist(size: 10, weight: .bold))
           }
           .foregroundColor(.primary)
           .padding(.horizontal, 8)
@@ -203,7 +203,7 @@ public struct GitDiffView: View {
       // Session info
       HStack(spacing: 8) {
         Text(session.shortId)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
           .lineLimit(1)
           .minimumScaleFactor(0.7)
@@ -211,7 +211,7 @@ public struct GitDiffView: View {
 
         if let branch = session.branchName {
           Text("[\(branch)]")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -263,7 +263,7 @@ public struct GitDiffView: View {
     VStack(spacing: 12) {
       ProgressView()
       Text(diffMode.loadingMessage)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -278,11 +278,11 @@ public struct GitDiffView: View {
         .foregroundColor(.red.opacity(0.5))
 
       Text("Failed to Load Git Diff")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text(message)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
 
@@ -304,11 +304,11 @@ public struct GitDiffView: View {
         .foregroundColor(.green.opacity(0.5))
 
       Text(diffMode.emptyStateTitle)
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
         .foregroundColor(.secondary)
 
       Text(diffMode.emptyStateDescription)
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
     }
@@ -347,7 +347,7 @@ public struct GitDiffView: View {
       // Header
       HStack {
         Text("Changes")
-            .font(.system(size: 13, weight: .bold, design: .monospaced))
+            .font(.mono(size: 13, weight: .bold))
         Spacer()
       }
       .padding(.horizontal, DesignTokens.Spacing.sm)
@@ -363,7 +363,7 @@ public struct GitDiffView: View {
             .font(.caption2)
             .foregroundColor(.secondary)
           Text(treeCommonPrefix)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -405,7 +405,7 @@ public struct GitDiffView: View {
         VStack {
           ProgressView()
           Text("Loading diff...")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -416,7 +416,7 @@ public struct GitDiffView: View {
             .font(.largeTitle)
             .foregroundColor(.red)
           Text(error)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
             .multilineTextAlignment(.center)
         }
@@ -734,7 +734,7 @@ private struct GitDiffTreeNodeRow: View {
 
           // Name
           Text(node.name)
-            .font(.system(.caption, design: .monospaced))
+            .font(.mono(size: 10))
             .fontWeight(node.isFolder ? .medium : .regular)
             .lineLimit(1)
 
@@ -750,7 +750,7 @@ private struct GitDiffTreeNodeRow: View {
               Text("-\(file.deletions)")
                 .foregroundColor(.red)
             }
-            .font(.caption2.bold())
+            .font(.geist(size: 10, weight: .bold))
           }
         }
         .padding(.horizontal, 8)
@@ -821,14 +821,14 @@ private struct GitDiffFileRow: View {
         VStack(alignment: .leading, spacing: 2) {
           // File name
           Text(entry.fileName)
-            .font(.system(.caption, design: .monospaced))
+            .font(.mono(size: 10))
             .fontWeight(.medium)
             .lineLimit(1)
 
           // Directory path
           if !entry.directoryPath.isEmpty {
             Text(entry.directoryPath)
-              .font(.caption2)
+              .font(.geist(size: 10))
               .foregroundColor(.secondary)
               .lineLimit(1)
           }
@@ -845,7 +845,7 @@ private struct GitDiffFileRow: View {
           Text("-\(entry.deletions)")
             .foregroundColor(.red)
         }
-        .font(.caption2.bold())
+        .font(.geist(size: 10, weight: .bold))
       }
       .padding(.horizontal, 8)
       .padding(.vertical, 6)
@@ -1010,7 +1010,7 @@ private struct GitDiffContentView: View {
               ProgressView()
                 .controlSize(.small)
               Text("Loading diff...")
-                .font(.caption)
+                .font(.geist(size: 10))
                 .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1087,7 +1087,7 @@ private struct GitDiffContentView: View {
 
         if isLimitedContext {
           Label("Limited context", systemImage: "speedometer")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .help(limitedContextReason ?? "Only changed hunks are rendered for this file.")

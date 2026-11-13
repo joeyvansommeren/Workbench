@@ -3,6 +3,7 @@
 //  AgentHub
 //
 
+import AgentHubCore
 import SwiftUI
 
 @MainActor
@@ -36,7 +37,7 @@ struct AgentHubGhosttyTerminalToolbarButton: View {
     Button(title, systemImage: systemImage, action: action)
       .labelStyle(.iconOnly)
       .buttonStyle(.plain)
-      .font(.system(size: 13, weight: .medium))
+      .font(.geist(size: 13, weight: .medium))
       .foregroundStyle(isDisabled ? Color.secondary.opacity(0.45) : Color.secondary)
       .frame(width: 28, height: 28)
       .background {

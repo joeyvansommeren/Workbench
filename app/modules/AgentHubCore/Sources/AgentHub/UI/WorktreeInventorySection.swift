@@ -240,7 +240,7 @@ private struct WorktreeInventorySummaryView: View {
         .foregroundStyle(.secondary)
       Text("\(snapshot.worktreeCount) \(snapshot.worktreeCount == 1 ? "worktree" : "worktrees")")
     }
-    .font(.caption)
+    .font(.geist(size: 10))
     .foregroundStyle(.secondary)
   }
 }
@@ -261,22 +261,22 @@ private struct WorktreeInventoryModuleView: View {
           .foregroundStyle(.secondary)
         VStack(alignment: .leading, spacing: 2) {
           Text(module.name)
-            .font(.headline)
+            .font(.geist(size: 13, weight: .bold))
           Text(module.path)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
         }
         Spacer()
         Text("\(module.worktrees.count)")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
       }
 
       if module.worktrees.isEmpty {
         Text("No worktrees")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .padding(.leading, 24)
       } else {
@@ -317,11 +317,11 @@ private struct WorktreeInventoryRow: View {
 
         VStack(alignment: .leading, spacing: 4) {
           Text(worktree.branchName)
-            .font(.subheadline.weight(.semibold))
+            .font(.geist(size: 11, weight: .semibold))
             .lineLimit(1)
 
           Text(worktree.path)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -387,7 +387,7 @@ private struct WorktreeInventoryRow: View {
     if worktree.isFocusedInAgentHub {
       HStack(spacing: 10) {
         Label(displayedSessionLabel, systemImage: worktree.activeMonitoredSessionCount > 0 ? "circle.fill" : "circle")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(worktree.activeMonitoredSessionCount > 0 ? .green : .secondary)
           .help("\(worktree.monitoredSessionCount) displayed \(worktree.monitoredSessionCount == 1 ? "session" : "sessions")")
 
@@ -397,7 +397,7 @@ private struct WorktreeInventoryRow: View {
             .frame(width: 24, height: 24)
         } else if canShowMore {
           Button("Load 3 more", systemImage: "plus.circle", action: onShowMore)
-            .font(.caption)
+            .font(.geist(size: 10))
             .buttonStyle(.bordered)
             .controlSize(.small)
             .help("Load the next 3 sessions")
@@ -409,7 +409,7 @@ private struct WorktreeInventoryRow: View {
         .frame(width: 28, height: 28)
     } else {
       Button("Import", systemImage: "tray.and.arrow.down", action: onImport)
-        .font(.caption)
+        .font(.geist(size: 10))
         .buttonStyle(.bordered)
         .controlSize(.small)
         .help("Import worktree")
@@ -425,7 +425,7 @@ private struct WorktreeInventoryRow: View {
     } else {
       Button("Delete worktree \(worktree.branchName)", systemImage: "trash", action: onDelete)
         .labelStyle(.iconOnly)
-        .font(.system(size: 13))
+        .font(.geist(size: 13))
         .frame(width: 28, height: 28)
         .contentShape(Rectangle())
         .buttonStyle(.plain)
@@ -449,7 +449,7 @@ private struct WorktreeInventoryBadge: View {
 
   var body: some View {
     Label(title, systemImage: systemImage)
-      .font(.caption)
+      .font(.geist(size: 10))
       .labelStyle(.titleAndIcon)
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
@@ -467,7 +467,7 @@ private struct WorktreeInventoryBadge: View {
       }
       .popover(isPresented: $isHelpPresented, arrowEdge: .top) {
         Text(helpText)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.primary)
           .padding(10)
           .frame(width: 240, alignment: .leading)
@@ -478,7 +478,7 @@ private struct WorktreeInventoryBadge: View {
 private struct WorktreeInventoryLoadFailureView: View {
   var body: some View {
     Label("Some git worktrees could not be loaded", systemImage: "exclamationmark.triangle")
-      .font(.caption)
+      .font(.geist(size: 10))
       .foregroundStyle(.secondary)
   }
 }
@@ -486,7 +486,7 @@ private struct WorktreeInventoryLoadFailureView: View {
 private struct WorktreeInventoryEmptyView: View {
   var body: some View {
     Label("No modules added to the sessions side panel", systemImage: "folder")
-      .font(.caption)
+      .font(.geist(size: 10))
       .foregroundStyle(.secondary)
       .padding(.vertical, 4)
   }

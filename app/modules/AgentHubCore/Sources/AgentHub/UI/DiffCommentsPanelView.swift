@@ -102,7 +102,7 @@ struct DiffCommentsPanelView: View {
         HStack(spacing: 8) {
           countBadge
           Text("\(countText) \(commentsWord)")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.geist(size: 13, weight: .semibold))
             .foregroundStyle(.primary)
           Spacer(minLength: 8)
         }
@@ -172,7 +172,7 @@ struct DiffCommentsPanelView: View {
           Image(systemName: "trash")
             .font(.system(size: 11))
           Text("Clear all")
-            .font(.system(size: 12, weight: .medium))
+            .font(.geist(size: 12, weight: .medium))
         }
         .foregroundStyle(.secondary)
         .contentShape(Rectangle())
@@ -183,7 +183,7 @@ struct DiffCommentsPanelView: View {
       Spacer(minLength: 0)
 
       Text("Click a line in the diff to add another")
-        .font(.system(size: 11))
+        .font(.geist(size: 11))
         .foregroundStyle(.tertiary)
         .lineLimit(1)
         .truncationMode(.tail)
@@ -215,10 +215,10 @@ struct DiffCommentsPanelView: View {
           .font(.system(size: 11, weight: .semibold))
 
         Text("Send \(countText) to \(providerKind.rawValue)")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.geist(size: 12, weight: .semibold))
 
         Text("⌘↵")
-          .font(.system(size: 10, weight: .semibold, design: .monospaced))
+          .font(.mono(size: 10, weight: .semibold))
           .opacity(0.8)
       }
       .foregroundStyle(.white)

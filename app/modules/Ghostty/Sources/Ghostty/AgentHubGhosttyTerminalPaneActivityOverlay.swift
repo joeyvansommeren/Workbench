@@ -3,6 +3,7 @@
 //  AgentHub
 //
 
+import AgentHubCore
 import SwiftUI
 
 struct AgentHubGhosttyTerminalPaneActivityOverlay: View {
@@ -18,7 +19,7 @@ struct AgentHubGhosttyTerminalPaneActivityOverlay: View {
           .controlSize(.small)
 
         Text(activity.message)
-          .font(.system(size: 12, weight: .medium))
+          .font(.geist(size: 12, weight: .medium))
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }

@@ -13,7 +13,7 @@ struct TerminalAppearanceSyncTests {
   @Test("First font application (nil state) applies")
   func firstFontApplicationApplies() {
     let incoming = TerminalAppearanceSync.FontFingerprint(
-      family: "SF Mono",
+      family: "Geist Mono",
       size: 12,
       surfaceIDs: [surfaceA]
     )
@@ -24,12 +24,12 @@ struct TerminalAppearanceSyncTests {
   @Test("Unchanged font fingerprint skips")
   func unchangedFontFingerprintSkips() {
     let current = TerminalAppearanceSync.FontFingerprint(
-      family: "SF Mono",
+      family: "Geist Mono",
       size: 12,
       surfaceIDs: [surfaceA]
     )
     let incoming = TerminalAppearanceSync.FontFingerprint(
-      family: "SF Mono",
+      family: "Geist Mono",
       size: 12,
       surfaceIDs: [surfaceA]
     )
@@ -40,12 +40,12 @@ struct TerminalAppearanceSyncTests {
   @Test("Font size change applies")
   func fontSizeChangeApplies() {
     let current = TerminalAppearanceSync.FontFingerprint(
-      family: "SF Mono",
+      family: "Geist Mono",
       size: 12,
       surfaceIDs: [surfaceA]
     )
     let incoming = TerminalAppearanceSync.FontFingerprint(
-      family: "SF Mono",
+      family: "Geist Mono",
       size: 14,
       surfaceIDs: [surfaceA]
     )
@@ -56,7 +56,7 @@ struct TerminalAppearanceSyncTests {
   @Test("Font family change applies")
   func fontFamilyChangeApplies() {
     let current = TerminalAppearanceSync.FontFingerprint(
-      family: "SF Mono",
+      family: "Geist Mono",
       size: 12,
       surfaceIDs: [surfaceA]
     )
@@ -72,12 +72,12 @@ struct TerminalAppearanceSyncTests {
   @Test("New terminal surface applies font even when font values are unchanged")
   func newSurfaceAppliesFont() {
     let current = TerminalAppearanceSync.FontFingerprint(
-      family: "SF Mono",
+      family: "Geist Mono",
       size: 12,
       surfaceIDs: [surfaceA]
     )
     let incoming = TerminalAppearanceSync.FontFingerprint(
-      family: "SF Mono",
+      family: "Geist Mono",
       size: 12,
       surfaceIDs: [surfaceA, surfaceB]
     )

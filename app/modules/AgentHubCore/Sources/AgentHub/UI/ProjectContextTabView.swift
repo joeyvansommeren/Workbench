@@ -153,7 +153,7 @@ private struct ProjectContextProfileCard: View {
               .lineLimit(1)
             if profile.isDefault {
               Text("Default")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.geist(size: 9, weight: .semibold))
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1.5)
                 .background(Capsule().fill(Color.brandPrimary(from: runtimeTheme).opacity(0.16)))

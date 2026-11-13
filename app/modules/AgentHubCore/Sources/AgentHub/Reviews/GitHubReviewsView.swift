@@ -230,7 +230,7 @@ struct GitHubReviewsView: View {
             .font(.geist(size: 9, weight: .semibold))
             .foregroundStyle(.tertiary)
           Text(viewModel.activeFilter)
-            .font(.system(.caption, design: .monospaced))
+            .font(.mono(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(5)
             .textSelection(.enabled)
@@ -291,7 +291,7 @@ struct GitHubReviewsView: View {
             GitHubReviewDetailView(viewModel: viewModel, request: request)
             Divider()
             HStack {
-              Text("Actions").font(.headline)
+              Text("Actions").font(.geist(size: 13, weight: .bold))
               Spacer()
               promptMenu(provider: .codex, pullRequest: request)
               promptMenu(provider: .claude, pullRequest: request)
@@ -432,7 +432,7 @@ struct GitHubReviewsView: View {
         DisclosureGroup("Technical details") {
           ScrollView {
             Text(technicalDetails)
-              .font(.system(.caption, design: .monospaced))
+              .font(.mono(size: 10))
               .foregroundStyle(.secondary)
               .textSelection(.enabled)
               .frame(maxWidth: .infinity, alignment: .leading)
@@ -571,7 +571,7 @@ struct GitHubReviewsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
           HStack(spacing: 6) {
             Text(verbatim: "#\(pullRequest.number)")
-              .font(.jetBrainsMono(size: 11, weight: .medium))
+              .font(.mono(size: 11, weight: .medium))
               .foregroundStyle(.secondary)
             if let url = URL(string: pullRequest.url) {
               Link(destination: url) {
@@ -600,7 +600,7 @@ struct GitHubReviewsView: View {
       TableColumn("Repository", value: \.repository) { row in
         let pullRequest = row.pullRequest
         Text(pullRequest.repositoryName)
-          .font(.jetBrainsMono(size: 11))
+          .font(.mono(size: 11))
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .help(pullRequest.repositoryNameWithOwner)

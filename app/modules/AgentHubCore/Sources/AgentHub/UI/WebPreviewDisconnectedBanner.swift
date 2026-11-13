@@ -27,14 +27,14 @@ struct WebPreviewDisconnectedBanner: View {
 
         VStack(alignment: .leading, spacing: 4) {
           Text("Live Preview Disconnected")
-            .font(.subheadline.weight(.semibold))
+            .font(.geist(size: 11, weight: .semibold))
 
           Text("Showing the last successful render from \(state.url.absoluteString).")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
 
           Text(state.error)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundColor(.secondary)
             .lineLimit(2)
         }
@@ -64,7 +64,7 @@ struct WebPreviewDisconnectedBanner: View {
 
       if let statusMessage {
         Text(statusMessage)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
     }

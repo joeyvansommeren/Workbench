@@ -157,6 +157,8 @@ struct AgentHubApp: App {
     WindowGroup {
       AgentHubOperationsView()
         .agentHub(appDelegate.provider)
+        // Default for any Text without an explicit font, so nothing falls back to SF Pro.
+        .font(.geist(size: 13))
     }
     .windowStyle(.hiddenTitleBar)
     .commands {
@@ -211,6 +213,7 @@ struct AgentHubApp: App {
     Settings {
       SettingsView()
         .agentHub(appDelegate.provider)
+        .font(.geist(size: 13))
     }
   }
 }

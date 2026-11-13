@@ -78,7 +78,7 @@ public struct SessionMonitorPanel: View {
               ProgressView()
                 .scaleEffect(0.7)
               Text("Loading session data...")
-                .font(.caption)
+                .font(.geist(size: 10))
                 .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity)
@@ -151,7 +151,7 @@ private struct StatusBadge: View {
       }
 
       Text(status.displayName)
-        .font(.caption)
+        .font(.geist(size: 10))
         .fontWeight(.medium)
         .foregroundColor(statusColor)
     }
@@ -217,7 +217,7 @@ struct ModelBadge: View {
       Image(systemName: "cpu")
         .font(.subheadline)
       Text(displayName)
-        .font(.system(.subheadline, design: .monospaced))
+        .font(.mono(size: 11))
     }
     .foregroundColor(.secondary)
   }
@@ -235,7 +235,7 @@ private struct RecentActivityList: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       Text("Recent Activity")
-        .font(.caption2)
+        .font(.geist(size: 10))
         .fontWeight(.semibold)
         .foregroundColor(.secondary)
 
@@ -254,7 +254,7 @@ private struct ActivityRow: View {
   var body: some View {
     HStack(spacing: 8) {
       Text(formatTime(activity.timestamp))
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
         .monospacedDigit()
         .frame(width: 55, alignment: .leading)
@@ -265,7 +265,7 @@ private struct ActivityRow: View {
         .frame(width: 14)
 
       Text(activity.description)
-        .font(.caption2)
+        .font(.geist(size: 10))
         .lineLimit(1)
         .foregroundColor(.primary)
     }

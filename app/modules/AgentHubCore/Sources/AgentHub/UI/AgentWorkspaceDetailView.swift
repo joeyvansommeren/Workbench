@@ -14,7 +14,7 @@ struct AgentWorkspaceDetailView: View {
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.runtimeTheme) private var runtimeTheme
   @AppStorage(AgentHubDefaults.terminalFontSize) private var terminalFontSize = 12.0
-  @AppStorage(AgentHubDefaults.terminalFontFamily) private var terminalFontFamily = "SF Mono"
+  @AppStorage(AgentHubDefaults.terminalFontFamily) private var terminalFontFamily = "Geist Mono"
   @State private var isRenaming = false
   @State private var renameText = ""
 
@@ -23,9 +23,9 @@ struct AgentWorkspaceDetailView: View {
       HStack(spacing: 10) {
         VStack(alignment: .leading, spacing: 2) {
           Text(viewModel.displayName(for: workspace))
-            .font(.headline)
+            .font(.geist(size: 13, weight: .bold))
           Text(workspace.projectPath)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)

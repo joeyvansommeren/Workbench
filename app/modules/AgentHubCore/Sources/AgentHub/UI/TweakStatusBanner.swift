@@ -21,7 +21,7 @@ struct TweakStatusBanner: View {
         .buttonStyle(.plain)
         .help("Dismiss")
     }
-    .font(.caption)
+    .font(.geist(size: 10))
     .foregroundStyle(tint)
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(10)

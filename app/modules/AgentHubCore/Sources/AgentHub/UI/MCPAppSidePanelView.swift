@@ -121,7 +121,7 @@ struct MCPAppSidePanelView: View {
         .accessibilityHidden(true)
 
       Text("MCP Apps")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
 
       Spacer(minLength: 12)
 
@@ -341,12 +341,12 @@ private struct MCPAppResourceHostView: View {
     HStack(spacing: 10) {
       VStack(alignment: .leading, spacing: 2) {
         Text(resource.title ?? resource.resource.metadata.title ?? resource.resource.uri)
-          .font(.subheadline.weight(.semibold))
+          .font(.geist(size: 11, weight: .semibold))
           .lineLimit(1)
           .truncationMode(.tail)
 
         Text(resource.resource.uri)
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .font(.mono(size: 11, weight: .medium))
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .truncationMode(.middle)
@@ -356,7 +356,7 @@ private struct MCPAppResourceHostView: View {
       Spacer(minLength: 12)
 
       Text(resource.resource.mimeType)
-        .font(.system(size: 10, weight: .medium))
+        .font(.geist(size: 10, weight: .medium))
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .truncationMode(.middle)
@@ -574,9 +574,9 @@ private struct MCPAppNoticeBanner: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text(notice.title)
-          .font(.caption.weight(.semibold))
+          .font(.geist(size: 10, weight: .semibold))
         Text(notice.message)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(3)
       }
@@ -628,9 +628,9 @@ private struct MCPAppNetworkConsentBanner: View {
 
         VStack(alignment: .leading, spacing: 1) {
           Text("Allow network access?")
-            .font(.headline)
+            .font(.geist(size: 13, weight: .bold))
           Text(appName)
-            .font(.subheadline)
+            .font(.geist(size: 11))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -642,13 +642,13 @@ private struct MCPAppNetworkConsentBanner: View {
 
       VStack(alignment: .leading, spacing: 6) {
         Text("Connects to")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
 
         ForEach(visibleHosts, id: \.self) { host in
           Label {
             Text(host)
-              .font(.callout.monospaced())
+              .font(.mono(size: 12))
               .lineLimit(1)
               .truncationMode(.middle)
           } icon: {
@@ -659,7 +659,7 @@ private struct MCPAppNetworkConsentBanner: View {
 
         if overflowCount > 0 {
           Text("+\(overflowCount) more")
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
         }
       }
@@ -667,7 +667,7 @@ private struct MCPAppNetworkConsentBanner: View {
       .accessibilityLabel("Connects to \(hosts.joined(separator: ", "))")
 
       Text("Blocked until you allow · kept for this session")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.tertiary)
 
       HStack(spacing: 8) {

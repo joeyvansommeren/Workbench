@@ -932,7 +932,7 @@ public struct MonitoringCardView: View {
         Text("Tools")
         if toolsAttentionCount > 0 {
           Text("\(toolsAttentionCount)")
-            .font(.system(.caption2, design: .monospaced))
+            .font(.mono(size: 10))
             .foregroundStyle(.secondary)
         }
       }

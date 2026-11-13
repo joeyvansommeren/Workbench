@@ -1682,7 +1682,7 @@ public struct MultiProviderSessionsListView: View {
         if !workspaceViewModel.workspaces.isEmpty {
           VStack(alignment: .leading, spacing: 4) {
             Text("Workspaces")
-              .font(.caption.weight(.semibold))
+              .font(.geist(size: 10, weight: .semibold))
               .foregroundStyle(.secondary)
               .padding(.top, 6)
             workspaceRows(for: workspaceViewModel.workspaces, ownedItems: workspaceOwnedItems)
@@ -2095,7 +2095,7 @@ public struct MultiProviderSessionsListView: View {
         Text(
           "Find all local Claude and Codex sessions started from the terminal and bring them into AgentHub."
         )
-        .font(.callout)
+        .font(.geist(size: 12))
         .foregroundColor(.secondary)
         .padding(12)
         .frame(width: 240)
@@ -3189,7 +3189,7 @@ private struct FolderGroupHeader: View {
             .lineLimit(1)
 
           Text("\(itemCount)")
-            .font(.caption2.monospacedDigit())
+            .font(.geist(size: 10).monospacedDigit())
             .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())

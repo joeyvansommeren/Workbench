@@ -819,7 +819,7 @@ public struct MultiProviderMonitoringPanelView: View {
           .font(.secondaryCaption)
           .foregroundStyle(.secondary)
         Text(comparisonDisplayName(for: item))
-          .font(.jetBrainsMono(size: 10))
+          .font(.mono(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(1)
         Spacer()
@@ -2191,7 +2191,7 @@ private struct ModuleLandingView: View {
   var body: some View {
     VStack(spacing: 20) {
       Text("What should we build in \(moduleName)?")
-        .font(.system(size: 31, weight: .regular))
+        .font(.geist(size: 31))
         .foregroundStyle(.primary)
         .multilineTextAlignment(.center)
         .lineLimit(nil)
@@ -2199,7 +2199,7 @@ private struct ModuleLandingView: View {
         .fixedSize(horizontal: false, vertical: true)
 
       Text(rootRepositoryPath)
-        .font(.system(size: 13, weight: .medium, design: .monospaced))
+        .font(.mono(size: 13, weight: .medium))
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .truncationMode(.middle)
@@ -2211,7 +2211,7 @@ private struct ModuleLandingView: View {
             Image(systemName: "plus.circle.fill")
               .font(.system(size: 13))
             Text("Start Session")
-              .font(.system(size: 13, weight: .semibold))
+              .font(.geist(size: 13, weight: .semibold))
           }
           .foregroundStyle(colorScheme == .dark ? .black : .white)
           .frame(height: 36)

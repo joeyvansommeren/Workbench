@@ -169,7 +169,7 @@ struct JiraTicketCard: View {
       HStack(spacing: 6) {
         JiraIssueTypeIcon(issueType: ticket.issueType)
         Text(ticket.key)
-          .font(.jetBrainsMono(size: 11, weight: .medium))
+          .font(.mono(size: 11, weight: .medium))
           .foregroundStyle(.secondary)
           .strikethrough(isDone, color: .secondary)
         Spacer(minLength: 4)

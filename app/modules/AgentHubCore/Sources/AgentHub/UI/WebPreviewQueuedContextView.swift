@@ -40,11 +40,11 @@ struct WebPreviewQueuedContextView: View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 10) {
         Label("Queued Updates", systemImage: "square.stack.3d.up")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.geist(size: 12, weight: .semibold))
           .foregroundStyle(.primary)
 
         Text("\(queuedItems.count)")
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundStyle(.secondary)
           .padding(.horizontal, 7)
           .padding(.vertical, 3)
@@ -54,7 +54,7 @@ struct WebPreviewQueuedContextView: View {
           )
 
         Text(headerHint)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(1)
 
@@ -72,7 +72,7 @@ struct WebPreviewQueuedContextView: View {
 
       if let failureMessage {
         Label(failureMessage, systemImage: "exclamationmark.triangle")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.orange)
           .lineLimit(2)
       }
@@ -99,7 +99,7 @@ struct WebPreviewQueuedContextView: View {
       HStack(spacing: 5) {
         Text("Send")
         Text("⌘ ↩")
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
       }
     }
     .buttonStyle(.borderedProminent)
@@ -153,7 +153,7 @@ struct WebPreviewQueuedContextView: View {
         HStack(spacing: 8) {
           Label(item.kindLabel, systemImage: item.iconName)
             .labelStyle(.titleAndIcon)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.geist(size: 10, weight: .semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
@@ -163,14 +163,14 @@ struct WebPreviewQueuedContextView: View {
             )
 
           Text(item.summary)
-            .font(.system(.caption2, design: .monospaced))
+            .font(.mono(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
         }
 
         Text(item.detail)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(2)
           .truncationMode(.tail)

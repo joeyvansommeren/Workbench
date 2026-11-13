@@ -26,15 +26,15 @@ struct GitHubPromptSettingsView: View {
   private var sharedInstructionsSection: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Instructions for every prompt")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
       Text(
         "These instructions are appended to every GitHub prompt. Use them for logging rules, safety constraints, or team conventions."
       )
-      .font(.caption)
+      .font(.geist(size: 10))
       .foregroundStyle(.secondary)
 
       TextEditor(text: $library.sharedInstructions)
-        .font(.system(.caption, design: .monospaced))
+        .font(.mono(size: 10))
         .frame(minHeight: 64, maxHeight: 82)
         .padding(5)
         .background(Color(nsColor: .textBackgroundColor))
@@ -121,11 +121,11 @@ struct GitHubPromptSettingsView: View {
       }
 
       Text("Prompt")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
 
       TextEditor(text: selectedPromptBinding)
-        .font(.system(size: 12, design: .monospaced))
+        .font(.mono(size: 12))
         .scrollContentBackground(.hidden)
         .padding(7)
         .background(Color(nsColor: .textBackgroundColor))
@@ -140,17 +140,17 @@ struct GitHubPromptSettingsView: View {
           ForEach(GitHubPromptLibrary.variables) { variable in
             GridRow {
               Text(variable.token)
-                .font(.system(.caption, design: .monospaced))
+                .font(.mono(size: 10))
                 .textSelection(.enabled)
               Text(variable.description)
-                .font(.caption)
+                .font(.geist(size: 10))
                 .foregroundStyle(.secondary)
             }
           }
         }
         .padding(.top, 7)
       }
-      .font(.caption)
+      .font(.geist(size: 10))
     }
     .padding(16)
   }

@@ -282,7 +282,7 @@ struct StudioSidePanelView: View {
         }
         if let transientNotice {
           Text(transientNotice)
-            .font(.caption)
+            .font(.geist(size: 10))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(.regularMaterial, in: Capsule())
@@ -294,7 +294,7 @@ struct StudioSidePanelView: View {
     .overlay(alignment: .topLeading) {
       if inspectState.isActive, inspectBehavior != .edit {
         Text(inspectHint(for: artifact))
-          .font(.caption)
+          .font(.geist(size: 10))
           .padding(.horizontal, 10)
           .padding(.vertical, 6)
           .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -344,7 +344,7 @@ struct StudioSidePanelView: View {
       Text(artifact.kind == .canvas
            ? "Click any element to edit it. Changes save into the canvas as you go — Implement uses them."
            : "Click any element to edit it. Send hands every change to the agent as one request.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -360,14 +360,14 @@ struct StudioSidePanelView: View {
         switch bakeState {
         case .saving:
           ProgressView().controlSize(.mini)
-          Text("Saving edits into the canvas…").font(.caption)
+          Text("Saving edits into the canvas…").font(.geist(size: 10))
         case .failed(let message):
           Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-          Text(message).font(.caption).lineLimit(1)
+          Text(message).font(.geist(size: 10)).lineLimit(1)
         case .idle, .saved:
           Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.brandPrimary)
           Text(editState.pendingChangeCount == 1 ? "1 edit saved into the canvas" : "\(editState.pendingChangeCount) edits saved into the canvas")
-            .font(.caption.weight(.medium))
+            .font(.geist(size: 10, weight: .medium))
         }
         if editBaseline != nil {
           Button("Revert", role: .destructive) { revertBakedEdits() }
@@ -375,7 +375,7 @@ struct StudioSidePanelView: View {
             .help("Restore the canvas as the agent last filed it")
         }
         Text("Implement ▾ sends the edited variant")
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
       }
       .padding(.horizontal, 12)
@@ -386,7 +386,7 @@ struct StudioSidePanelView: View {
         Image(systemName: "pencil.and.list.clipboard")
           .foregroundStyle(Color.brandPrimary)
         Text(editState.pendingChangeCount == 1 ? "1 pending edit" : "\(editState.pendingChangeCount) pending edits")
-          .font(.caption.weight(.medium))
+          .font(.geist(size: 10, weight: .medium))
         Button("Discard", role: .destructive) { discardPendingEdits() }
           .controlSize(.small)
         Button("Send to Agent") { sendPendingEdits(for: artifact) }
@@ -430,7 +430,7 @@ struct StudioSidePanelView: View {
         .accessibilityHidden(true)
 
       Text("Studio")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
 
       if artifacts.count == 1, let selectedArtifact {
         Text(selectedArtifact.title)
@@ -632,7 +632,7 @@ struct StudioSidePanelView: View {
         Image(systemName: "hammer.fill")
           .font(.system(size: 11, weight: .medium))
         Text("Implement")
-          .font(.system(size: 12, weight: .medium))
+          .font(.geist(size: 12, weight: .medium))
         Image(systemName: "chevron.down")
           .font(.system(size: 9, weight: .semibold))
       }
@@ -1135,7 +1135,7 @@ private struct StudioWarningsBanner: View {
           Image(systemName: "exclamationmark.triangle")
             .foregroundStyle(.orange)
           Text(warnings.count == 1 ? "1 note from the agent's markup" : "\(warnings.count) notes from the agent's markup")
-            .font(.caption.weight(.medium))
+            .font(.geist(size: 10, weight: .medium))
           Spacer()
           Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
             .font(.caption2)
@@ -1148,7 +1148,7 @@ private struct StudioWarningsBanner: View {
       if isExpanded {
         ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
           Text("• \(warning)")
-            .font(.caption2)
+            .font(.geist(size: 10))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }

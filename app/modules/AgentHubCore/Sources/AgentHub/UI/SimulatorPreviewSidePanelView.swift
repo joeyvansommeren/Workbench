@@ -372,7 +372,7 @@ struct SimulatorPreviewSidePanelView: View {
 
   private var viewOnlyBadge: some View {
     Text("View-only")
-      .font(.caption.weight(.medium))
+      .font(.geist(size: 10, weight: .medium))
       .padding(.horizontal, 7)
       .padding(.vertical, 3)
       .background(Capsule().fill(Color.secondary.opacity(0.15)))
@@ -409,7 +409,7 @@ struct SimulatorPreviewSidePanelView: View {
       } label: {
         HStack(spacing: 6) {
           Text(activeDestination?.name ?? "Select Destination")
-            .font(.caption.weight(.medium))
+            .font(.geist(size: 10, weight: .medium))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
 
@@ -722,7 +722,7 @@ struct SimulatorPreviewSidePanelView: View {
     VStack(spacing: 8) {
       ProgressView()
       Text("Loading simulators…")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -752,7 +752,7 @@ struct SimulatorPreviewSidePanelView: View {
         destinationMenuContent
       } label: {
         Label("Select Destination", systemImage: "iphone.gen3")
-          .font(.subheadline.weight(.medium))
+          .font(.geist(size: 11, weight: .medium))
           .padding(.horizontal, 14)
           .padding(.vertical, 7)
       }
@@ -774,19 +774,19 @@ struct SimulatorPreviewSidePanelView: View {
 
       if isActiveDevicePreparing {
         Text(preparingLabel)
-          .font(.subheadline)
+          .font(.geist(size: 11))
         ProgressView()
           .controlSize(.small)
       } else {
         Text(physicalDeviceStatusTitle)
-          .font(.subheadline)
+          .font(.geist(size: 11))
         Text("Live mirroring is available for simulators only.")
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
 
         if let activeFailureMessage {
           Text(activeFailureMessage)
-            .font(.caption)
+            .font(.geist(size: 10))
             .foregroundStyle(.red)
             .multilineTextAlignment(.center)
             .lineLimit(4)
@@ -845,12 +845,12 @@ struct SimulatorPreviewSidePanelView: View {
         // A boot/build is already in flight — show progress instead of a Boot
         // button so the user can't kick off a second `simctl boot` (→ 149).
         Text(preparingLabel)
-          .font(.subheadline)
+          .font(.geist(size: 11))
         ProgressView()
           .controlSize(.small)
       } else {
         Text(activeDevice.map { "\($0.name) is not running" } ?? "Select a simulator")
-          .font(.subheadline)
+          .font(.geist(size: 11))
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1577,10 +1577,10 @@ private struct SimulatorBuildErrorBanner: View {
 
       VStack(alignment: .leading, spacing: 3) {
         Text("Run error")
-          .font(.caption.weight(.semibold))
+          .font(.geist(size: 10, weight: .semibold))
 
         Text(message)
-          .font(.caption2)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(5)
           .textSelection(.enabled)
@@ -1593,7 +1593,7 @@ private struct SimulatorBuildErrorBanner: View {
         } label: {
           Label("Fix", systemImage: "wrench.and.screwdriver.fill")
         }
-        .font(.caption.weight(.medium))
+        .font(.geist(size: 10, weight: .medium))
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
         .tint(Color.brandPrimary(for: providerKind))

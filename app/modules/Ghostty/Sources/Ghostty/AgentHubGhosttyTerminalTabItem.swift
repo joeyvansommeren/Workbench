@@ -3,6 +3,7 @@
 //  AgentHub
 //
 
+import AgentHubCore
 import SwiftUI
 
 @MainActor
@@ -36,7 +37,7 @@ struct AgentHubGhosttyTerminalTabItem: View {
         Button(action: onClose) {
           Label("Close Tab", systemImage: "xmark")
             .labelStyle(.iconOnly)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.geist(size: 10, weight: .semibold))
             .frame(width: 20, height: 20)
             .contentShape(Rectangle())
         }

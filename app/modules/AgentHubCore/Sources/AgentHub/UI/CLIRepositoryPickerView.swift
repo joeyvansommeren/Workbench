@@ -25,7 +25,7 @@ public struct CLIRepositoryPickerView: View {
           .foregroundColor(.primary)
 
         Text("Add Repository")
-          .font(.system(size: 13))
+          .font(.geist(size: 13))
           .foregroundColor(.primary)
 
         Spacer()

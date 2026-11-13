@@ -63,11 +63,11 @@ public struct MeasurementsSidePanelView: View {
   private var header: some View {
     HStack(spacing: 8) {
       Label("Measurements", systemImage: "chart.bar.doc.horizontal")
-        .font(.headline)
+        .font(.geist(size: 13, weight: .bold))
 
       if !records.isEmpty {
         Text("\(records.count)")
-          .font(.caption2.monospacedDigit())
+          .font(.geist(size: 10).monospacedDigit())
           .padding(.horizontal, 6)
           .padding(.vertical, 2)
           .background(Color.secondary.opacity(0.15))
@@ -111,10 +111,10 @@ private struct MeasurementEmptyState: View {
         .foregroundStyle(.secondary)
 
       Text("No measurements yet")
-        .font(.callout.weight(.medium))
+        .font(.geist(size: 12, weight: .medium))
 
       Text("Ask this session to analyze something — query a database, aggregate a CSV, count events — and the result lands here as a chart with the query behind it.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)

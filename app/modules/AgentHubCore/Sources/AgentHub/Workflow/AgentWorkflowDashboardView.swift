@@ -572,7 +572,7 @@ private struct DetectedTicketWorkflowHeader: View {
     HStack(alignment: .top, spacing: DesignTokens.Spacing.md) {
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
         Text(workflow.ticketKey ?? "Unassigned sessions")
-          .font(.jetBrainsMono(size: 14, weight: .semibold))
+          .font(.mono(size: 14, weight: .semibold))
         if let summary = workflow.summary {
           Text(summary)
             .font(.secondaryDefault)
@@ -840,7 +840,7 @@ private struct DetectedBranchSessionDetail: View {
         .font(.primaryDefault)
         .lineLimit(1)
         Text(branch.repositoryPath)
-          .font(.jetBrainsMono(size: 10))
+          .font(.mono(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .truncationMode(.middle)
@@ -963,7 +963,7 @@ private struct DetectedAgentSessionRow: View {
           Text(assignment.provider.rawValue)
             .font(.secondarySmall)
           Text(displayName)
-            .font(.jetBrainsMono(size: 10))
+            .font(.mono(size: 10))
             .foregroundStyle(.secondary)
           if assignment.session.isActive {
             Label("Active", systemImage: "circle.fill")
@@ -1059,7 +1059,7 @@ private struct CreateManualWorkflowSheet: View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
         Label("New Workflow", systemImage: "rectangle.stack.badge.plus")
-          .font(.headline)
+          .font(.geist(size: 13, weight: .bold))
         Text("Create the workflow and start its implementation agent immediately.")
           .font(.secondarySmall)
           .foregroundStyle(.secondary)

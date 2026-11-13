@@ -303,7 +303,7 @@ public struct GitHubPanelView: View {
                   viewModel.showOnlyMyPRs = false
                   Task { await viewModel.reloadPullRequestsAndCounts() }
                 }
-                .font(.system(size: 8, weight: .bold))
+                .font(.geist(size: 8, weight: .bold))
                 .labelStyle(.iconOnly)
                 .buttonStyle(.plain)
                 .help("Show pull requests from all authors")
@@ -322,7 +322,7 @@ public struct GitHubPanelView: View {
                   viewModel.selectedLabels.remove(label)
                   Task { await viewModel.reloadPullRequestsAndCounts() }
                 }
-                .font(.system(size: 8, weight: .bold))
+                .font(.geist(size: 8, weight: .bold))
                 .labelStyle(.iconOnly)
                 .buttonStyle(.plain)
               }

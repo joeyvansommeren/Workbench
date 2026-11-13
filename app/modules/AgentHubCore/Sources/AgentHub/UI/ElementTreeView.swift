@@ -18,7 +18,7 @@ struct ElementTreeView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       Text("DOM Context")
-        .font(.system(size: 12, weight: .semibold))
+        .font(.geist(size: 12, weight: .semibold))
         .foregroundStyle(.secondary)
 
       relationshipSection(
@@ -52,7 +52,7 @@ struct ElementTreeView: View {
     DisclosureGroup(isExpanded: isExpanded) {
       if items.isEmpty {
         Text("No nearby elements captured.")
-          .font(.system(size: 12))
+          .font(.geist(size: 12))
           .foregroundStyle(.secondary)
       } else {
         VStack(alignment: .leading, spacing: 6) {
@@ -60,10 +60,10 @@ struct ElementTreeView: View {
             let item = pair.element
             VStack(alignment: .leading, spacing: 2) {
               Text(summaryText(for: item))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(.mono(size: 11, weight: .semibold))
               if !item.textContent.isEmpty {
                 Text(item.textContent)
-                  .font(.system(size: 11))
+                  .font(.geist(size: 11))
                   .foregroundStyle(.secondary)
                   .lineLimit(2)
               }
@@ -76,10 +76,10 @@ struct ElementTreeView: View {
     } label: {
       HStack {
         Text(title)
-          .font(.system(size: 12, weight: .semibold))
+          .font(.geist(size: 12, weight: .semibold))
         Spacer()
         Text("\(count)")
-          .font(.system(size: 11, design: .monospaced))
+          .font(.mono(size: 11))
           .foregroundStyle(.secondary)
       }
     }

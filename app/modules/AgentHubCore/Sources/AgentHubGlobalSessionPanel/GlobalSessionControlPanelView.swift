@@ -211,7 +211,7 @@ public struct GlobalSessionControlPanelView: View {
       Button(action: expandPanel) {
         Label("Expand Sessions", systemImage: "chevron.down")
           .labelStyle(.iconOnly)
-          .font(.system(size: 12, weight: .bold))
+          .font(.geist(size: 12, weight: .bold))
           .foregroundStyle(.secondary)
           .frame(width: 30, height: 20)
           .contentShape(Rectangle())
@@ -225,7 +225,7 @@ public struct GlobalSessionControlPanelView: View {
         Button(action: onClose) {
           Label("Close", systemImage: "xmark")
             .labelStyle(.iconOnly)
-            .font(.system(size: 10, weight: .bold))
+            .font(.geist(size: 10, weight: .bold))
             .foregroundStyle(.secondary)
             .frame(width: 22, height: 20)
             .contentShape(Rectangle())
@@ -380,7 +380,7 @@ public struct GlobalSessionControlPanelView: View {
       Button(action: compactPanel) {
         Label("Compact Sessions", systemImage: "chevron.up")
           .labelStyle(.iconOnly)
-          .font(.system(size: 11, weight: .bold))
+          .font(.geist(size: 11, weight: .bold))
           .foregroundStyle(.secondary)
           .frame(width: 22, height: 22)
           .contentShape(Rectangle())
@@ -391,7 +391,7 @@ public struct GlobalSessionControlPanelView: View {
       Button(action: onClose) {
         Label("Close", systemImage: "xmark")
           .labelStyle(.iconOnly)
-          .font(.system(size: 11, weight: .bold))
+          .font(.geist(size: 11, weight: .bold))
           .foregroundStyle(.secondary)
           .frame(width: 22, height: 22)
           .contentShape(Rectangle())
@@ -821,7 +821,7 @@ private struct GlobalSessionControlPanelRow: View {
 
   private var cleanupBadge: some View {
     Text("Cleanup")
-      .font(.system(size: 9, weight: .bold))
+      .font(.geist(size: 9, weight: .bold))
       .foregroundStyle(.white)
       .padding(.horizontal, 5)
       .padding(.vertical, 1)
@@ -885,7 +885,7 @@ private struct GlobalSessionControlPanelRow: View {
 
   private func prStateBadge(_ title: String, color: Color) -> some View {
     Text(title)
-      .font(.system(size: 9, weight: .bold))
+      .font(.geist(size: 9, weight: .bold))
       .foregroundStyle(.white)
       .padding(.horizontal, 5)
       .padding(.vertical, 1)

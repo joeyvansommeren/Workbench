@@ -38,7 +38,7 @@ struct VoiceRealtimeSettingsSection: View {
         }
       }
       Text("Pinning a language keeps replies consistent when background audio confuses transcription.")
-        .font(.caption)
+        .font(.geist(size: 10))
         .foregroundStyle(.secondary)
 
       Picker("Conversation responsiveness", selection: $vadEagerness) {

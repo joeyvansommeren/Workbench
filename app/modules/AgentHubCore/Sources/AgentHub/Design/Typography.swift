@@ -13,19 +13,13 @@ extension DesignTokens {
 
   /// Font family PostScript names for bundled fonts.
   public enum Typography {
-    // JetBrains Mono (primary — session IDs, slugs, paths, branches, code)
-    static let jbMonoRegular = "JetBrainsMono-Regular"
-    static let jbMonoMedium = "JetBrainsMono-Medium"
-    static let jbMonoSemiBold = "JetBrainsMono-SemiBold"
-    static let jbMonoBold = "JetBrainsMono-Bold"
-
     // Geist (secondary — labels, status, timestamps, messages)
     static let geistRegular = "Geist-Regular"
     static let geistMedium = "Geist-Medium"
     static let geistSemiBold = "Geist-SemiBold"
     static let geistBold = "Geist-Bold"
 
-    // GeistMono (kept for edge cases)
+    // Geist Mono (primary mono — session IDs, slugs, paths, branches, code)
     static let geistMonoRegular = "GeistMono-Regular"
     static let geistMonoMedium = "GeistMono-Medium"
     static let geistMonoSemiBold = "GeistMono-SemiBold"
@@ -37,13 +31,13 @@ extension DesignTokens {
 
 extension Font {
 
-  // MARK: - Primary (JetBrains Mono)
+  // MARK: - Primary (Geist Mono)
   // Use for: session IDs, slugs, paths, branches, code-like content
 
-  public static let primaryLarge = Font.jetBrainsMono(size: 14, weight: .semibold)
-  public static let primaryDefault = Font.jetBrainsMono(size: 12, weight: .medium)
-  public static let primarySmall = Font.jetBrainsMono(size: 11, weight: .regular)
-  public static let primaryCaption = Font.jetBrainsMono(size: 10, weight: .regular)
+  public static let primaryLarge = Font.mono(size: 14, weight: .semibold)
+  public static let primaryDefault = Font.mono(size: 12, weight: .medium)
+  public static let primarySmall = Font.mono(size: 11, weight: .regular)
+  public static let primaryCaption = Font.mono(size: 10, weight: .regular)
 
   // MARK: - Secondary (Geist)
   // Use for: labels, status, timestamps, message previews, UI text
@@ -63,20 +57,9 @@ extension Font {
 
 extension Font {
 
-  /// JetBrains Mono — primary monospaced font.
-  public static func jetBrainsMono(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-    let name: String
-    switch weight {
-    case .bold, .heavy, .black:
-      name = DesignTokens.Typography.jbMonoBold
-    case .semibold:
-      name = DesignTokens.Typography.jbMonoSemiBold
-    case .medium:
-      name = DesignTokens.Typography.jbMonoMedium
-    default:
-      name = DesignTokens.Typography.jbMonoRegular
-    }
-    return .custom(name, size: size)
+  /// Geist Mono — the app's monospaced font.
+  public static func mono(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    geistMono(size: size, weight: weight)
   }
 
   /// Geist — secondary sans-serif font.
@@ -95,7 +78,7 @@ extension Font {
     return .custom(name, size: size)
   }
 
-  /// GeistMono — secondary monospaced font (kept for edge cases).
+  /// Geist Mono by weight.
   public static func geistMono(size: CGFloat, weight: Font.Weight = .regular) -> Font {
     let name: String
     switch weight {

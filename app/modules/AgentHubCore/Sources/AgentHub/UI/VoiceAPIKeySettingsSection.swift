@@ -33,7 +33,7 @@ struct VoiceAPIKeySettingsSection: View {
 
       if let saveMessage {
         Text(saveMessage)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
       }
     } header: {

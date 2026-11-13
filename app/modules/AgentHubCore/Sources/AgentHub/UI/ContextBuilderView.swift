@@ -138,7 +138,7 @@ public struct ContextBuilderView: View {
         .font(.secondaryCaption)
         .foregroundColor(.secondary)
       TextEditor(text: Bindable(viewModel).instructions)
-        .font(.system(size: 12))
+        .font(.geist(size: 12))
         .scrollContentBackground(.hidden)
         .padding(4)
         .frame(minHeight: 44, maxHeight: 80)
@@ -347,7 +347,7 @@ private struct ContextSetsSidePanel: View {
         .foregroundColor(isSelected ? Color.brandPrimary(from: runtimeTheme) : .secondary)
       VStack(alignment: .leading, spacing: 1) {
         Text(profile.name)
-          .font(.system(size: 12))
+          .font(.geist(size: 12))
           .foregroundColor(.primary)
           .lineLimit(1)
         if profile.scope == .personal {

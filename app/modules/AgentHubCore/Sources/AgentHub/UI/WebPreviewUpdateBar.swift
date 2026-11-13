@@ -15,11 +15,11 @@ struct WebPreviewUpdateBar: View {
     HStack(spacing: 12) {
       VStack(alignment: .leading, spacing: 2) {
         Text("Reload")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.geist(size: 12, weight: .semibold))
           .foregroundStyle(.primary)
 
         Text(state.detailText)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundStyle(.secondary)
           .lineLimit(2)
       }
@@ -31,7 +31,7 @@ struct WebPreviewUpdateBar: View {
           Text("Reload")
 
           Text("⌘↵")
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .font(.mono(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)

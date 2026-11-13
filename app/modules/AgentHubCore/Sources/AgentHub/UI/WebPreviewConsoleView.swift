@@ -15,12 +15,12 @@ struct WebPreviewConsoleView: View {
     VStack(spacing: 0) {
       HStack {
         Text("Console")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.geist(size: 12, weight: .semibold))
           .foregroundStyle(.secondary)
         Spacer()
         Button("Clear", action: onClear)
           .buttonStyle(.plain)
-          .font(.system(size: 11, weight: .semibold))
+          .font(.geist(size: 11, weight: .semibold))
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 10)
@@ -39,7 +39,7 @@ struct WebPreviewConsoleView: View {
             ForEach(Array(entries.enumerated()), id: \.offset) { pair in
               let entry = pair.element
               Text(entry)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.mono(size: 11))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
                 .background(

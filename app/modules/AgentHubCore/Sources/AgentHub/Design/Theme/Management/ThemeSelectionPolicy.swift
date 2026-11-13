@@ -9,9 +9,10 @@ import Foundation
 
 enum ThemeSelectionPolicy {
   static let ghosttyThemeId = "ghostty.yaml"
-  static let defaultRegularThemeId = "singularity.yaml"
+  static let defaultRegularThemeId = "workbench.yaml"
 
   static let regularBundledYAMLThemeFileIds = [
+    "workbench.yaml",
     "sentry.yaml",
     "rigel.yaml",
     "vela.yaml",

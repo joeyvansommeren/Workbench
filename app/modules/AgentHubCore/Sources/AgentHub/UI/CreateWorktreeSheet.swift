@@ -88,7 +88,7 @@ public struct CreateWorktreeSheet: View {
           .foregroundColor(.primary)
 
         Text("Create Worktree")
-          .font(.headline)
+          .font(.geist(size: 13, weight: .bold))
 
         Spacer()
 
@@ -105,7 +105,7 @@ public struct CreateWorktreeSheet: View {
           .font(.caption)
           .foregroundColor(.secondary)
         Text(repositoryName)
-          .font(.caption)
+          .font(.geist(size: 10))
           .foregroundColor(.secondary)
       }
     }
@@ -118,7 +118,7 @@ public struct CreateWorktreeSheet: View {
       ProgressView()
         .scaleEffect(0.8)
       Text("Loading branches...")
-        .font(.subheadline)
+        .font(.geist(size: 11))
         .foregroundColor(.secondary)
     }
     .frame(maxWidth: .infinity)
@@ -130,7 +130,7 @@ public struct CreateWorktreeSheet: View {
   private var branchNameField: some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("Branch Name")
-        .font(.caption)
+        .font(.geist(size: 10))
         .fontWeight(.medium)
         .foregroundColor(.secondary)
 
@@ -141,7 +141,7 @@ public struct CreateWorktreeSheet: View {
         }
 
       Text("A new branch will be created with this name")
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
   }
@@ -151,7 +151,7 @@ public struct CreateWorktreeSheet: View {
   private var baseBranchPicker: some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("Based On")
-        .font(.caption)
+        .font(.geist(size: 10))
         .fontWeight(.medium)
         .foregroundColor(.secondary)
 
@@ -164,7 +164,7 @@ public struct CreateWorktreeSheet: View {
       .pickerStyle(.menu)
 
       Text(baseBranchDescription)
-        .font(.caption2)
+        .font(.geist(size: 10))
         .foregroundColor(.secondary)
     }
   }
@@ -182,7 +182,7 @@ public struct CreateWorktreeSheet: View {
   private var directoryField: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Directory Name")
-        .font(.caption)
+        .font(.geist(size: 10))
         .fontWeight(.medium)
         .foregroundColor(.secondary)
 
@@ -201,7 +201,7 @@ public struct CreateWorktreeSheet: View {
           .font(.caption)
           .foregroundColor(.primary)
         Text("Worktree Location")
-          .font(.caption)
+          .font(.geist(size: 10))
           .fontWeight(.medium)
           .foregroundColor(.primary)
       }
@@ -209,15 +209,15 @@ public struct CreateWorktreeSheet: View {
       // Full path display
       VStack(alignment: .leading, spacing: 2) {
         Text(parentDirectory)
-          .font(.system(.caption, design: .monospaced))
+          .font(.mono(size: 10))
           .foregroundColor(.secondary)
 
         HStack(spacing: 0) {
           Text("/")
-            .font(.system(.caption, design: .monospaced))
+            .font(.mono(size: 10))
             .foregroundColor(.secondary)
           Text(directoryName.isEmpty ? "<directory>" : directoryName)
-            .font(.system(.subheadline, design: .monospaced))
+            .font(.mono(size: 11))
             .fontWeight(.semibold)
             .foregroundColor(.primary)
         }

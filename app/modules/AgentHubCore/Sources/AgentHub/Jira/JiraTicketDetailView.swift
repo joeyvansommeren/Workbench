@@ -59,7 +59,7 @@ struct JiraTicketDetailView: View {
     HStack(spacing: 8) {
       JiraIssueTypeIcon(issueType: ticket.issueType, size: 13)
       Text(ticket.key)
-        .font(.jetBrainsMono(size: 12, weight: .semibold))
+        .font(.mono(size: 12, weight: .semibold))
         .textSelection(.enabled)
       Spacer()
       if let browseURL {
@@ -377,7 +377,7 @@ private struct JiraPullRequestRow: View {
             .lineLimit(2)
             .multilineTextAlignment(.leading)
           Text(verbatim: "\(pullRequest.repositoryName) #\(pullRequest.number)")
-            .font(.jetBrainsMono(size: 10))
+            .font(.mono(size: 10))
             .foregroundStyle(.secondary)
         }
         Spacer(minLength: 6)
