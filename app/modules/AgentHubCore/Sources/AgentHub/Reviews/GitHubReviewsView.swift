@@ -76,6 +76,9 @@ struct GitHubReviewsView: View {
       await viewModel.load()
       await recoverAndRestoreReviewSessions()
     }
+    .onChange(of: viewModel.selectedPullRequestID) { _, id in
+      MainThreadStallMonitor.breadcrumb("review pull request selected: \(id ?? "none")")
+    }
     .sheet(item: $sessionCommandContext) { context in
       GitHubReviewSessionCommandSheet(
         context: context,
@@ -532,6 +535,7 @@ struct GitHubReviewsView: View {
       return
     }
 
+    MainThreadStallMonitor.breadcrumb("reviews refresh")
     reloadTask = Task {
       await viewModel.reloadProjects()
       guard !Task.isCancelled, viewModel.recoveryIssue == nil else { return }

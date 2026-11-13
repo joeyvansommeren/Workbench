@@ -43,6 +43,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NodeProcessGuardController.shared.start()
+    // Double-clicks and window changes, logged with any freeze (layout-loop crash, CLAUDE.md).
+    UIEventBreadcrumbs.install()
     UNUserNotificationCenter.current().delegate = self
     UNUserNotificationCenter.current().setNotificationCategories([
       GitHubCIFailureNotification.category()
