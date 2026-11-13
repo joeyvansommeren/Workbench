@@ -241,6 +241,18 @@ public final class MultiSessionLaunchViewModel {
     isClaudeSelected || isCodexSelected
   }
 
+  /// Whether the Claude CLI is currently reachable.
+  public var isClaudeAvailable: Bool { claudeViewModel.isCLIAvailable }
+  /// Whether the Codex CLI is currently reachable.
+  public var isCodexAvailable: Bool { codexViewModel.isCLIAvailable }
+
+  /// Refreshes CLI availability for both providers. Call when the
+  /// launch sheet or provider selection appears.
+  public func refreshCLIAvailability() {
+    claudeViewModel.refreshCLIAvailability()
+    codexViewModel.refreshCLIAvailability()
+  }
+
   public var isSmartModeAvailable: Bool {
     intelligenceViewModel != nil
   }
@@ -1190,6 +1202,27 @@ public final class MultiSessionLaunchViewModel {
       isWorktree: claudeWorktreeOption != nil
     )
 
+    // Refresh CLI availability before launching — the user may have
+    // installed or removed a CLI since the last check.
+    var unavailableProviders: [String] = []
+    if providers.contains(.claude) {
+      claudeViewModel.refreshCLIAvailability()
+      if !claudeViewModel.isCLIAvailable {
+        unavailableProviders.append("Claude Code")
+      }
+    }
+    if providers.contains(.codex) {
+      codexViewModel.refreshCLIAvailability()
+      if !codexViewModel.isCLIAvailable {
+        unavailableProviders.append("Codex")
+      }
+    }
+    if !unavailableProviders.isEmpty {
+      launchError = "\(unavailableProviders.joined(separator: " and ")) is not installed."
+      isLaunching = false
+      return
+    }
+
     if providers.contains(.claude) {
       claudeViewModel.refresh()
       try await Task.sleep(for: .milliseconds(300))
@@ -1230,6 +1263,18 @@ public final class MultiSessionLaunchViewModel {
     contextBlock: String?,
     repoPath: String
   ) async throws {
+    // Preflight: check CLI availability for both providers.
+    claudeViewModel.refreshCLIAvailability()
+    codexViewModel.refreshCLIAvailability()
+    var unavailableProviders: [String] = []
+    if !claudeViewModel.isCLIAvailable { unavailableProviders.append("Claude Code") }
+    if !codexViewModel.isCLIAvailable { unavailableProviders.append("Codex") }
+    if !unavailableProviders.isEmpty {
+      launchError = "\(unavailableProviders.joined(separator: " and ")) is not installed."
+      isLaunching = false
+      return
+    }
+
     // Ensure the repository is added to both providers
     claudeViewModel.addRepository(at: repoPath)
     codexViewModel.addRepository(at: repoPath)

@@ -13,6 +13,8 @@ struct LinearBoardColumnView: View {
   let column: LinearViewModel.BoardColumn
   let selectedIssueID: String?
   let canStart: Bool
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let linkedSessions: [String: [LinearLinkedSession]]
   let onOpen: (LinearIssue) -> Void
   let onOpenSession: (LinearLinkedSession) -> Void
@@ -102,9 +104,11 @@ struct LinearBoardColumnView: View {
     Button("Open Details") { onOpen(issue) }
     Divider()
     Button("Pick Up with Claude") { onStart(issue, .claude) }
-      .disabled(!canStart)
+      .disabled(!canStart || !isClaudeAvailable)
+      .help(isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
     Button("Pick Up with Codex") { onStart(issue, .codex) }
-      .disabled(!canStart)
+      .disabled(!canStart || !isCodexAvailable)
+      .help(isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
     Divider()
     if let url = URL(string: issue.url) {
       Button("Open in Linear") { NSWorkspace.shared.open(url) }

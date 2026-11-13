@@ -14,6 +14,8 @@ struct JiraBoardColumnView: View {
   let selectedTicketKey: String?
   let canStart: Bool
   let startingSessionKeys: Set<String>
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let linkedSessions: [String: [JiraLinkedSession]]
   let onOpen: (JiraTicketSnapshot) -> Void
   let onOpenSession: (JiraLinkedSession) -> Void
@@ -132,9 +134,11 @@ struct JiraBoardColumnView: View {
     Button("Open Details") { onOpen(ticket) }
     Divider()
     Button("Pick Up with Claude") { onStart(ticket, .claude) }
-      .disabled(!canStart || startingSessionKeys.contains(ticket.key))
+      .disabled(!canStart || startingSessionKeys.contains(ticket.key) || !isClaudeAvailable)
+      .help(isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
     Button("Pick Up with Codex") { onStart(ticket, .codex) }
-      .disabled(!canStart || startingSessionKeys.contains(ticket.key))
+      .disabled(!canStart || startingSessionKeys.contains(ticket.key) || !isCodexAvailable)
+      .help(isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
     Divider()
     if let url = browseURL(ticket) {
       Button("Open in Jira") { NSWorkspace.shared.open(url) }

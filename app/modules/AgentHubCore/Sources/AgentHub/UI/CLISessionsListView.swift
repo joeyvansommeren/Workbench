@@ -75,6 +75,7 @@ public struct CLISessionsListView: View {
       if viewModel.hasRepositories {
         viewModel.refresh()
       }
+      viewModel.refreshCLIAvailability()
     }
     .sheet(item: $sessionFileSheetItem) { item in
       SessionFileSheetView(
@@ -568,6 +569,7 @@ public struct CLISessionsListView: View {
             onStartInHubDangerousForWorktree: { worktree in
               viewModel.startNewSessionInHub(worktree, dangerouslySkipPermissions: true)
             },
+            isCLIAvailable: viewModel.isCLIAvailable,
             showLastMessage: viewModel.showLastMessage,
             isDebugMode: true,  // Enable debug mode for now
             deletingWorktreePath: viewModel.deletingWorktreePath

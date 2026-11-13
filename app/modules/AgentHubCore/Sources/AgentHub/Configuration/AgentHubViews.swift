@@ -92,7 +92,9 @@ public struct AgentHubOperationsView: View {
               onCompareSessions: { request in
                 agentHub.openWorkflowSessionComparison(request)
                 section = .sessions
-              }
+              },
+              isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
+              isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable
             )
           } else {
             ContentUnavailableView(
@@ -133,6 +135,8 @@ public struct AgentHubOperationsView: View {
                     + agentHub.codexSessionsViewModel.selectedRepositories
                 ),
                 linkedSessions: agentHub.jiraLinkedSessions(),
+                isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
+                isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
                 onStart: { ticket, provider, repositoryPath in
                   await startJiraTicket(
                     ticket,
@@ -158,6 +162,8 @@ public struct AgentHubOperationsView: View {
                   + agentHub.codexSessionsViewModel.selectedRepositories
               ),
               linkedSessions: agentHub.linearLinkedSessions(),
+              isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
+              isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
               onStart: { issue, provider, repositoryPath in
                 await startLinearIssue(
                   issue,

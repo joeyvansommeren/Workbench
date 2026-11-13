@@ -26,6 +26,7 @@ public struct CLIRepositoryTreeView: View {
   let onCreateWorktree: ((SelectedRepository) -> Void)?
   let onStartInHubForWorktree: ((WorktreeBranch) -> Void)?
   let onStartInHubDangerousForWorktree: ((WorktreeBranch) -> Void)?
+  var isCLIAvailable: Bool = true
   var showLastMessage: Bool = false
   var isDebugMode: Bool = false
   var deletingWorktreePath: String? = nil
@@ -49,6 +50,7 @@ public struct CLIRepositoryTreeView: View {
     onCreateWorktree: ((SelectedRepository) -> Void)? = nil,
     onStartInHubForWorktree: ((WorktreeBranch) -> Void)? = nil,
     onStartInHubDangerousForWorktree: ((WorktreeBranch) -> Void)? = nil,
+    isCLIAvailable: Bool = true,
     showLastMessage: Bool = false,
     isDebugMode: Bool = false,
     deletingWorktreePath: String? = nil
@@ -68,6 +70,7 @@ public struct CLIRepositoryTreeView: View {
     self.onCreateWorktree = onCreateWorktree
     self.onStartInHubForWorktree = onStartInHubForWorktree
     self.onStartInHubDangerousForWorktree = onStartInHubDangerousForWorktree
+    self.isCLIAvailable = isCLIAvailable
     self.showLastMessage = showLastMessage
     self.isDebugMode = isDebugMode
     self.deletingWorktreePath = deletingWorktreePath
@@ -103,6 +106,7 @@ public struct CLIRepositoryTreeView: View {
             getCustomName: getCustomName,
             onStartInHub: { onStartInHubForWorktree?(worktree) },
             onStartInHubDangerous: { onStartInHubDangerousForWorktree?(worktree) },
+            isCLIAvailable: isCLIAvailable,
             showLastMessage: showLastMessage,
             isDebugMode: isDebugMode,
             isDeleting: worktree.path == deletingWorktreePath

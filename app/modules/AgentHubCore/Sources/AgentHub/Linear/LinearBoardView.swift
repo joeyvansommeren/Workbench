@@ -13,6 +13,8 @@ struct LinearBoardView: View {
   @Bindable var viewModel: LinearViewModel
   let repositories: [SelectedRepository]
   let linkedSessions: [String: [LinearLinkedSession]]
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let onStart: (LinearIssue, SessionProviderKind, String) async -> Void
   let onOpenSession: (LinearLinkedSession) -> Void
 
@@ -124,6 +126,8 @@ struct LinearBoardView: View {
             column: column,
             selectedIssueID: viewModel.selectedIssueID,
             canStart: viewModel.repositoryPath != nil,
+            isClaudeAvailable: isClaudeAvailable,
+            isCodexAvailable: isCodexAvailable,
             linkedSessions: linkedSessions,
             onOpen: {
               viewModel.openIssue($0.id)
@@ -149,6 +153,8 @@ struct LinearBoardView: View {
         repositoryPath: $viewModel.repositoryPath,
         repositories: repositories,
         linkedSessions: linkedSessions[issue.identifier] ?? [],
+        isClaudeAvailable: isClaudeAvailable,
+        isCodexAvailable: isCodexAvailable,
         onStart: { provider in start(issue, provider) },
         onOpenSession: onOpenSession,
         onClose: viewModel.closeIssue

@@ -69,6 +69,7 @@ public final class AgentHubGhosttyTerminalSurface: NSView, EmbeddedTerminalSurfa
   public var onRequestShowEditor: (() -> Void)?
   public var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)?
   public var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)?
+  public var onCLILaunchFailed: (() -> Void)?
   public var workspaceCLIConfigurationProvider: ((SessionProviderKind) -> CLICommandConfiguration)?
   private var terminalSessionKey: String?
   private weak var sessionViewModel: CLISessionsViewModel?
@@ -181,6 +182,7 @@ public final class AgentHubGhosttyTerminalSurface: NSView, EmbeddedTerminalSurfa
       )
     case .failure(let error):
       mountError(error.localizedDescription)
+      onCLILaunchFailed?()
     }
   }
 

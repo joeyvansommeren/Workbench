@@ -17,6 +17,8 @@ struct LinearIssueDetailView: View {
   @Binding var repositoryPath: String?
   let repositories: [SelectedRepository]
   let linkedSessions: [LinearLinkedSession]
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let onStart: (SessionProviderKind) -> Void
   let onOpenSession: (LinearLinkedSession) -> Void
   let onClose: () -> Void
@@ -38,6 +40,8 @@ struct LinearIssueDetailView: View {
           LinearPickUpCard(
             repositoryPath: $repositoryPath,
             repositories: repositories,
+            isClaudeAvailable: isClaudeAvailable,
+            isCodexAvailable: isCodexAvailable,
             onStart: onStart
           )
           descriptionBlock
@@ -175,6 +179,8 @@ private struct LinearIssueFields: View {
 private struct LinearPickUpCard: View {
   @Binding var repositoryPath: String?
   let repositories: [SelectedRepository]
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let onStart: (SessionProviderKind) -> Void
 
   var body: some View {
@@ -224,13 +230,15 @@ private struct LinearPickUpCard: View {
   }
 
   private func providerButton(_ provider: SessionProviderKind, title: String) -> some View {
-    Button {
+    let available = provider == .claude ? isClaudeAvailable : isCodexAvailable
+    return Button {
       onStart(provider)
     } label: {
       Label("Start \(title)", systemImage: "play.fill")
     }
     .buttonStyle(ProviderActionButtonStyle(provider: provider))
-    .disabled(repositoryPath == nil)
+    .disabled(repositoryPath == nil || !available)
+    .help(available ? "" : provider.notInstalledHelp)
   }
 }
 

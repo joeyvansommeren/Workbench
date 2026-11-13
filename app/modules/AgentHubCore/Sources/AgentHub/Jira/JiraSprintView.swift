@@ -13,6 +13,8 @@ struct JiraSprintView: View {
   @Bindable var viewModel: JiraSprintViewModel
   let repositories: [SelectedRepository]
   let linkedSessions: [String: [JiraLinkedSession]]
+  var isClaudeAvailable: Bool = true
+  var isCodexAvailable: Bool = true
   let onStart: (JiraTicketSnapshot, SessionProviderKind, String) async -> Void
   let onOpenSession: (JiraLinkedSession) -> Void
 
@@ -114,6 +116,8 @@ struct JiraSprintView: View {
             selectedTicketKey: viewModel.selectedTicketKey,
             canStart: viewModel.repositoryPath != nil,
             startingSessionKeys: viewModel.startingSessionKeys,
+            isClaudeAvailable: isClaudeAvailable,
+            isCodexAvailable: isCodexAvailable,
             linkedSessions: linkedSessions,
             onOpen: {
               viewModel.openTicket($0.key)
@@ -150,6 +154,8 @@ struct JiraSprintView: View {
         isLoadingPullRequests: viewModel.loadingPullRequestKeys.contains(ticket.key),
         onRefreshPullRequests: { viewModel.loadPullRequestsIfNeeded(for: ticket.key, force: true) },
         isStartingSession: viewModel.startingSessionKeys.contains(ticket.key),
+        isClaudeAvailable: isClaudeAvailable,
+        isCodexAvailable: isCodexAvailable,
         onStart: { provider in start(ticket, provider) },
         onOpenSession: onOpenSession,
         onClose: viewModel.closeTicket

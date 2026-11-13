@@ -133,20 +133,33 @@ public struct SessionsBrowserPanel: View {
 
   private func pendingSessionRow(pending: PendingHubSession, viewModel: CLISessionsViewModel, providerKind: SessionProviderKind) -> some View {
     HStack(spacing: 10) {
-      // Provider icon with pulsing animation
-      ZStack {
-        Circle()
-          .fill(Color.brandPrimary(for: providerKind).opacity(0.15))
-          .frame(width: 28, height: 28)
+      if pending.isFailed {
+        // Failed state: red icon instead of spinner
+        ZStack {
+          Circle()
+            .fill(Color.red.opacity(0.15))
+            .frame(width: 28, height: 28)
 
-        ProgressView()
-          .scaleEffect(0.6)
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 12))
+            .foregroundColor(.red)
+        }
+      } else {
+        // Provider icon with pulsing animation
+        ZStack {
+          Circle()
+            .fill(Color.brandPrimary(for: providerKind).opacity(0.15))
+            .frame(width: 28, height: 28)
+
+          ProgressView()
+            .scaleEffect(0.6)
+        }
       }
 
       VStack(alignment: .leading, spacing: 2) {
-        Text("Starting session...")
+        Text(pending.isFailed ? "Failed to start" : "Starting session...")
           .font(.geist(size: 11, weight: .medium))
-          .foregroundColor(.primary)
+          .foregroundColor(pending.isFailed ? .red : .primary)
 
         Text(URL(fileURLWithPath: pending.worktree.path).lastPathComponent)
           .font(.geist(size: 10))
@@ -155,12 +168,30 @@ public struct SessionsBrowserPanel: View {
 
       Spacer()
 
-      Button(action: { viewModel.cancelPendingSession(pending) }) {
-        Image(systemName: "xmark.circle.fill")
-          .font(.system(size: 14))
-          .foregroundColor(.secondary)
+      if pending.isFailed {
+        Button(action: { viewModel.retryPendingSession(pending) }) {
+          Image(systemName: "arrow.clockwise")
+            .font(.system(size: 12))
+            .foregroundColor(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Retry")
+
+        Button(action: { viewModel.removePendingSession(pending) }) {
+          Image(systemName: "xmark.circle.fill")
+            .font(.system(size: 14))
+            .foregroundColor(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Remove")
+      } else {
+        Button(action: { viewModel.cancelPendingSession(pending) }) {
+          Image(systemName: "xmark.circle.fill")
+            .font(.system(size: 14))
+            .foregroundColor(.secondary)
+        }
+        .buttonStyle(.plain)
       }
-      .buttonStyle(.plain)
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 8)
@@ -170,7 +201,7 @@ public struct SessionsBrowserPanel: View {
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-        .stroke(Color.borderSubtle, lineWidth: 1)
+        .stroke(pending.isFailed ? Color.red.opacity(0.3) : Color.borderSubtle, lineWidth: 1)
     )
   }
 

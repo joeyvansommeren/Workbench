@@ -259,6 +259,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   public var onRequestShowEditor: (() -> Void)?
   public var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)?
   public var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)?
+  public var onCLILaunchFailed: (() -> Void)?
   var terminalSessionKey: String?
   weak var sessionViewModel: CLISessionsViewModel?
   var metadataStore: SessionMetadataStore?
@@ -808,6 +809,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
       let message = "Could not find '\(cliConfiguration.command)' command."
       terminal.feed(text: "\r\n\u{001B}[31mError: \(message)\u{001B}[0m\r\n")
       terminal.feed(text: "Please ensure the CLI is installed.\r\n")
+      onCLILaunchFailed?()
       return
     }
 
