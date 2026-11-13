@@ -48,6 +48,7 @@ public final class CLISessionsViewModel {
   private let accessorySessionDetectionService: any AccessorySessionDetectionServiceProtocol
   private let approvalClaimStore: (any ApprovalClaimStoreProtocol)?
   private let hookInstaller: (any ClaudeHookInstallerProtocol)?
+  private let cliAvailabilityService: any CLIAvailabilityChecking
   private let terminalSurfaceFactory: any EmbeddedTerminalSurfaceFactory
   private let terminalBackend: EmbeddedTerminalBackend
   @ObservationIgnored private var terminalWorkspaceSaveTasks: [String: Task<Void, Never>] = [:]
@@ -1647,6 +1648,19 @@ public final class CLISessionsViewModel {
         parentSessionId: persistableWorkspaceSessionId(key: key, sessionId: sessionId)
       )
     }
+    // Wire launch failure callback for pending sessions so the row can
+    // show Retry / Remove instead of spinning indefinitely.
+    if key.hasPrefix("pending-") {
+      let pendingKey = key
+      terminal.onCLILaunchFailed = { [weak self] in
+        guard let self else { return }
+        // Extract pending UUID from key "pending-<UUID>"
+        let uuidString = String(pendingKey.dropFirst("pending-".count))
+        if let pendingId = UUID(uuidString: uuidString) {
+          self.markPendingSessionFailed(pendingId)
+        }
+      }
+    }
     activeTerminals[key] = terminal
     return terminal
   }
@@ -1858,6 +1872,10 @@ public final class CLISessionsViewModel {
       "Terminal backend changes require app restart; keeping existing terminals alive")
   }
 
+  /// Whether this provider's CLI executable is currently reachable.
+  /// Refreshed when the user opens New Session or a start menu.
+  public var isCLIAvailable: Bool = true
+
   /// Sessions being started in Hub's embedded terminal (no session ID yet)
   public var pendingHubSessions: [PendingHubSession] = []
 
@@ -2015,6 +2033,7 @@ public final class CLISessionsViewModel {
       AccessorySessionDetectionService(),
     approvalClaimStore: (any ApprovalClaimStoreProtocol)? = nil,
     hookInstaller: (any ClaudeHookInstallerProtocol)? = nil,
+    cliAvailabilityService: (any CLIAvailabilityChecking)? = nil,
     codexDataPath: String? = nil,
     worktreeRemovalService: any GitWorktreeRemovalServiceProtocol = GitWorktreeService(),
     terminalSurfaceFactory: any EmbeddedTerminalSurfaceFactory =
@@ -2038,6 +2057,10 @@ public final class CLISessionsViewModel {
     self.accessorySessionDetectionService = accessorySessionDetectionService
     self.approvalClaimStore = approvalClaimStore
     self.hookInstaller = hookInstaller
+    self.cliAvailabilityService = cliAvailabilityService ?? CLIAvailabilityService(
+      claudeConfiguration: cliConfiguration.mode == .claude ? cliConfiguration : .claudeDefault,
+      codexConfiguration: cliConfiguration.mode == .codex ? cliConfiguration : .codexDefault
+    )
     self.worktreeRemovalService = worktreeRemovalService
     self.terminalSurfaceFactory = terminalSurfaceFactory
     self.terminalBackend = terminalBackend
@@ -4063,6 +4086,14 @@ public final class CLISessionsViewModel {
     permissionModePlan: Bool = false,
     worktreeName: String? = nil
   ) {
+    // Re-check CLI availability before creating any session row or terminal.
+    refreshCLIAvailability()
+    guard isCLIAvailable else {
+      let label = providerKind == .claude ? "Claude Code" : "Codex"
+      AppLogger.session.warning("[StartInHub] \(label) CLI not found — launch blocked")
+      return
+    }
+
     let promptForTerminalSubmission = providerKind == .claude ? nonEmpty(initialPrompt) : nil
     let promptForProcessLaunch = providerKind == .claude ? nil : initialPrompt
 
@@ -4190,6 +4221,38 @@ public final class CLISessionsViewModel {
     pendingSessionWatchers.removeValue(forKey: pending.id)?.cancel()
     pendingHubSessions.removeAll { $0.id == pending.id }
     resolvedPendingSessions.removeValue(forKey: pending.id)
+  }
+
+  /// Re-checks whether the provider CLI is installed and updates `isCLIAvailable`.
+  /// Call this when a start menu or New Session surface appears.
+  public func refreshCLIAvailability() {
+    isCLIAvailable = cliAvailabilityService.checkAvailability(for: providerKind)
+  }
+
+  /// Marks a pending session as failed so the UI shows Retry / Remove.
+  public func markPendingSessionFailed(_ pendingId: UUID) {
+    guard let index = pendingHubSessions.firstIndex(where: { $0.id == pendingId }) else { return }
+    pendingHubSessions[index].isFailed = true
+  }
+
+  /// Removes a failed pending session row without cancelling a watcher (already dead).
+  public func removePendingSession(_ pending: PendingHubSession) {
+    cancelPendingSession(pending)
+  }
+
+  /// Retries a failed pending session: removes the old one and starts fresh.
+  public func retryPendingSession(_ pending: PendingHubSession) {
+    cancelPendingSession(pending)
+    startNewSessionInHub(
+      pending.worktree,
+      launchPath: pending.launchPath,
+      initialPrompt: pending.initialPrompt,
+      initialInputText: pending.initialInputText,
+      contextBlock: pending.launchContext,
+      dangerouslySkipPermissions: pending.dangerouslySkipPermissions,
+      permissionModePlan: pending.permissionModePlan,
+      worktreeName: pending.worktreeName
+    )
   }
 
   /// Watches for a new session file for the active provider.

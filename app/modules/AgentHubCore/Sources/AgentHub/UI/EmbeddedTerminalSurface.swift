@@ -27,6 +27,9 @@ public protocol EmbeddedTerminalSurface: AnyObject {
   var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)? { get set }
   var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)? { get set }
   var workspaceCLIConfigurationProvider: ((SessionProviderKind) -> CLICommandConfiguration)? { get set }
+  /// Called when the CLI process failed to launch (e.g. executable not found).
+  /// The ViewModel uses this to mark the pending session as failed.
+  var onCLILaunchFailed: (() -> Void)? { get set }
 
   func updateContext(terminalSessionKey: String?, sessionViewModel: CLISessionsViewModel?)
   func configure(
@@ -114,6 +117,11 @@ public extension EmbeddedTerminalSurface {
   }
 
   var workspaceCLIConfigurationProvider: ((SessionProviderKind) -> CLICommandConfiguration)? {
+    get { nil }
+    set {}
+  }
+
+  var onCLILaunchFailed: (() -> Void)? {
     get { nil }
     set {}
   }

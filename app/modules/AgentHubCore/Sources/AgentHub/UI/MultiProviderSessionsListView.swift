@@ -3784,6 +3784,7 @@ private struct ProviderSectionView: View {
           onStartInHubDangerousForWorktree: { worktree in
             viewModel.startNewSessionInHub(worktree, dangerouslySkipPermissions: true)
           },
+          isCLIAvailable: viewModel.isCLIAvailable,
           showLastMessage: viewModel.showLastMessage,
           isDebugMode: true,
           deletingWorktreePath: viewModel.deletingWorktreePath

@@ -26,6 +26,10 @@ public struct PendingHubSession: Identifiable {
   public let existingSessionIdentifiers: Set<String>
   /// nil = no worktree flag; "" = --worktree (auto-name); non-empty = --worktree <name>
   public let worktreeName: String?
+  /// Set to `true` when the CLI process failed to start (e.g. executable
+  /// disappeared between availability check and launch). The UI shows
+  /// Retry / Remove instead of a spinner.
+  public var isFailed: Bool
 
   public init(
     worktree: WorktreeBranch,
@@ -49,6 +53,7 @@ public struct PendingHubSession: Identifiable {
     self.permissionModePlan = permissionModePlan
     self.existingSessionIdentifiers = existingSessionIdentifiers
     self.worktreeName = worktreeName
+    self.isFailed = false
   }
 
   public var projectPath: String {

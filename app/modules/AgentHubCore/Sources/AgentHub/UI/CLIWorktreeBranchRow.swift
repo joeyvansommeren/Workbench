@@ -25,6 +25,7 @@ public struct CLIWorktreeBranchRow: View {
   let getCustomName: ((String) -> String?)?
   let onStartInHub: () -> Void
   let onStartInHubDangerous: () -> Void
+  var isCLIAvailable: Bool = true
   var showLastMessage: Bool = false
   var isDebugMode: Bool = false
   var isDeleting: Bool = false
@@ -85,6 +86,7 @@ public struct CLIWorktreeBranchRow: View {
     getCustomName: ((String) -> String?)? = nil,
     onStartInHub: @escaping () -> Void = {},
     onStartInHubDangerous: @escaping () -> Void = {},
+    isCLIAvailable: Bool = true,
     showLastMessage: Bool = false,
     isDebugMode: Bool = false,
     isDeleting: Bool = false
@@ -102,6 +104,7 @@ public struct CLIWorktreeBranchRow: View {
     self.getCustomName = getCustomName
     self.onStartInHub = onStartInHub
     self.onStartInHubDangerous = onStartInHubDangerous
+    self.isCLIAvailable = isCLIAvailable
     self.showLastMessage = showLastMessage
     self.isDebugMode = isDebugMode
     self.isDeleting = isDeleting
@@ -194,7 +197,10 @@ public struct CLIWorktreeBranchRow: View {
               .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
-          .help("New \(providerLabel) session")
+          .help(isCLIAvailable
+            ? "New \(providerLabel) session"
+            : "\(providerLabel) is not installed")
+          .disabled(!isCLIAvailable)
           .popover(isPresented: $showNewSessionMenu, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 4) {
               Button(action: {
