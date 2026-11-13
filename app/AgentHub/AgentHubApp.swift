@@ -226,5 +226,12 @@ struct AgentHubApp: App {
         .agentHub(appDelegate.provider)
         .font(.geist(size: 13))
     }
+
+    #if DEBUG
+    Window("Component Gallery", id: "component-gallery") {
+      ComponentGallery()
+    }
+    .defaultSize(width: 1100, height: 800)
+    #endif
   }
 }
