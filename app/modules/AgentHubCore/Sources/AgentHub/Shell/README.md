@@ -46,3 +46,31 @@ child. `ShellLayout.windowMinWidth` is 1288 while the legacy Reviews view is
 hosted: its `NavigationSplitView` sidebar (min 260) + divider + PR `HSplitView`
 (350 + divider + 380) = 992, plus the 288 shell sidebar and the 8 pt panel
 inset. P8 lowers it to 900 when it replaces Reviews.
+
+## P6: session view (`Shell/Session/`)
+
+- **Tabs.** `SessionTabsModel` is per window (owned by `ShellRoot`, injected
+  with `.environment(sessionTabsModel)`). `SessionTabsSync` keeps it in step:
+  any `primarySessionId` change (sidebar, palette, router, launch) opens or
+  selects a tab, so callers only use `SessionNavigationModel.selectSession`.
+  Closing a tab never stops the session. Pending tabs take the resolved id in
+  place. Open tabs persist per provider in `session_workspace_state`
+  (`v17_add_open_session_tab_ids`, saved through `CLISessionsViewModel`'s
+  gated workspace-state write). Tabs whose session goes away are pruned;
+  restored ids that never resolved stay hidden.
+- **Toolbar.** `SessionsToolbarContent` → `SessionTabStrip`: tabs flex
+  120–204 pt, overflow goes to a chevron menu. The strip measures only its own
+  width (parent-driven, rounded, stored on change).
+- **Detail.** `SessionDetailView`: `SessionHeaderView`, the shared
+  `MonitoringCardContentArea` (terminal/chat/files/diffs, also used by the
+  legacy card) and `SessionSidePanel` in a `ResizablePanelContainer`
+  (400 default, 320–520). Effects run through `SessionCardEffects`, the same
+  modifier the legacy card uses. Panels come from `SidePanelContentView`
+  (shared with the legacy panel); availability from `SidePanelSegments`.
+- **No split views.** The legacy `MultiProviderMonitoringPanelView` is not in
+  this path. A workflow comparison opens both sessions as tabs.
+  `GitHubPRDetailView` uses a fixed `HStack` when the flag is on.
+- **Terminal palette.** With the flag on, `TerminalPaletteResolver` drives the
+  SwiftTerm colours (incl. 16 ANSI slots) and the Ghostty overlay from the
+  Workbench palette; a palette or appearance switch repaints open terminals.
+  Flag off: the legacy rules, unchanged.

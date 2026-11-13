@@ -520,11 +520,12 @@ private struct SessionDetailContent: View {
     if isSidePanelExpanded {
       panel.frame(maxWidth: .infinity)
     } else {
-      // Fixed bounds, no geometry: 400 default, 320–640 by drag.
+      // Fixed bounds, no geometry: 400 default, 320–520 by drag. The maximum
+      // keeps content visible at the 900 pt window minimum P8 targets.
       ResizablePanelContainer(
         side: .trailing,
         minWidth: 320,
-        maxWidth: 640,
+        maxWidth: 520,
         defaultWidth: DesignTokens.Width.sidePanel,
         userDefaultsKey: AgentHubDefaults.sidePanelWidth
       ) {
