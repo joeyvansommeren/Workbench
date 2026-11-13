@@ -430,4 +430,18 @@ public enum AgentHubDefaults {
   /// Local repository path that Sprint ticket sessions start in.
   /// Type: String
   public static let jiraSprintRepositoryPath = "\(keyPrefix)jira.sprint.repositoryPath"
+
+  // MARK: - Linear
+
+  /// Linear board assignee filter: `everyone` or `me`. Type: String (default: me)
+  public static let linearAssigneeFilter = "\(keyPrefix)linear.assigneeFilter"
+
+  /// Selected Linear team ID. Type: String
+  public static let linearSelectedTeamID = "\(keyPrefix)linear.selectedTeamID"
+
+  /// Local repository path that Linear issue sessions start in. Type: String
+  public static let linearRepositoryPath = "\(keyPrefix)linear.repositoryPath"
+
+  /// Whether to move an issue to "started" when a session begins. Type: Bool (default: true)
+  public static let linearMoveToStarted = "\(keyPrefix)linear.moveToStarted"
 }

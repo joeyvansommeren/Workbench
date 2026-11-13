@@ -186,6 +186,11 @@ struct AgentHubApp: App {
         }
         .keyboardShortcut("4", modifiers: .command)
 
+        Button("Linear") {
+          AgentHubAppCommand.selectWorkspace(.linear)
+        }
+        .keyboardShortcut("5", modifiers: .command)
+
         Divider()
 
         Button("Resume Session by ID…") {

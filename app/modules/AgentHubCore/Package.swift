@@ -132,6 +132,7 @@ let package = Package(
       dependencies: [
         .product(name: "AgentWorkflowCore", package: "AgentWorkflowCore"),
         .product(name: "AgentWorkflowJiraCLI", package: "AgentWorkflowCore"),
+        .product(name: "AgentWorkflowLinear", package: "AgentWorkflowCore"),
         "ClaudeCodeClient",
         "AgentHubGitDiff",
         "AgentHubFileSearch",
@@ -215,6 +216,7 @@ let package = Package(
         "AgentHubCore",
         .product(name: "AgentWorkflowCore", package: "AgentWorkflowCore"),
         .product(name: "AgentWorkflowJiraCLI", package: "AgentWorkflowCore"),
+        .product(name: "AgentWorkflowLinear", package: "AgentWorkflowCore"),
         .product(name: "AgentHubCLIKit", package: "AgentHubCLI"),
         "AgentHubGitDiff",
         "AgentHubFileSearch",

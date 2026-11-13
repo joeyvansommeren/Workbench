@@ -46,4 +46,38 @@ extension AgentHubProvider {
       knownProjectKeys: jiraSprintViewModel.knownProjectKeys
     )
   }
+
+  /// Opens the Linear board with the issue's detail panel open.
+  public func showLinearIssue(_ id: String) {
+    linearViewModel.openIssue(id)
+    AgentHubAppCommand.selectWorkspace(.linear)
+  }
+
+  /// Opens a linked Linear session in Sessions, starting to monitor it when needed.
+  func showLinearSession(_ link: LinearLinkedSession) {
+    let sessionsViewModel =
+      link.provider == .claude ? claudeSessionsViewModel : codexSessionsViewModel
+    if let session = link.session {
+      if !sessionsViewModel.isMonitoring(sessionId: session.id) {
+        sessionsViewModel.startMonitoring(session: session)
+      }
+      globalSessionSelectionRouter.select(
+        providerKind: link.provider,
+        sessionId: session.id,
+        projectPath: session.projectPath,
+        itemId: link.itemID,
+        session: session
+      )
+    }
+    AgentHubAppCommand.selectWorkspace(.sessions)
+  }
+
+  /// Sessions linked to each Linear issue identifier, across Claude and Codex.
+  func linearLinkedSessions() -> [String: [LinearLinkedSession]] {
+    linearViewModel.sessionLinker.links(
+      from: [claudeSessionsViewModel, codexSessionsViewModel],
+      knownLinearTeamKeys: linearViewModel.knownTeamKeys,
+      knownJiraProjectKeys: jiraSprintViewModel.knownProjectKeys
+    )
+  }
 }
