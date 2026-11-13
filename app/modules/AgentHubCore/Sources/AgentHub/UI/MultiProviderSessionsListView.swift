@@ -11,8 +11,10 @@ import Foundation
 import PierreDiffsSwift
 import SwiftUI
 
-// MARK: - SessionFileSheetItem
+// MARK: - SessionFileSheetItem (view-local)
 
+/// View-local file sheet item. The coordinator has its own
+/// `CoordinatorSessionFileSheetItem` for shared use.
 private struct SessionFileSheetItem: Identifiable {
   let id = UUID()
   let session: CLISession
@@ -20,63 +22,11 @@ private struct SessionFileSheetItem: Identifiable {
   let content: String
 }
 
-// MARK: - GitHubSheetItem
-
-private struct GitHubSheetItem: Identifiable {
-  let id = UUID()
-  let projectPath: String
-}
-
-// MARK: - ProjectDetailsSheetItem
-
-private struct ProjectDetailsSheetItem: Identifiable {
-  let id = UUID()
-  let projectPath: String
-  let displayName: String
-}
-
-// MARK: - RemoveConfirmation
-
-private struct RemoveConfirmation {
-  let title: String
-  let message: String
-  let action: () -> Void
-}
-
-// MARK: - WorktreeModuleDeleteConfirmation
-
-private struct WorktreeModuleDeleteConfirmation {
-  let worktree: WorktreeBranch
-  let displayName: String
-  let sessionCount: Int
-  let providerKind: SessionProviderKind
-}
-
-// MARK: - RemoveConfirmationAlert
-
-private struct RemoveConfirmationAlert: ViewModifier {
-  @Binding var confirmation: RemoveConfirmation?
-
-  func body(content: Content) -> some View {
-    content.alert(
-      confirmation?.title ?? "",
-      isPresented: Binding(
-        get: { confirmation != nil },
-        set: { if !$0 { confirmation = nil } }
-      )
-    ) {
-      Button("Cancel", role: .cancel) { confirmation = nil }
-      Button("Remove", role: .destructive) {
-        confirmation?.action()
-        confirmation = nil
-      }
-    } message: {
-      if let confirmation {
-        Text(confirmation.message)
-      }
-    }
-  }
-}
+// Types that used to be private here (GitHubSheetItem,
+// ProjectDetailsSheetItem, RemoveConfirmation,
+// WorktreeModuleDeleteConfirmation, WorktreeCreateContext,
+// StartSessionSheetContext, RemoveConfirmationAlert) now live in
+// SessionsActionCoordinator.swift and SessionsPresentationModifier.swift.
 
 extension StatusGroupCategory {
   fileprivate var color: Color {
@@ -91,38 +41,29 @@ extension StatusGroupCategory {
 
 // MARK: - MultiProviderSessionsListView
 
-private struct WorktreeCreateContext: Identifiable {
-  let id = UUID()
-  let providerKind: SessionProviderKind
-  let repository: SelectedRepository
-}
+public struct WorkflowComparisonPresentationState: Equatable {
+  public private(set) var retainedComparison: WorkflowSessionComparisonRequest?
+  public private(set) var presentedComparison: WorkflowSessionComparisonRequest?
 
-private struct StartSessionSheetContext: Identifiable {
-  let id = UUID()
-  let launchViewModel: MultiSessionLaunchViewModel
-}
+  public init() {}
 
-struct WorkflowComparisonPresentationState: Equatable {
-  private(set) var retainedComparison: WorkflowSessionComparisonRequest?
-  private(set) var presentedComparison: WorkflowSessionComparisonRequest?
-
-  mutating func retainAndPresent(_ comparison: WorkflowSessionComparisonRequest) {
+  public mutating func retainAndPresent(_ comparison: WorkflowSessionComparisonRequest) {
     retainedComparison = comparison
     presentedComparison = comparison
   }
 
   @discardableResult
-  mutating func presentRetainedComparison() -> WorkflowSessionComparisonRequest? {
+  public mutating func presentRetainedComparison() -> WorkflowSessionComparisonRequest? {
     presentedComparison = retainedComparison
     return presentedComparison
   }
 
-  mutating func showStandaloneContent() {
+  public mutating func showStandaloneContent() {
     presentedComparison = nil
   }
 
   @discardableResult
-  mutating func close() -> WorkflowSessionComparisonRequest? {
+  public mutating func close() -> WorkflowSessionComparisonRequest? {
     let comparison = retainedComparison
     retainedComparison = nil
     presentedComparison = nil
@@ -3476,7 +3417,7 @@ private struct StatusGroupSectionHeader: View {
 /// Sheet wrapper that renders `MultiSessionLaunchView` in compact style for the
 /// project-row pencil entry point. Auto-dismisses when the launch pipeline
 /// finishes (unless the user cancelled or is in an interactive smart-mode phase).
-private struct StartSessionSheet: View {
+struct StartSessionSheet: View {
   @Bindable var launchViewModel: MultiSessionLaunchViewModel
   let intelligenceViewModel: IntelligenceViewModel?
   let onDismiss: () -> Void
