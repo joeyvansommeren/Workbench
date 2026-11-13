@@ -35,15 +35,7 @@ struct ShellDetailSlot: View {
         workspaceViewModel: agentHub.agentWorkspacesViewModel
       )
     case .reviews:
-      GitHubReviewsView(
-        viewModel: agentHub.gitHubReviewsViewModel,
-        claudeSessionsViewModel: agentHub.claudeSessionsViewModel,
-        codexSessionsViewModel: agentHub.codexSessionsViewModel,
-        onReview: { pullRequest, provider, template in
-          await actions.startReview(pullRequest, provider: provider, template: template)
-        },
-        onOpenSession: { actions.openReviewSession($0) }
-      )
+      ReviewsDestinationView(agentHub: agentHub, actions: actions)
     case .sprint:
       ShellSprintDetail(agentHub: agentHub, actions: actions, tracker: shellModel.sprintTracker)
     }
