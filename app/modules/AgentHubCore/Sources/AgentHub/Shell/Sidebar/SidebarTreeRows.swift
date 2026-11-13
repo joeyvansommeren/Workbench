@@ -26,7 +26,6 @@ struct BranchRowModel: Equatable {
   let worktreePath: String?
   let isWorktree: Bool
   let isFirstInRepo: Bool
-  let sessionCount: Int
   let decoration: BranchWorkflowDecoration?
 
   /// Where a new session on this branch starts: its worktree, else the repo.
@@ -49,6 +48,8 @@ struct LoadMoreRowModel: Equatable {
 }
 
 enum SidebarTreeRow: Identifiable, Equatable {
+  static func repoID(_ path: String) -> String { "repo|" + path }
+
   case repo(RepoHeaderRowModel)
   case branch(BranchRowModel)
   case session(SessionRowModel)
@@ -56,7 +57,7 @@ enum SidebarTreeRow: Identifiable, Equatable {
 
   var id: String {
     switch self {
-    case .repo(let model): return "repo|" + model.path
+    case .repo(let model): return Self.repoID(model.path)
     case .branch(let model): return "branch|" + model.id
     case .session(let model): return model.id
     case .loadMore(let model): return "more|" + model.branchID
@@ -102,7 +103,6 @@ enum SidebarTreeRows {
               worktreePath: branch.worktreePath,
               isWorktree: branch.isWorktree,
               isFirstInRepo: branchIndex == 0,
-              sessionCount: branch.sessions.count,
               decoration: decoration
             )))
         for (sessionIndex, node) in branch.sessions.enumerated() {
@@ -139,33 +139,62 @@ enum SidebarTreeRows {
 
   /// The session row before or after `currentID`, for arrow keys. Starts at
   /// the first or last session when nothing is selected; stops at the ends.
+  /// When the current session is hidden in a collapsed repository, it
+  /// continues from that repository's header.
+  ///
+  /// - Parameter repoPathBySessionID: Every session's repository, including
+  ///   sessions in collapsed repositories (`SessionTreeSnapshot`).
   static func adjacentSessionID(
     in rows: [SidebarTreeRow],
     from currentID: String?,
-    forward: Bool
+    forward: Bool,
+    repoPathBySessionID: [String: String]
   ) -> String? {
-    let sessionIDs = rows.compactMap { row -> String? in
-      if case .session(let model) = row { return model.id }
-      return nil
+    let start: Int?
+    if let currentID, let index = rows.firstIndex(where: { $0.id == currentID }) {
+      start = index
+    } else if let currentID, let repoPath = repoPathBySessionID[currentID],
+      let header = rows.firstIndex(where: { $0.id == SidebarTreeRow.repoID(repoPath) })
+    {
+      start = header
+    } else {
+      start = nil
     }
-    guard !sessionIDs.isEmpty else { return nil }
-    guard let currentID, let index = sessionIDs.firstIndex(of: currentID) else {
-      return forward ? sessionIDs.first : sessionIDs.last
-    }
-    let next = forward ? index + 1 : index - 1
-    return sessionIDs.indices.contains(next) ? sessionIDs[next] : nil
-  }
 
-  /// The repository that holds the session row `sessionID`.
-  static func repositoryPath(containing sessionID: String, in rows: [SidebarTreeRow]) -> String? {
-    var currentRepo: String?
-    for row in rows {
-      switch row {
-      case .repo(let model): currentRepo = model.path
-      case .session(let model) where model.id == sessionID: return currentRepo
-      default: continue
-      }
+    let after = (start.map { $0 + 1 } ?? 0)..<rows.count
+    let before = 0..<(start ?? rows.count)
+    let candidates = forward ? Array(after) : Array(before.reversed())
+    for index in candidates {
+      if case .session(let model) = rows[index] { return model.id }
     }
     return nil
+  }
+}
+
+// MARK: - Highlight
+
+/// The session row the user last opened into a workspace pane. Opening a
+/// workspace-owned session clears `primarySessionId`, so the tree keeps this
+/// to highlight the row and to continue arrow keys from it.
+struct SidebarWorkspaceOpen: Equatable {
+  let sessionRowID: String
+  let workspaceID: String
+}
+
+enum SidebarTreeSelection {
+  /// The row to highlight: the primary session, else the workspace session
+  /// the tree opened, as long as its workspace is still the one shown.
+  static func highlightedSessionID(
+    primarySessionId: String?,
+    selectedWorkspaceID: String?,
+    lastWorkspaceOpen: SidebarWorkspaceOpen?
+  ) -> String? {
+    if let primarySessionId { return primarySessionId }
+    guard let selectedWorkspaceID, let lastWorkspaceOpen,
+      lastWorkspaceOpen.workspaceID == selectedWorkspaceID
+    else {
+      return nil
+    }
+    return lastWorkspaceOpen.sessionRowID
   }
 }

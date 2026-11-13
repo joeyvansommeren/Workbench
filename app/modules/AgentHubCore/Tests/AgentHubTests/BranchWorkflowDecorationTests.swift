@@ -28,6 +28,25 @@ struct BranchWorkflowDecorationTests {
     #expect(decoration?.pullRequest?.url == "https://github.com/o/r/pull/212")
   }
 
+  @Test("CI state comes from the pull request's check rollup")
+  func ciStatusFromRollup() {
+    let noRollup = DetectedPullRequest(gitHubPullRequest(checks: nil))
+    let failing = DetectedPullRequest(
+      gitHubPullRequest(checks: [
+        GitHubCheckRun(name: "lint", status: "COMPLETED", conclusion: "SUCCESS"),
+        GitHubCheckRun(name: "test", status: "COMPLETED", conclusion: "FAILURE"),
+      ]))
+    let passing = DetectedPullRequest(
+      gitHubPullRequest(checks: [GitHubCheckRun(name: "test", status: "COMPLETED", conclusion: "SUCCESS")]))
+
+    // No rollup in the lookup means "unknown", not "no checks".
+    #expect(noRollup.ciStatus == nil)
+    #expect(failing.ciStatus == .failure)
+    #expect(passing.ciStatus == .success)
+    #expect(failing.number == 7)
+    #expect(failing.headBranch == "feat/x")
+  }
+
   @Test("A branch with no pull request has no badge")
   func noPullRequest() {
     let branch = workflowBranch(id: "b1", repo: "/tmp/Repo", branch: "main", implementers: ["s1"])
@@ -197,6 +216,14 @@ struct BranchWorkflowDecorationTests {
 }
 
 // MARK: - Fixtures
+
+private func gitHubPullRequest(checks: [GitHubCheckRun]?) -> GitHubPullRequest {
+  GitHubPullRequest(
+    number: 7, title: "Fix", body: nil, state: "OPEN", url: "https://github.com/o/r/pull/7",
+    headRefName: "feat/x", baseRefName: "main", author: nil, createdAt: nil, updatedAt: nil,
+    isDraft: false, mergeable: nil, additions: 0, deletions: 0, changedFiles: 0,
+    reviewDecision: nil, statusCheckRollup: checks, labels: nil, reviewRequests: nil, comments: nil)
+}
 
 private func workflowBranch(
   id: String,

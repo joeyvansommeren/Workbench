@@ -47,7 +47,7 @@ struct SidebarTreeRowsTests {
 
   @Test("Arrow keys walk session rows and stop at the ends")
   func adjacentSessions() {
-    let rows = SidebarTreeRows.rows(
+    let snapshot = SessionTreeSnapshot(
       repos: [
         repo("/tmp/A", branches: [branch("main", sessions: ["a1"]), branch("dev", sessions: ["a2"])])
       ],
@@ -55,13 +55,127 @@ struct SidebarTreeRowsTests {
       decorations: .empty,
       title: { $0.id }
     )
+    let next = { (id: String?, forward: Bool) in
+      SidebarTreeRows.adjacentSessionID(
+        in: snapshot.rows, from: id, forward: forward,
+        repoPathBySessionID: snapshot.repoPathBySessionID)
+    }
 
-    #expect(SidebarTreeRows.adjacentSessionID(in: rows, from: nil, forward: true) == "a1")
-    #expect(SidebarTreeRows.adjacentSessionID(in: rows, from: nil, forward: false) == "a2")
-    #expect(SidebarTreeRows.adjacentSessionID(in: rows, from: "a1", forward: true) == "a2")
-    #expect(SidebarTreeRows.adjacentSessionID(in: rows, from: "a2", forward: true) == nil)
-    #expect(SidebarTreeRows.adjacentSessionID(in: rows, from: "a1", forward: false) == nil)
-    #expect(SidebarTreeRows.repositoryPath(containing: "a2", in: rows) == "/tmp/A")
+    #expect(next(nil, true) == "a1")
+    #expect(next(nil, false) == "a2")
+    #expect(next("a1", true) == "a2")
+    #expect(next("a2", true) == nil)
+    #expect(next("a1", false) == nil)
+  }
+
+  @Test("A collapsed repo still knows the selected session, so Right can expand it again")
+  func collapseThenExpandFindsRepository() {
+    let repos = [
+      repo("/tmp/A", branches: [branch("main", sessions: ["a1"])]),
+      repo("/tmp/B", branches: [branch("main", sessions: ["b1"])]),
+    ]
+    let collapsed = SessionTreeSnapshot(
+      repos: repos, collapsedRepoPaths: ["/tmp/A"], decorations: .empty, title: { $0.id })
+
+    // "a1" has no visible row, but its repository is still known.
+    #expect(!collapsed.rows.contains { $0.id == "a1" })
+    #expect(collapsed.repoPathBySessionID["a1"] == "/tmp/A")
+  }
+
+  @Test("Up and Down continue from the collapsed repository's header")
+  func arrowsAfterCollapse() {
+    let repos = [
+      repo("/tmp/A", branches: [branch("main", sessions: ["a1"])]),
+      repo("/tmp/B", branches: [branch("main", sessions: ["b1", "b2"])]),
+      repo("/tmp/C", branches: [branch("main", sessions: ["c1"])]),
+    ]
+    let snapshot = SessionTreeSnapshot(
+      repos: repos, collapsedRepoPaths: ["/tmp/B"], decorations: .empty, title: { $0.id })
+    let next = { (id: String?, forward: Bool) in
+      SidebarTreeRows.adjacentSessionID(
+        in: snapshot.rows, from: id, forward: forward,
+        repoPathBySessionID: snapshot.repoPathBySessionID)
+    }
+
+    // "b2" is hidden in collapsed B: Down goes to C, Up goes back to A.
+    #expect(next("b2", true) == "c1")
+    #expect(next("b2", false) == "a1")
+  }
+
+  @Test("Menus and counts use every session, not only the loaded page")
+  func unpagedSessionsForMenus() {
+    let allSessions = (0..<8).map { "s\($0)" }
+    let paged = [repo("/tmp/A", branches: [branch("main", sessions: Array(allSessions.prefix(5)), hasMore: true)])]
+    let unpaged = [repo("/tmp/A", branches: [branch("main", sessions: allSessions)])]
+
+    let snapshot = SessionTreeSnapshot(
+      repos: paged, unpagedRepos: unpaged, collapsedRepoPaths: [], decorations: .empty,
+      title: { $0.id })
+
+    let sessionRows = snapshot.rows.filter { if case .session = $0 { return true } else { return false } }
+    #expect(sessionRows.count == 5)
+    #expect(snapshot.sessionsByRepo["/tmp/A"]?.count == 8)
+    #expect(snapshot.sessionsByBranch["/tmp/A|main"]?.count == 8)
+    #expect(snapshot.repoPathBySessionID["s7"] == "/tmp/A")
+  }
+
+  @Test("The unpaged projection keeps every session in its branch")
+  func unpagedProjection() {
+    let repository = SelectedRepository(path: "/tmp/Repo")
+    let items = (0..<8).map { index in
+      ProjectableSessionItem(
+        id: "s\(index)",
+        session: CLISession(id: "s\(index)", projectPath: "/tmp/Repo", branchName: "main"),
+        providerKind: .claude,
+        timestamp: Date(timeIntervalSince1970: Double(100 - index)),
+        isPending: false,
+        status: nil
+      )
+    }
+
+    let paged = SessionTreeProjection.project(items: items, repositories: [repository])
+    let unpaged = SessionTreeProjection.project(items: items, repositories: [repository], paged: false)
+
+    #expect(paged[0].branches[0].sessions.count == 5)
+    #expect(unpaged[0].branches[0].sessions.count == 8)
+    #expect(!unpaged[0].branches[0].hasMore)
+    #expect(unpaged[0].branches[0].id == paged[0].branches[0].id)
+  }
+
+  @Test("A workspace-owned session stays highlighted while its workspace is shown")
+  func workspaceHighlight() {
+    let open = SidebarWorkspaceOpen(sessionRowID: "claude-s1", workspaceID: "ws1")
+
+    #expect(
+      SidebarTreeSelection.highlightedSessionID(
+        primarySessionId: nil, selectedWorkspaceID: "ws1", lastWorkspaceOpen: open) == "claude-s1")
+    // Another workspace is shown: the old row is not highlighted.
+    #expect(
+      SidebarTreeSelection.highlightedSessionID(
+        primarySessionId: nil, selectedWorkspaceID: "ws2", lastWorkspaceOpen: open) == nil)
+    // A standalone session wins.
+    #expect(
+      SidebarTreeSelection.highlightedSessionID(
+        primarySessionId: "codex-s2", selectedWorkspaceID: nil, lastWorkspaceOpen: open)
+        == "codex-s2")
+    #expect(
+      SidebarTreeSelection.highlightedSessionID(
+        primarySessionId: nil, selectedWorkspaceID: nil, lastWorkspaceOpen: open) == nil)
+  }
+
+  @Test("Arrow keys continue from the highlighted workspace session")
+  func arrowsFromWorkspaceSession() {
+    let snapshot = SessionTreeSnapshot(
+      repos: [repo("/tmp/A", branches: [branch("main", sessions: ["s1", "s2", "s3"])])],
+      collapsedRepoPaths: [], decorations: .empty, title: { $0.id })
+    let highlighted = SidebarTreeSelection.highlightedSessionID(
+      primarySessionId: nil, selectedWorkspaceID: "ws1",
+      lastWorkspaceOpen: SidebarWorkspaceOpen(sessionRowID: "s2", workspaceID: "ws1"))
+
+    #expect(
+      SidebarTreeRows.adjacentSessionID(
+        in: snapshot.rows, from: highlighted, forward: true,
+        repoPathBySessionID: snapshot.repoPathBySessionID) == "s3")
   }
 
   @Test("Role labels appear only for a reviewed workflow")

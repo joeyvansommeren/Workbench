@@ -2,10 +2,10 @@
 //  SidebarIcons.swift
 //  AgentHub
 //
-//  The prototype's stroked 16 × 16 sidebar icons (`#i-pull`, `#i-branch`, …),
-//  drawn as paths. SF Symbols has no pull-request glyph (`arrow.triangle.pull`
-//  renders as a merge arrow), and the agent marks are custom, so the sidebar
-//  draws the prototype's own SVG paths instead.
+//  The prototype's stroked 16 × 16 sidebar icons (`#i-branch`, `#i-board`, …),
+//  drawn as paths. The agent marks are custom and SF Symbols has no
+//  pull-request glyph, so the sidebar draws the prototype's own SVG paths.
+//  The pull-request path is the shared `PullRequestGlyphShape`.
 //
 
 import SwiftUI
@@ -77,15 +77,7 @@ struct SidebarGlyphShape: Shape {
 
     switch glyph {
     case .pullRequest:
-      circle(4.5, 3.75, 1.5)
-      circle(4.5, 12.25, 1.5)
-      circle(11.5, 12.25, 1.5)
-      line([(4.5, 5.25), (4.5, 10.75)])
-      path.move(to: p(11.5, 10.75))
-      path.addLine(to: p(11.5, 6.5))
-      path.addArc(tangent1End: p(11.5, 4.5), tangent2End: p(9.5, 4.5), radius: 2 * scale)
-      path.addLine(to: p(7.25, 4.5))
-      line([(8.75, 3), (7.25, 4.5), (8.75, 6)])
+      path.addPath(PullRequestGlyphShape().path(in: rect))
 
     case .board:
       path.addRoundedRect(

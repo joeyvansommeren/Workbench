@@ -22,6 +22,10 @@ final class SidebarTreeActions {
   /// in-app approval flow without touching the rows.
   var approve: (SessionNode) -> Void
 
+  /// Called when `open(_:)` focuses a workspace pane, which clears
+  /// `primarySessionId`; the tree keeps the row highlighted with it.
+  var onWorkspaceOpen: (SidebarWorkspaceOpen) -> Void = { _ in }
+
   init(
     agentHub: AgentHubProvider,
     shellModel: WorkbenchShellModel,
@@ -69,6 +73,7 @@ final class SidebarTreeActions {
       navigationModel.selectedModuleLandingPath = nil
       navigationModel.primarySessionId = nil
       navigationModel.selectedWorkspaceID = workspaceID
+      onWorkspaceOpen(SidebarWorkspaceOpen(sessionRowID: node.id, workspaceID: workspaceID))
     } else {
       navigationModel.selectSession(node.id)
     }
@@ -133,7 +138,7 @@ final class SidebarTreeActions {
     let projectWorkspaces = workspaces.workspaces(for: path)
     coordinator.removeConfirmation = RemoveConfirmation(
       title: "Remove \(name)?",
-      message: SidebarRemovalMessages.repository(
+      message: SessionRemovalMessages.repository(
         name: name, sessionCount: sessionCount, workspaceCount: projectWorkspaces.count)
     ) { [self] in
       Task {
@@ -152,11 +157,12 @@ final class SidebarTreeActions {
     }
   }
 
-  func requestRemoveWorktree(_ branch: BranchRowModel) {
+  /// - Parameter sessions: All of the branch's sessions, not only the loaded page.
+  func requestRemoveWorktree(_ branch: BranchRowModel, sessions: [SessionNode]) {
     guard let worktree = trackedWorktree(branch) else { return }
     coordinator.removeConfirmation = RemoveConfirmation(
       title: "Remove \(branch.name) from Workbench?",
-      message: SidebarRemovalMessages.worktree(name: branch.name, sessionCount: branch.sessionCount)
+      message: SessionRemovalMessages.worktree(name: branch.name, sessionCount: sessions.count)
     ) { [self] in
       coordinator.removeWorktreeModuleFocus(
         worktree,
@@ -178,7 +184,7 @@ final class SidebarTreeActions {
     coordinator.worktreeModuleDeleteConfirmation = WorktreeModuleDeleteConfirmation(
       worktree: worktree,
       displayName: branch.name,
-      sessionCount: branch.sessionCount,
+      sessionCount: sessions.count,
       providerKind: provider
     )
   }
@@ -293,31 +299,5 @@ enum SidebarApproval {
         NSSound.beep()
       }
     }
-  }
-}
-
-// MARK: - Confirmation text
-
-/// The legacy sidebar's removal messages (view-private there), kept word for word.
-enum SidebarRemovalMessages {
-  static func repository(name: String, sessionCount: Int, workspaceCount: Int) -> String {
-    var effects: [String] = []
-    if sessionCount > 0 {
-      effects.append("archive \(sessionCount) active \(sessionCount == 1 ? "thread" : "threads")")
-    }
-    if workspaceCount > 0 {
-      effects.append("close \(workspaceCount) \(workspaceCount == 1 ? "workspace" : "workspaces")")
-    }
-    guard !effects.isEmpty else { return "This will remove \(name) from your list." }
-    return "This will \(effects.joined(separator: " and ")) and remove \(name) from your list."
-  }
-
-  static func worktree(name: String, sessionCount: Int) -> String {
-    if sessionCount > 0 {
-      let threadLabel = sessionCount == 1 ? "thread" : "threads"
-      return "This will archive \(sessionCount) focused \(threadLabel) "
-        + "and stop focusing \(name) in Workbench. The worktree stays on disk."
-    }
-    return "This will stop focusing \(name) in Workbench. The worktree stays on disk."
   }
 }

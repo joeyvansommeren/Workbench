@@ -19,19 +19,35 @@ struct SessionTreeView: View {
   @Environment(\.sessionNavigationModel) private var navigationModel
   @Environment(\.sessionsActionCoordinator) private var coordinator
 
+  /// Kept here, outside the projecting view, so recording it does not
+  /// project the tree again.
+  @State private var lastWorkspaceOpen: SidebarWorkspaceOpen?
+
   var body: some View {
     if let agentHub, let navigationModel, let coordinator {
       SessionTreeContent(
         agentHub: agentHub,
-        actions: SidebarTreeActions(
-          agentHub: agentHub,
-          shellModel: shellModel,
-          navigationModel: navigationModel,
-          coordinator: coordinator
-        )
+        actions: makeActions(agentHub: agentHub, navigationModel: navigationModel, coordinator: coordinator),
+        lastWorkspaceOpen: $lastWorkspaceOpen
       )
       .background(WorkflowDiscoveryDriver(viewModel: agentHub.workflowDashboardViewModel))
     }
+  }
+
+  private func makeActions(
+    agentHub: AgentHubProvider,
+    navigationModel: SessionNavigationModel,
+    coordinator: SessionsActionCoordinator
+  ) -> SidebarTreeActions {
+    let actions = SidebarTreeActions(
+      agentHub: agentHub,
+      shellModel: shellModel,
+      navigationModel: navigationModel,
+      coordinator: coordinator
+    )
+    let record = $lastWorkspaceOpen
+    actions.onWorkspaceOpen = { record.wrappedValue = $0 }
+    return actions
   }
 }
 
@@ -40,6 +56,7 @@ struct SessionTreeView: View {
 private struct SessionTreeContent: View {
   let agentHub: AgentHubProvider
   let actions: SidebarTreeActions
+  @Binding var lastWorkspaceOpen: SidebarWorkspaceOpen?
 
   /// "Load more" pages per branch id. View state: it resets with the window.
   @State private var loadedPages: [String: Int] = [:]
@@ -48,6 +65,7 @@ private struct SessionTreeContent: View {
     SessionTreeSelectionReader(
       snapshot: SessionTreeSnapshot(agentHub: agentHub, loadedPages: loadedPages),
       actions: actions,
+      lastWorkspaceOpen: $lastWorkspaceOpen,
       onLoadMore: { model in
         MainThreadStallMonitor.breadcrumb("tree: load more \(model.repositoryName)")
         loadedPages[model.branchID, default: 1] += 1
@@ -61,6 +79,7 @@ private struct SessionTreeContent: View {
 private struct SessionTreeSelectionReader: View {
   let snapshot: SessionTreeSnapshot
   let actions: SidebarTreeActions
+  @Binding var lastWorkspaceOpen: SidebarWorkspaceOpen?
   let onLoadMore: (LoadMoreRowModel) -> Void
 
   @Environment(WorkbenchShellModel.self) private var shellModel
@@ -69,7 +88,11 @@ private struct SessionTreeSelectionReader: View {
   var body: some View {
     SessionTreeList(
       snapshot: snapshot,
-      selectedSessionID: navigationModel?.primarySessionId,
+      selectedSessionID: SidebarTreeSelection.highlightedSessionID(
+        primarySessionId: navigationModel?.primarySessionId,
+        selectedWorkspaceID: navigationModel?.selectedWorkspaceID,
+        lastWorkspaceOpen: lastWorkspaceOpen
+      ),
       isElsewhere: shellModel.destination != .sessions,
       actions: actions,
       onLoadMore: onLoadMore
@@ -77,47 +100,47 @@ private struct SessionTreeSelectionReader: View {
   }
 }
 
-/// One projection pass: the rows plus the sessions each repo and branch
-/// holds (their context menus act on them).
+/// One projection pass: the rows, plus every session each repo and branch
+/// holds. The session lists are unpaged: context-menu actions and counts
+/// cover sessions "Load more" has not shown yet.
 struct SessionTreeSnapshot {
   let rows: [SidebarTreeRow]
   let sessionsByRepo: [String: [SessionNode]]
   let sessionsByBranch: [String: [SessionNode]]
+  /// Repository of every session, including those in collapsed repositories.
+  let repoPathBySessionID: [String: String]
 
-  init(
-    rows: [SidebarTreeRow],
-    sessionsByRepo: [String: [SessionNode]],
-    sessionsByBranch: [String: [SessionNode]]
-  ) {
-    self.rows = rows
-    self.sessionsByRepo = sessionsByRepo
-    self.sessionsByBranch = sessionsByBranch
-  }
-
+  /// - Parameters:
+  ///   - repos: The paged tree that is drawn.
+  ///   - unpagedRepos: The same tree with all sessions; defaults to `repos`.
   init(
     repos: [RepoNode],
+    unpagedRepos: [RepoNode]? = nil,
     collapsedRepoPaths: Set<String>,
     decorations: BranchWorkflowDecorationIndex,
     title: (SessionNode) -> String
   ) {
     var sessionsByRepo: [String: [SessionNode]] = [:]
     var sessionsByBranch: [String: [SessionNode]] = [:]
-    for repo in repos {
+    var repoPathBySessionID: [String: String] = [:]
+    for repo in unpagedRepos ?? repos {
       sessionsByRepo[repo.path] = repo.branches.flatMap(\.sessions)
       for branch in repo.branches {
         sessionsByBranch[branch.id] = branch.sessions
+        for session in branch.sessions {
+          repoPathBySessionID[session.id] = repo.path
+        }
       }
     }
-    self.init(
-      rows: SidebarTreeRows.rows(
-        repos: repos,
-        collapsedRepoPaths: collapsedRepoPaths,
-        decorations: decorations,
-        title: title
-      ),
-      sessionsByRepo: sessionsByRepo,
-      sessionsByBranch: sessionsByBranch
+    self.rows = SidebarTreeRows.rows(
+      repos: repos,
+      collapsedRepoPaths: collapsedRepoPaths,
+      decorations: decorations,
+      title: title
     )
+    self.sessionsByRepo = sessionsByRepo
+    self.sessionsByBranch = sessionsByBranch
+    self.repoPathBySessionID = repoPathBySessionID
   }
 
   @MainActor
@@ -125,16 +148,19 @@ struct SessionTreeSnapshot {
     let claude = agentHub.claudeSessionsViewModel
     let codex = agentHub.codexSessionsViewModel
     let repositories = ShellSessionItems.repositories(claude: claude, codex: codex)
+    let items = ShellSessionItems.items(claude: claude, codex: codex)
     let decorations = BranchWorkflowDecorationIndex(
       branches: agentHub.workflowDashboardViewModel.detectedBranches)
     let projected = SessionTreeProjection.project(
-      items: ShellSessionItems.items(claude: claude, codex: codex),
+      items: items,
       repositories: repositories,
       loadedPages: loadedPages
     )
     self.init(
       repos: SessionTreeWorkflowMerge.merge(
         repos: projected, repositories: repositories, decorations: decorations),
+      unpagedRepos: SessionTreeProjection.project(
+        items: items, repositories: repositories, paged: false),
       collapsedRepoPaths: Set(
         repositories.filter { !$0.isExpanded }
           .map { WorktreeModuleResolver.normalizedDirectoryPath($0.path) }),
@@ -209,13 +235,18 @@ struct SessionTreeList: View {
   }
 
   /// Up and down open the previous or next session; left and right collapse
-  /// or expand the selected session's repository.
+  /// or expand the selected session's repository (found even while it is
+  /// collapsed and the row is hidden).
   private func handleKey(_ key: KeyEquivalent, proxy: ScrollViewProxy) -> KeyPress.Result {
     switch key {
     case .upArrow, .downArrow:
       guard
         let nextID = SidebarTreeRows.adjacentSessionID(
-          in: snapshot.rows, from: selectedSessionID, forward: key == .downArrow),
+          in: snapshot.rows,
+          from: selectedSessionID,
+          forward: key == .downArrow,
+          repoPathBySessionID: snapshot.repoPathBySessionID
+        ),
         let node = sessionNode(nextID)
       else {
         return .ignored
@@ -225,7 +256,7 @@ struct SessionTreeList: View {
       return .handled
     case .leftArrow, .rightArrow:
       guard let selectedSessionID,
-        let repoPath = SidebarTreeRows.repositoryPath(containing: selectedSessionID, in: snapshot.rows),
+        let repoPath = snapshot.repoPathBySessionID[selectedSessionID],
         let repo = repoModel(repoPath)
       else {
         return .ignored

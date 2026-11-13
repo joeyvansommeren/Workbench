@@ -154,7 +154,9 @@ private struct BranchRowMenu: View {
       }
     }
     if model.isWorktree {
-      Button("Remove from Workbench…", systemImage: "xmark") { actions.requestRemoveWorktree(model) }
+      Button("Remove from Workbench…", systemImage: "xmark") {
+        actions.requestRemoveWorktree(model, sessions: sessions)
+      }
       Button("Delete Worktree…", systemImage: "trash", role: .destructive) {
         actions.requestDeleteWorktree(model, sessions: sessions)
       }

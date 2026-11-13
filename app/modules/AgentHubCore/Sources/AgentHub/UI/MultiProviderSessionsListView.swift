@@ -1099,7 +1099,7 @@ public struct MultiProviderSessionsListView: View {
       return {
         removeConfirmation = RemoveConfirmation(
           title: "Remove \(group.displayName) from Workbench?",
-          message: worktreeRemovalMessage(
+          message: SessionRemovalMessages.worktree(
             name: group.displayName,
             sessionCount: worktreeSessionCount
           )
@@ -1114,7 +1114,7 @@ public struct MultiProviderSessionsListView: View {
     return {
       removeConfirmation = RemoveConfirmation(
         title: "Remove \(group.displayName)?",
-        message: repositoryRemovalMessage(
+        message: SessionRemovalMessages.repository(
           name: group.displayName,
           sessionCount: group.items.count,
           workspaceCount: projectWorkspaces.count
@@ -1184,31 +1184,6 @@ public struct MultiProviderSessionsListView: View {
       claudeViewModel.removeFolder(at: section.id)
       codexViewModel.removeFolder(at: section.id)
     }
-  }
-
-  private func repositoryRemovalMessage(
-    name: String,
-    sessionCount: Int,
-    workspaceCount: Int
-  ) -> String {
-    var effects: [String] = []
-    if sessionCount > 0 {
-      effects.append("archive \(sessionCount) active \(sessionCount == 1 ? "thread" : "threads")")
-    }
-    if workspaceCount > 0 {
-      effects.append("close \(workspaceCount) \(workspaceCount == 1 ? "workspace" : "workspaces")")
-    }
-    guard !effects.isEmpty else { return "This will remove \(name) from your list." }
-    return "This will \(effects.joined(separator: " and ")) and remove \(name) from your list."
-  }
-
-  private func worktreeRemovalMessage(name: String, sessionCount: Int) -> String {
-    if sessionCount > 0 {
-      let threadLabel = sessionCount == 1 ? "thread" : "threads"
-      return "This will archive \(sessionCount) focused \(threadLabel) "
-        + "and stop focusing \(name) in Workbench. The worktree stays on disk."
-    }
-    return "This will stop focusing \(name) in Workbench. The worktree stays on disk."
   }
 
   private func isTrackedRepositoryModule(_ modulePath: String) -> Bool {

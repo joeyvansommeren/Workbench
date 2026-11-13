@@ -164,11 +164,14 @@ enum SessionTreeProjection {
   ///   - repositories: The tracked repositories, in display order.
   ///   - loadedPages: A dictionary keyed by branch node id, holding the number
   ///     of "Load more" pages the user has opened. Missing keys default to 1.
+  ///   - paged: When false, every branch holds all its sessions (for actions
+  ///     and counts that must cover sessions not loaded on screen yet).
   /// - Returns: An array of `RepoNode`, one per repository that has sessions.
   static func project(
     items: [ProjectableSessionItem],
     repositories: [SelectedRepository],
-    loadedPages: [String: Int] = [:]
+    loadedPages: [String: Int] = [:],
+    paged: Bool = true
   ) -> [RepoNode] {
     // Group items by their module path (worktree root).
     var itemsByModule: [String: [ProjectableSessionItem]] = [:]
@@ -205,7 +208,8 @@ enum SessionTreeProjection {
         from: repoItems,
         repository: repository,
         repoPath: repoPath,
-        loadedPages: loadedPages
+        loadedPages: loadedPages,
+        paged: paged
       )
 
       let attentionCount = repoItems.filter {
@@ -232,7 +236,8 @@ enum SessionTreeProjection {
     from items: [ProjectableSessionItem],
     repository: SelectedRepository,
     repoPath: String,
-    loadedPages: [String: Int]
+    loadedPages: [String: Int],
+    paged: Bool
   ) -> [BranchNode] {
     // Build a set of known branch -> worktree mappings from the repository.
     var branchWorktrees: [String: WorktreeBranch] = [:]
@@ -302,7 +307,7 @@ enum SessionTreeProjection {
 
       // Paging: show loadMoreIncrement * pages sessions.
       let pages = max(1, loadedPages[branchId] ?? 1)
-      let visibleCount = min(sorted.count, pages * loadMoreIncrement)
+      let visibleCount = paged ? min(sorted.count, pages * loadMoreIncrement) : sorted.count
       let visible = Array(sorted.prefix(visibleCount))
       let hasMore = visibleCount < sorted.count
 
