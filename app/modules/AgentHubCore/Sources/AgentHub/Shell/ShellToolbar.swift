@@ -20,12 +20,10 @@ enum ShellLayout {
   /// content clears the traffic lights and the sidebar toggle.
   static let collapsedToolbarLeading: CGFloat = 132
   /// Child minimums must fit the window minimum, or NSSplitView can loop
-  /// (CLAUDE.md, layout-loop crash). The hosted legacy `GitHubReviewsView`
-  /// needs 992: its `NavigationSplitView` sidebar column (min 260) + divider 1
-  /// + the PR `HSplitView` (350 + divider 1 + 380). With the 288 shell sidebar
-  /// and the 8 trailing panel inset: 288 + 992 + 8 = 1288.
-  /// P8 lowers this to 900 when it replaces Reviews.
-  static let windowMinWidth: CGFloat = 1288
+  /// (CLAUDE.md, layout-loop crash). Reviews (P8) is the widest destination:
+  /// 288 shell sidebar + 400 list + 1 hairline + 200 detail minimum
+  /// (`ReviewsLayout`) + 8 trailing panel inset = 897.
+  static let windowMinWidth: CGFloat = 900
   static let windowMinHeight: CGFloat = 600
 }
 

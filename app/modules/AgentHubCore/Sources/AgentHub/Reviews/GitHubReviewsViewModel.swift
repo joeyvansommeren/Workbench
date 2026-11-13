@@ -88,6 +88,7 @@ public final class GitHubReviewsViewModel {
       guard !Task.isCancelled, generation == detailGeneration, selectedPullRequestID == request.id else { return }
       selectedDetail = detail
       detailUpdatedAt = Date()
+      checksByPullRequestID[request.id] = detail.pullRequest.ciStatus
     } catch {
       guard !Task.isCancelled, generation == detailGeneration else { return }
       detailError = error.localizedDescription
@@ -95,6 +96,46 @@ public final class GitHubReviewsViewModel {
   }
   /// Your GitHub login, so bulk review can skip your own pull requests.
   public private(set) var viewerLogin: String?
+
+  // MARK: - New shell: scope and checks
+
+  /// The Requested / Mine / All switch of the new shell's Reviews list.
+  public private(set) var reviewScope: ReviewScope = .requested
+  /// CI state per pull request ID, kept from loaded details. The queue itself
+  /// (`gh search prs`) carries no checks, so a row shows its checks icon once
+  /// its detail has loaded in this run.
+  public private(set) var checksByPullRequestID: [String: CIStatus] = [:]
+
+  public func setReviewScope(_ scope: ReviewScope) {
+    guard scope != reviewScope else { return }
+    reviewScope = scope
+    defaults.set(scope.rawValue, forKey: AgentHubDefaults.reviewsScope)
+    MainThreadStallMonitor.breadcrumb("reviews scope: \(scope.rawValue)")
+  }
+
+  /// The queue's pull requests in `scope`. Mine and Requested use `isOwnPullRequest`.
+  func pullRequests(in scope: ReviewScope) -> [GitHubProjectPullRequest] {
+    pullRequests.filter { scope.includes(isOwn: isOwnPullRequest($0)) }
+  }
+
+  func count(for scope: ReviewScope) -> Int {
+    pullRequests(in: scope).count
+  }
+
+  /// The rows the new shell lists: the current scope, narrowed by `searchText`,
+  /// newest first.
+  var visiblePullRequests: [GitHubProjectPullRequest] {
+    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    return pullRequests(in: reviewScope)
+      .filter { pullRequest in
+        guard !query.isEmpty else { return true }
+        return pullRequest.title.localizedCaseInsensitiveContains(query)
+          || String(pullRequest.number).contains(query)
+          || pullRequest.repositoryNameWithOwner.localizedCaseInsensitiveContains(query)
+          || (pullRequest.authorLogin ?? "").localizedCaseInsensitiveContains(query)
+      }
+      .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+  }
 
   /// Selects the pull request a session is linked to, e.g. when jumping in from a session.
   public func focusPullRequest(owner: String, repository: String, number: Int) {
@@ -106,6 +147,10 @@ public final class GitHubReviewsViewModel {
       })
     else { return }
     selectedPullRequestID = pullRequest.id
+    // The new shell only shows the selection when it is in the current scope.
+    if !reviewScope.includes(isOwn: isOwnPullRequest(pullRequest)) {
+      setReviewScope(.all)
+    }
     let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     if !query.isEmpty, !pullRequest.title.localizedCaseInsensitiveContains(query) {
       searchText = ""
@@ -133,6 +178,9 @@ public final class GitHubReviewsViewModel {
     defaults = userDefaults
     selectedProjectID = userDefaults.string(forKey: DefaultsKey.projectID)
     selectedViewID = userDefaults.string(forKey: DefaultsKey.viewID)
+    reviewScope =
+      userDefaults.string(forKey: AgentHubDefaults.reviewsScope)
+      .flatMap(ReviewScope.init(rawValue:)) ?? .requested
     restoreCache()
   }
 

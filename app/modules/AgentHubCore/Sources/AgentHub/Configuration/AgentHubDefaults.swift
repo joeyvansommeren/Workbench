@@ -285,6 +285,16 @@ public enum AgentHubDefaults {
   /// Type: String (default: "jira")
   public static let sprintTracker = "\(keyPrefix)sprintTracker"
 
+  /// Which scope the new shell's Reviews list shows: `requested`, `mine` or `all`.
+  /// A UI preference, not session state.
+  /// Type: String (default: "requested")
+  public static let reviewsScope = "\(keyPrefix)reviews.scope"
+
+  /// Which agent the new shell's "Review with …" button starts: `Claude` or `Codex`.
+  /// A UI preference, not session state.
+  /// Type: String (default: "Claude")
+  public static let reviewsAgent = "\(keyPrefix)reviews.agent"
+
   // MARK: - Appearance
 
   /// User appearance preference: `system`, `light` or `dark`.

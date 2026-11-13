@@ -42,7 +42,19 @@ Measured in an AppKit test host on macOS 27.
 
 No `NavigationSplitView`, `HSplitView`, `VSplitView` or `.inspector` in shell
 code. No `GeometryReader` widths. The sidebar collapses as a plain `HStack`
-child. `ShellLayout.windowMinWidth` is 1288 while the legacy Reviews view is
-hosted: its `NavigationSplitView` sidebar (min 260) + divider + PR `HSplitView`
-(350 + divider + 380) = 992, plus the 288 shell sidebar and the 8 pt panel
-inset. P8 lowers it to 900 when it replaces Reviews.
+child. `ShellLayout.windowMinWidth` is 900: Reviews needs 288 sidebar + 400
+list + 1 hairline + 200 detail minimum + 8 panel inset = 897.
+
+## P8: Reviews
+
+`ShellDetailSlot` `.reviews` shows `Reviews/ReviewsDestinationView`: a fixed
+400 pt list (`PullRequestRow`), a 1 pt hairline and `PullRequestDetailView`, in
+a plain `HStack`. No split views; the search field sits in the Filters popover
+with project and view and never takes focus on appear. The scope (Requested /
+Mine / All) is `GitHubReviewsViewModel.reviewScope`, saved in
+`AgentHubDefaults.reviewsScope`; the "Review with" agent in
+`AgentHubDefaults.reviewsAgent`. The queue carries no CI data, so a row shows
+its checks icon once its detail has loaded (`checksByPullRequestID`).
+Breadcrumbs: `reviews scope: <x>`, `reviews pr: <repo>#<n>`, `reviews filters:
+open`, `reviews agent`, `reviews start review`, `reviews open session`.
+The legacy `GitHubReviewsView` is unchanged for the flag-off path.
