@@ -13,16 +13,25 @@ struct JiraSprintHeader: View {
   var onSync: () -> Void = {}
   var onCancelSync: () -> Void = {}
 
+  private var showControls: Bool {
+    if case .failed = viewModel.state { return false }
+    return viewModel.state != .idle
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
       HStack(alignment: .center, spacing: DesignTokens.Spacing.md) {
         JiraSprintSwitcher(viewModel: viewModel)
         Spacer()
-        WorkspaceSearchField(prompt: "Search tickets", text: $viewModel.searchText, width: 220)
-        syncButton
+        if showControls {
+          WorkspaceSearchField(prompt: "Search tickets", text: $viewModel.searchText, width: 220)
+          syncButton
+        }
         refreshButton
       }
-      JiraAssigneeBar(viewModel: viewModel)
+      if showControls {
+        JiraAssigneeBar(viewModel: viewModel)
+      }
     }
     .padding(.horizontal, DesignTokens.Spacing.lg)
     .padding(.top, DesignTokens.Spacing.lg)
@@ -124,7 +133,8 @@ private struct JiraSprintSwitcher: View {
     }
     .menuStyle(.button)
     .buttonStyle(.plain)
-    .fixedSize()
+    .lineLimit(1)
+    .layoutPriority(1)
   }
 
   private var subtitle: String {

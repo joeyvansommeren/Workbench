@@ -123,23 +123,29 @@ public struct AgentHubOperationsView: View {
           }
         case .sprint:
           if let agentHub {
-            JiraSprintView(
-              viewModel: agentHub.jiraSprintViewModel,
-              repositories: WorktreeModuleResolver.mergedRepositories(
-                agentHub.claudeSessionsViewModel.selectedRepositories
-                  + agentHub.codexSessionsViewModel.selectedRepositories
-              ),
-              linkedSessions: agentHub.jiraLinkedSessions(),
-              onStart: { ticket, provider, repositoryPath in
-                await startJiraTicket(
-                  ticket,
-                  provider: provider,
-                  repositoryPath: repositoryPath,
-                  agentHub: agentHub
-                )
-              },
-              onOpenSession: { agentHub.showSession($0) }
-            )
+            // Wrap in NavigationStack so Sprint gets the same toolbar band
+            // as the other tabs (which use NavigationSplitView), preventing
+            // a ~28pt vertical jump when switching to this tab.
+            NavigationStack {
+              JiraSprintView(
+                viewModel: agentHub.jiraSprintViewModel,
+                repositories: WorktreeModuleResolver.mergedRepositories(
+                  agentHub.claudeSessionsViewModel.selectedRepositories
+                    + agentHub.codexSessionsViewModel.selectedRepositories
+                ),
+                linkedSessions: agentHub.jiraLinkedSessions(),
+                onStart: { ticket, provider, repositoryPath in
+                  await startJiraTicket(
+                    ticket,
+                    provider: provider,
+                    repositoryPath: repositoryPath,
+                    agentHub: agentHub
+                  )
+                },
+                onOpenSession: { agentHub.showSession($0) }
+              )
+              .modifier(RemoveTitleToolbarModifier())
+            }
           } else {
             ContentUnavailableView(
               "AgentHub provider not found",
@@ -493,7 +499,7 @@ public struct AgentHubSessionsView: View {
       worktreeBranchNamingService: provider.worktreeBranchNamingService,
       worktreeSuccessSoundService: provider.worktreeSuccessSoundService
     )
-    .frame(minWidth: AgentHubLayout.windowMinWidth, minHeight: AgentHubLayout.windowMinHeight)
+    .frame(minWidth: AgentHubLayout.windowMinWidth)
     .modifier(RemoveTitleToolbarModifier())
     .task {
       provider.startWorktreeLaunchRequestMonitoring()

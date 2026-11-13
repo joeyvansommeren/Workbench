@@ -3250,6 +3250,9 @@ private struct ProjectGroupHeader: View {
           Text(name)
             .font(Font.geist(size: 13, weight: .semibold))
             .foregroundColor(.primary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(name)
           if canToggle {
             Image(systemName: "chevron.right")
               .font(.system(size: 10, weight: .semibold))

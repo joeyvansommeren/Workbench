@@ -211,8 +211,9 @@ struct CollapsibleSessionRow: View {
 
           statusLabel
             .lineLimit(1)
-            .truncationMode(.tail)
+            .fixedSize(horizontal: true, vertical: false)
             .frame(maxWidth: Self.statusLabelMaxWidth, alignment: .trailing)
+            .layoutPriority(1)
             .animation(.easeInOut(duration: 0.3), value: isPending)
             .animation(.easeInOut(duration: 0.3), value: sessionStatus)
 
