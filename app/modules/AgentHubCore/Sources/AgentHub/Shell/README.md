@@ -11,8 +11,8 @@ only its own slot:
 
 | Slot | View | Replaced by |
 |---|---|---|
-| sidebar | `ShellSidebarContainer` (nav rows + `ShellPlaceholderSessionList`) | P5 |
-| toolbar | `ShellToolbar` (`ShellSessionsToolbarContent` / titles / search) | P6 tabs, P8, P9 |
+| sidebar | `ShellSidebarContainer` (`Sidebar/`: nav rows, session tree, footer) | P5 |
+| toolbar | `ShellToolbar` (`SessionsToolbarContent` (P6), `SprintToolbarContent` (P9), titles, search) | P6 tabs, P8, P9 |
 | detail | `ShellDetailSlot` (one `case` per destination) | P6 Sessions, P8 Reviews, P9 Sprint |
 
 Per-window state lives in `ShellRoot`: `WorkbenchShellModel`,
@@ -89,6 +89,34 @@ panel 320) check it.
   Workbench palette; a palette or appearance switch repaints open terminals.
   Flag off: the legacy rules, unchanged.
 
+## Sidebar (P5)
+
+`Sidebar/` holds the prototype sidebar: `SidebarNavSection` (Reviews and
+Sprint with `SidebarNavCounts`), `SessionTreeView` and `SidebarFooter`.
+
+- **Tree.** `SessionTreeProjection` (P3) → `SessionTreeWorkflowMerge` (adds
+  tracked repos without sessions and empty rows for manual workflows) →
+  `SidebarTreeRows` (one flat list) → a `ScrollView` + `LazyVStack` of
+  `Equatable` rows. The projection runs in `SessionTreeContent.body` only;
+  selection is read in a child view, so selecting does not re-project.
+- **Workflows.** `BranchWorkflowDecorationIndex` adapts
+  `AgentWorkflowDashboardViewModel.detectedBranches` (archived ones dropped)
+  into branch-row decorations: PR number with CI state, roles, menu actions.
+  `WorkflowDiscoveryDriver` runs the dashboard's `load()` 3 s after launch and
+  a debounced `refreshDetectedWorkflows()`, since the Workflows view is gone.
+- **One entry point to open a session:** `SidebarTreeActions.open(_:)`
+  (workspace-owned sessions focus their workspace; others call
+  `SessionNavigationModel.selectSession`). P6 makes that open a tab.
+- **Approve pill:** `SessionNode.showsApprovePill` (Claude, pending tool use,
+  not an input question). The action is the single closure
+  `SidebarTreeActions.approve`, today `SidebarApproval.terminalApprove`
+  (types "1" into the agent terminal). P7 replaces that closure.
+- **Collapse state** is `SelectedRepository.isExpanded`, persisted in
+  `SessionWorkspaceState.expansionState` (SQLite) through
+  `CLISessionsViewModel.setRepositoryExpanded(path:isExpanded:)`.
+- **Icons** are the prototype's SVG paths (`SidebarIcons.swift`); SF Symbols
+  has no pull-request glyph, so use `PullRequestGlyph` (Design/Components).
+
 ## P8: Reviews
 
 `ShellDetailSlot` `.reviews` shows `Reviews/ReviewsDestinationView`: a fixed
@@ -103,3 +131,17 @@ its checks icon once its detail has loaded (`checksByPullRequestID`).
 Breadcrumbs: `reviews scope: <x>`, `reviews pr: <repo>#<n>`, `reviews filters:
 open`, `reviews agent`, `reviews start review`, `reviews open session`.
 The legacy `GitHubReviewsView` is unchanged for the flag-off path.
+
+## P9: Sprint
+
+`.sprint` shows `SprintDestinationView` (`Jira/`), toolbar `SprintToolbarContent`
+(`Sprint/`): the sprint or cycle name and a days-left chip ("Sprint" when Linear
+has no active cycle). As in the prototype, Jira | Linear, All | Mine and Filters
+sit in the board's list head, not the toolbar. Jira and Linear map to the
+tracker-neutral `SprintColumnItem`s (`Sprint/SprintBoardItems.swift`), drawn by
+`SprintBoardView`: up to 4 equal columns, more scroll sideways with
+`containerRelativeFrame`; no GeometryReader. The ticket detail is a 380 pt
+trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
+`JiraTicketDetailView` / `LinearIssueDetailView`. With no saved tracker, Sprint
+opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
+`sprint tracker: …`, `sprint filter: …`, `sprint ticket: open|close|start …`.

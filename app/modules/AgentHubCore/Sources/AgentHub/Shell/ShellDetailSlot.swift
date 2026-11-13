@@ -37,51 +37,7 @@ struct ShellDetailSlot: View {
     case .reviews:
       ReviewsDestinationView(agentHub: agentHub, actions: actions)
     case .sprint:
-      ShellSprintDetail(agentHub: agentHub, actions: actions, tracker: shellModel.sprintTracker)
-    }
-  }
-}
-
-// MARK: - Sprint (P9 replaces)
-
-private struct ShellSprintDetail: View {
-  let agentHub: AgentHubProvider
-  let actions: WorkspaceLaunchActions
-  let tracker: SprintTracker
-
-  private var repositories: [SelectedRepository] {
-    ShellSessionItems.repositories(
-      claude: agentHub.claudeSessionsViewModel,
-      codex: agentHub.codexSessionsViewModel
-    )
-  }
-
-  var body: some View {
-    switch tracker {
-    case .jira:
-      JiraSprintView(
-        viewModel: agentHub.jiraSprintViewModel,
-        repositories: repositories,
-        linkedSessions: agentHub.jiraLinkedSessions(),
-        isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
-        isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
-        onStart: { ticket, provider, repositoryPath in
-          await actions.startJiraTicket(ticket, provider: provider, repositoryPath: repositoryPath)
-        },
-        onOpenSession: { agentHub.showSession($0) }
-      )
-    case .linear:
-      LinearBoardView(
-        viewModel: agentHub.linearViewModel,
-        repositories: repositories,
-        linkedSessions: agentHub.linearLinkedSessions(),
-        isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
-        isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
-        onStart: { issue, provider, repositoryPath in
-          await actions.startLinearIssue(issue, provider: provider, repositoryPath: repositoryPath)
-        },
-        onOpenSession: { agentHub.showLinearSession($0) }
-      )
+      SprintDestinationView(agentHub: agentHub, actions: actions)
     }
   }
 }

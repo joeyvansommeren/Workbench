@@ -39,7 +39,8 @@ enum ShellSessionItems {
             providerKind: provider,
             timestamp: session.lastActivityAt,
             isPending: false,
-            status: viewModel.sessionStatus(for: session.id)
+            status: viewModel.sessionStatus(for: session.id),
+            pendingToolName: viewModel.pendingToolName(for: session.id)
           ))
       }
     }

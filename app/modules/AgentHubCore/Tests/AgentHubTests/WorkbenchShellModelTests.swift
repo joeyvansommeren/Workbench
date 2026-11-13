@@ -15,7 +15,7 @@ struct WorkbenchShellModelTests {
 
   @Test("Starts on Sessions with the sidebar and side panel shown")
   func initialState() {
-    let model = WorkbenchShellModel(defaults: makeDefaults())
+    let model = WorkbenchShellModel(defaults: makeDefaults(), isJiraCLIAvailable: { true })
     #expect(model.destination == .sessions)
     #expect(model.sidebarVisible)
     #expect(model.sidePanelVisible)
@@ -24,7 +24,7 @@ struct WorkbenchShellModelTests {
 
   @Test("Selecting a destination switches to it")
   func destinationSwitching() {
-    let model = WorkbenchShellModel(defaults: makeDefaults())
+    let model = WorkbenchShellModel(defaults: makeDefaults(), isJiraCLIAvailable: { true })
     for destination in [ShellDestination.reviews, .sprint, .sessions, .sprint] {
       model.select(destination)
       #expect(model.destination == destination)
@@ -53,7 +53,7 @@ struct WorkbenchShellModelTests {
 
   @Test("A legacy Linear request opens Sprint on the Linear tracker")
   func legacyLinearSelectsTracker() {
-    let model = WorkbenchShellModel(defaults: makeDefaults())
+    let model = WorkbenchShellModel(defaults: makeDefaults(), isJiraCLIAvailable: { true })
     model.select(legacySection: .linear)
     #expect(model.destination == .sprint)
     #expect(model.sprintTracker == .linear)
@@ -64,7 +64,7 @@ struct WorkbenchShellModelTests {
 
   @Test("A legacy request without a tracker keeps the current tracker")
   func legacyReviewsKeepsTracker() {
-    let model = WorkbenchShellModel(defaults: makeDefaults())
+    let model = WorkbenchShellModel(defaults: makeDefaults(), isJiraCLIAvailable: { true })
     model.setSprintTracker(.linear)
     model.select(legacySection: .reviews)
     model.select(legacySection: .workflows)
@@ -74,7 +74,7 @@ struct WorkbenchShellModelTests {
 
   @Test("Sidebar and side panel toggle independently")
   func toggles() {
-    let model = WorkbenchShellModel(defaults: makeDefaults())
+    let model = WorkbenchShellModel(defaults: makeDefaults(), isJiraCLIAvailable: { true })
     model.toggleSidebar()
     #expect(!model.sidebarVisible)
     #expect(model.sidePanelVisible)
@@ -89,11 +89,11 @@ struct WorkbenchShellModelTests {
   @Test("The tracker is persisted and restored")
   func trackerPersisted() {
     let defaults = makeDefaults()
-    let model = WorkbenchShellModel(defaults: defaults)
+    let model = WorkbenchShellModel(defaults: defaults, isJiraCLIAvailable: { true })
     model.setSprintTracker(.linear)
     #expect(defaults.string(forKey: AgentHubDefaults.sprintTracker) == "linear")
 
-    let restored = WorkbenchShellModel(defaults: defaults)
+    let restored = WorkbenchShellModel(defaults: defaults, isJiraCLIAvailable: { true })
     #expect(restored.sprintTracker == .linear)
   }
 
@@ -110,6 +110,6 @@ struct WorkbenchShellModelTests {
   func unknownTrackerFallsBack() {
     let defaults = makeDefaults()
     defaults.set("trello", forKey: AgentHubDefaults.sprintTracker)
-    #expect(WorkbenchShellModel(defaults: defaults).sprintTracker == .jira)
+    #expect(WorkbenchShellModel(defaults: defaults, isJiraCLIAvailable: { true }).sprintTracker == .jira)
   }
 }

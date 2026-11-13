@@ -6,7 +6,7 @@
 //  content panel (Variant B, see Shell/README.md). The row's structure never
 //  changes; a destination change only swaps the leading content.
 //
-//  P6 replaces `ShellSessionsToolbarContent` with the session tab strip.
+//  Sessions shows the P6 tab strip (`SessionsToolbarContent`).
 //  P8 and P9 may replace the Reviews and Sprint titles.
 //
 
@@ -51,7 +51,7 @@ struct ShellToolbar: View {
     case .reviews:
       ShellToolbarTitle(text: "Reviews")
     case .sprint:
-      ShellSprintToolbarContent()
+      SprintToolbarContent()
     }
   }
 }
@@ -85,24 +85,6 @@ private struct ShellToolbarTitle: View {
       .lineLimit(1)
       .fixedSize()
       .padding(.leading, DesignTokens.Spacing.sm)
-  }
-}
-
-private struct ShellSprintToolbarContent: View {
-  @Environment(WorkbenchShellModel.self) private var shellModel
-
-  var body: some View {
-    HStack(spacing: DesignTokens.Spacing.md) {
-      ShellToolbarTitle(text: "Sprint")
-      WorkbenchSegmentedControl(
-        selection: Binding(
-          get: { shellModel.sprintTracker },
-          set: { shellModel.setSprintTracker($0) }
-        ),
-        accessibilityIdentifier: "shell.sprintTracker"
-      )
-      .fixedSize()
-    }
   }
 }
 

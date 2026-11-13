@@ -1983,6 +1983,10 @@ public final class CLISessionsViewModel {
   public private(set) var sessionPullRequestReferences: [String: [GitHubPullRequestURLReference]] =
     [:]
 
+  /// Tool name of the pending tool use per monitored session, if any. The new
+  /// sidebar's Approve pill reads this instead of the whole monitor state.
+  public private(set) var sessionPendingToolNames: [String: String] = [:]
+
   /// Status for a monitored session, or `nil` if it has not reported yet.
   public func sessionStatus(for sessionId: String) -> SessionStatus? {
     sessionStatuses[sessionId]
@@ -1995,6 +1999,11 @@ public final class CLISessionsViewModel {
   /// PR references detected for a monitored session.
   public func pullRequestReferences(for sessionId: String) -> [GitHubPullRequestURLReference] {
     sessionPullRequestReferences[sessionId] ?? []
+  }
+
+  /// Name of the tool waiting for approval, or `nil` when nothing is pending.
+  public func pendingToolName(for sessionId: String) -> String? {
+    sessionPendingToolNames[sessionId]
   }
 
   /// Cached project-level preview eligibility keyed by normalized project path.
@@ -3894,6 +3903,23 @@ public final class CLISessionsViewModel {
     persistWorkspaceState()
   }
 
+  /// Sets the expanded state of the repository at `path`, if it is tracked.
+  /// The new sidebar sets both providers to the same value so their copies of a
+  /// shared repository never disagree.
+  public func setRepositoryExpanded(path: String, isExpanded: Bool) {
+    let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(path)
+    guard
+      let index = selectedRepositories.firstIndex(where: {
+        WorktreeModuleResolver.normalizedDirectoryPath($0.path) == normalizedPath
+      }),
+      selectedRepositories[index].isExpanded != isExpanded
+    else {
+      return
+    }
+    selectedRepositories[index].isExpanded = isExpanded
+    persistWorkspaceState()
+  }
+
   /// Toggles the expanded state of a worktree/branch
   public func toggleWorktreeExpanded(in repository: SelectedRepository, worktree: WorktreeBranch) {
     guard let repoIndex = selectedRepositories.firstIndex(where: { $0.id == repository.id }),
@@ -5146,6 +5172,10 @@ public final class CLISessionsViewModel {
     if sessionPullRequestReferences[sessionId] != references {
       sessionPullRequestReferences[sessionId] = references
     }
+    let pendingToolName = state.pendingToolUse?.toolName
+    if sessionPendingToolNames[sessionId] != pendingToolName {
+      sessionPendingToolNames[sessionId] = pendingToolName
+    }
 
     monitorStateModels[sessionId]?.update(state)
   }
@@ -5155,6 +5185,7 @@ public final class CLISessionsViewModel {
     sessionStatuses.removeValue(forKey: sessionId)
     sessionLastAssistantMessages.removeValue(forKey: sessionId)
     sessionPullRequestReferences.removeValue(forKey: sessionId)
+    sessionPendingToolNames.removeValue(forKey: sessionId)
     monitorStateModels[sessionId]?.update(nil)
     monitorStateModels.removeValue(forKey: sessionId)
   }

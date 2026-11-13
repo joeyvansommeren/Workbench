@@ -20,6 +20,8 @@ struct SessionNode: Identifiable, Equatable {
   let isPending: Bool
   let status: SessionStatus?
   let pendingID: UUID?
+  /// Name of the tool waiting for approval (`pendingToolUse.toolName`), if any.
+  let pendingToolName: String?
 
   init(
     id: String,
@@ -27,7 +29,8 @@ struct SessionNode: Identifiable, Equatable {
     providerKind: SessionProviderKind,
     isPending: Bool,
     status: SessionStatus?,
-    pendingID: UUID? = nil
+    pendingID: UUID? = nil,
+    pendingToolName: String? = nil
   ) {
     self.id = id
     self.session = session
@@ -35,6 +38,15 @@ struct SessionNode: Identifiable, Equatable {
     self.isPending = isPending
     self.status = status
     self.pendingID = pendingID
+    self.pendingToolName = pendingToolName
+  }
+
+  /// Whether the row shows the Approve pill: a Claude session with a pending
+  /// tool use that is a real approval, not a question for the user. Codex has
+  /// no approval hook, and input-needed sessions get their own action (P7).
+  var showsApprovePill: Bool {
+    guard providerKind == .claude, !isPending, let pendingToolName else { return false }
+    return !SessionInteractiveInputTool.matches(pendingToolName)
   }
 }
 
@@ -112,6 +124,7 @@ struct ProjectableSessionItem {
   let isPending: Bool
   let status: SessionStatus?
   let pendingID: UUID?
+  let pendingToolName: String?
 
   init(
     id: String,
@@ -120,7 +133,8 @@ struct ProjectableSessionItem {
     timestamp: Date,
     isPending: Bool,
     status: SessionStatus?,
-    pendingID: UUID? = nil
+    pendingID: UUID? = nil,
+    pendingToolName: String? = nil
   ) {
     self.id = id
     self.session = session
@@ -129,6 +143,7 @@ struct ProjectableSessionItem {
     self.isPending = isPending
     self.status = status
     self.pendingID = pendingID
+    self.pendingToolName = pendingToolName
   }
 }
 
@@ -149,11 +164,14 @@ enum SessionTreeProjection {
   ///   - repositories: The tracked repositories, in display order.
   ///   - loadedPages: A dictionary keyed by branch node id, holding the number
   ///     of "Load more" pages the user has opened. Missing keys default to 1.
+  ///   - paged: When false, every branch holds all its sessions (for actions
+  ///     and counts that must cover sessions not loaded on screen yet).
   /// - Returns: An array of `RepoNode`, one per repository that has sessions.
   static func project(
     items: [ProjectableSessionItem],
     repositories: [SelectedRepository],
-    loadedPages: [String: Int] = [:]
+    loadedPages: [String: Int] = [:],
+    paged: Bool = true
   ) -> [RepoNode] {
     // Group items by their module path (worktree root).
     var itemsByModule: [String: [ProjectableSessionItem]] = [:]
@@ -190,7 +208,8 @@ enum SessionTreeProjection {
         from: repoItems,
         repository: repository,
         repoPath: repoPath,
-        loadedPages: loadedPages
+        loadedPages: loadedPages,
+        paged: paged
       )
 
       let attentionCount = repoItems.filter {
@@ -217,7 +236,8 @@ enum SessionTreeProjection {
     from items: [ProjectableSessionItem],
     repository: SelectedRepository,
     repoPath: String,
-    loadedPages: [String: Int]
+    loadedPages: [String: Int],
+    paged: Bool
   ) -> [BranchNode] {
     // Build a set of known branch -> worktree mappings from the repository.
     var branchWorktrees: [String: WorktreeBranch] = [:]
@@ -287,7 +307,7 @@ enum SessionTreeProjection {
 
       // Paging: show loadMoreIncrement * pages sessions.
       let pages = max(1, loadedPages[branchId] ?? 1)
-      let visibleCount = min(sorted.count, pages * loadMoreIncrement)
+      let visibleCount = paged ? min(sorted.count, pages * loadMoreIncrement) : sorted.count
       let visible = Array(sorted.prefix(visibleCount))
       let hasMore = visibleCount < sorted.count
 
@@ -298,7 +318,8 @@ enum SessionTreeProjection {
           providerKind: item.providerKind,
           isPending: item.isPending,
           status: item.status,
-          pendingID: item.pendingID
+          pendingID: item.pendingID,
+          pendingToolName: item.pendingToolName
         )
       }
 
