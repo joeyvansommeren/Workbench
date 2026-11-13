@@ -63,6 +63,9 @@ public protocol EmbeddedTerminalSurface: AnyObject {
   /// The last `maxRows` visible rows of the agent's own tab, for state the CLI
   /// only draws on screen (compacting). Nil when the backend cannot read text.
   func agentScreenTail(maxRows: Int) -> [String]?
+  /// True when this backend can read the agent tab's text at all, even if
+  /// `agentScreenTail` returns nil right now (scrolled back).
+  var canReadAgentScreen: Bool { get }
   func typeInitialTextIfNeeded(_ text: String)
   func syncAppearance(isDark: Bool, fontSize: CGFloat, fontFamily: String, theme: RuntimeTheme?)
   func focus()
@@ -126,6 +129,8 @@ public extension EmbeddedTerminalSurface {
   func agentScreenTail(maxRows: Int) -> [String]? {
     nil
   }
+
+  var canReadAgentScreen: Bool { false }
 
   var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)? {
     get { nil }

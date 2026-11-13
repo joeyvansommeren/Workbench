@@ -900,25 +900,33 @@ public final class CLISessionsViewModel {
 
   /// Answers the session's pending permission prompt from the app (banner,
   /// tree pill, chat, voice). Fails closed: `.answerInTerminal` when the app
-  /// can't confirm Claude's menu is waiting. `terminalKey` defaults to the id.
+  /// can't confirm Claude's menu is waiting, and at most one key per request
+  /// (`.alreadyAnswered` after that). `terminalKey` defaults to the id.
   @discardableResult
   public func respondToApproval(
     sessionId: String,
     decision: ApprovalDecision,
     terminalKey: String? = nil
   ) -> ApprovalResponseOutcome {
-    let state = monitorStates[sessionId]
-    let toolName = state?.pendingToolUse?.toolName ?? "?"
-    MainThreadStallMonitor.breadcrumb("approval: \(decision.breadcrumbVerb) \(toolName)")
+    let pending = monitorStates[sessionId]?.pendingToolUse
+    MainThreadStallMonitor.breadcrumb("approval: \(decision.breadcrumbVerb) \(pending?.toolName ?? "?")")
     let key = terminalKey ?? sessionId
-    let outcome = approvalResponder.respond(
-      to: ApprovalRequestContext(
-        sessionId: sessionId, providerKind: providerKind, pendingToolUse: state?.pendingToolUse),
-      decision: decision,
-      terminal: activeTerminals[key].map { SurfaceApprovalKeystrokeTarget(surface: $0) }
-    )
-    approvalTracker.record(
-      outcome, decision: decision, sessionId: sessionId, signature: ApprovalSignature(state: state))
+    let request = pending.map(ApprovalRequestKey.init(pending:))
+    let outcome: ApprovalResponseOutcome
+    if let request, approvalTracker.hasAnswered(sessionId: sessionId, request: request) {
+      outcome = .answerInTerminal(.alreadyAnswered)
+    } else {
+      outcome = approvalResponder.respond(
+        to: ApprovalRequestContext(sessionId: sessionId, providerKind: providerKind, pendingToolUse: pending),
+        decision: decision,
+        terminal: activeTerminals[key].map { SurfaceApprovalKeystrokeTarget(surface: $0) }
+      )
+    }
+    if let request {
+      approvalTracker.record(
+        outcome, decision: decision, sessionId: sessionId, request: request,
+        menuStillVisible: { [weak self] in self?.agentPermissionMenuVisible(forKey: key) })
+    }
     if outcome == .sent {
       markSessionFocused(sessionId)
     } else {
@@ -926,6 +934,15 @@ public final class CLISessionsViewModel {
         "Approval for \(sessionId, privacy: .public) left to the terminal: \(String(describing: outcome), privacy: .public)")
     }
     return outcome
+  }
+
+  /// Whether the agent tab still shows Claude's permission menu; nil when the
+  /// backend or the scroll position doesn't allow reading it.
+  private func agentPermissionMenuVisible(forKey key: String) -> Bool? {
+    guard let terminal = activeTerminals[key], terminal.canReadAgentScreen,
+      let tail = terminal.agentScreenTail(maxRows: ClaudePermissionMenu.tailRows)
+    else { return nil }
+    return ClaudePermissionMenu.isVisible(in: tail)
   }
 
   /// Routes ⌘↩ in the session's terminal to `handler` while a banner shows;

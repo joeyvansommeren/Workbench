@@ -94,21 +94,33 @@ struct ApprovalResponderTests {
     #expect(terminal.activeTabTyped.isEmpty)
   }
 
+  @Test("A text backend that can't read the screen right now refuses; it never uses the sidecar")
+  func scrolledBackTextBackendRefuses() {
+    // SwiftTerm scrolled back: the backend reads text, but the live rows aren't readable now.
+    let terminal = MockApprovalTerminal(screen: nil, canReadScreen: true)
+    let withOpenSidecar = responder(openToolUseId: "t1")
+    for decision in [ApprovalDecision.approveOnce, .approveAlways, .deny] {
+      #expect(
+        withOpenSidecar.respond(to: request(), decision: decision, terminal: terminal)
+          == .answerInTerminal(.menuNotVisible))
+    }
+    #expect(terminal.sentNothing)
+  }
+
   // MARK: Backends that can't read text
 
-  @Test("Without screen text, an open sidecar request is required")
-  func nonTextBackendNeedsSidecar() {
+  @Test("Without screen text, the open sidecar request must be this tool use")
+  func nonTextBackendNeedsMatchingSidecar() {
     let terminal = MockApprovalTerminal(screen: nil)
-    let closed = responder(sidecarOpen: false)
     #expect(
-      closed.respond(to: request(), decision: .approveOnce, terminal: terminal)
+      responder(openToolUseId: nil).respond(to: request(), decision: .approveOnce, terminal: terminal)
         == .answerInTerminal(.noOpenSidecarRequest))
     #expect(
-      closed.respond(to: request(), decision: .deny, terminal: terminal)
+      responder(openToolUseId: "t0").respond(to: request(), decision: .deny, terminal: terminal)
         == .answerInTerminal(.noOpenSidecarRequest))
     #expect(terminal.sentNothing)
 
-    let open = responder(sidecarOpen: true)
+    let open = responder(openToolUseId: "t1")
     #expect(open.respond(to: request(), decision: .approveOnce, terminal: terminal) == .sent)
     #expect(open.respond(to: request(), decision: .deny, terminal: terminal) == .sent)
     #expect(terminal.agentTyped == ["1"])
@@ -119,9 +131,24 @@ struct ApprovalResponderTests {
   func nonTextBackendRefusesAlwaysAllow() {
     let terminal = MockApprovalTerminal(screen: nil)
     #expect(
-      responder(sidecarOpen: true).respond(to: request(), decision: .approveAlways, terminal: terminal)
+      responder(openToolUseId: "t1").respond(to: request(), decision: .approveAlways, terminal: terminal)
         == .answerInTerminal(.menuNotVisible))
     #expect(terminal.sentNothing)
+  }
+
+  // MARK: Shared predicate
+
+  @Test("Approvable: Claude permission prompts only, never input questions or Codex")
+  func approvablePredicate() {
+    #expect(ApprovablePermission.matches(toolName: "Bash", providerKind: .claude))
+    #expect(ApprovablePermission.matches(toolName: "mcp__github__create_pr", providerKind: .claude))
+    #expect(!ApprovablePermission.matches(toolName: "AskUserQuestion", providerKind: .claude))
+    #expect(!ApprovablePermission.matches(toolName: "mcp__codex__request_user_input", providerKind: .claude))
+    #expect(!ApprovablePermission.matches(toolName: "Bash", providerKind: .codex))
+    #expect(!ApprovablePermission.matches(toolName: nil, providerKind: .claude))
+    let pending = PendingToolUse(toolName: "Edit", toolUseId: "t1", timestamp: Date())
+    #expect(pending.isApprovablePermission(providerKind: .claude))
+    #expect(!pending.isApprovablePermission(providerKind: .codex))
   }
 
   // MARK: Menu detection (fixture wording)
@@ -141,18 +168,24 @@ struct ApprovalResponderTests {
 
   // MARK: Sidecar
 
-  @Test("The last pending/resolved/denied line decides; observed lines don't")
+  @Test("The open request is the last pending line with no later resolved/denied")
   func sidecarState() {
-    let pending = #"{"event":"pending","toolName":"Bash"}"#
-    let observed = #"{"event":"observed","toolName":"Bash"}"#
-    let resolved = #"{"event":"resolved","toolName":"Bash"}"#
-    let denied = #"{"event":"denied","toolName":"Bash"}"#
-    #expect(ApprovalSidecarState.hasOpenRequest(lines: [Substring(pending)]))
-    #expect(ApprovalSidecarState.hasOpenRequest(lines: [Substring(pending), Substring(observed)]))
-    #expect(!ApprovalSidecarState.hasOpenRequest(lines: [Substring(pending), Substring(resolved)]))
-    #expect(!ApprovalSidecarState.hasOpenRequest(lines: [Substring(pending), Substring(denied)]))
-    #expect(ApprovalSidecarState.hasOpenRequest(lines: [Substring(resolved), Substring(pending), "{broken"]))
-    #expect(!ApprovalSidecarState.hasOpenRequest(lines: []))
+    func open(_ lines: [String]) -> String? {
+      ApprovalSidecarState.openRequestToolUseId(lines: lines.map { Substring($0) }, sessionId: "s1")
+    }
+    let pending = #"{"event":"pending","toolName":"Bash","toolUseId":"t1"}"#
+    let observed = #"{"event":"observed","toolName":"Bash","toolUseId":"t1"}"#
+    let resolved = #"{"event":"resolved","toolName":"Bash","toolUseId":"t1"}"#
+    let denied = #"{"event":"denied","toolName":"Bash","toolUseId":"t1"}"#
+    #expect(open([pending]) == "t1")
+    #expect(open([pending, observed]) == "t1")
+    #expect(open([pending, resolved]) == nil)
+    #expect(open([pending, denied]) == nil)
+    #expect(open([resolved, pending, "{broken"]) == "t1")
+    #expect(open([]) == nil)
+    // Same fallbacks as ClaudeHookSidecarWatcher: no id → hook-<sid>, empty stays empty.
+    #expect(open([#"{"event":"pending"}"#]) == "hook-s1")
+    #expect(open([#"{"event":"pending","toolUseId":""}"#]) == "")
   }
 
   @Test("The file reader reads only the tail and ignores a cut first line")
@@ -164,52 +197,80 @@ struct ApprovalResponderTests {
     let reader = FileApprovalSidecarReader(
       fileURL: { directory.appendingPathComponent("\($0).jsonl") }, maxBytes: 64)
 
-    #expect(!reader.hasOpenRequest(sessionId: "missing"))
+    #expect(reader.openRequestToolUseId(sessionId: "missing") == nil)
 
     let filler = String(repeating: #"{"event":"observed"}"# + "\n", count: 20)
-    try (#"{"event":"resolved"}"# + "\n" + filler + #"{"event":"pending"}"# + "\n")
+    try (#"{"event":"resolved"}"# + "\n" + filler + #"{"event":"pending","toolUseId":"t9"}"# + "\n")
       .write(to: directory.appendingPathComponent("open.jsonl"), atomically: true, encoding: .utf8)
-    #expect(reader.hasOpenRequest(sessionId: "open"))
+    #expect(reader.openRequestToolUseId(sessionId: "open") == "t9")
 
     try (#"{"event":"pending"}"# + "\n" + #"{"event":"denied"}"# + "\n")
       .write(to: directory.appendingPathComponent("closed.jsonl"), atomically: true, encoding: .utf8)
-    #expect(!reader.hasOpenRequest(sessionId: "closed"))
+    #expect(reader.openRequestToolUseId(sessionId: "closed") == nil)
   }
 
   // MARK: View model
 
-  @Test("The view model answers through the agent tab and records progress")
-  func viewModelRoutesToAgentTab() async throws {
+  @Test("The view model answers through the agent tab, once per request")
+  func viewModelRoutesToAgentTabOnce() async throws {
     let (viewModel, watcher) = makeViewModel()
-    let surface = ApprovalSurface(screen: ClaudePermissionMenuFixtures.bashPlain)
+    let surface = ApprovalSurface(screen: ClaudePermissionMenuFixtures.bashPlain, canReadScreen: true)
     viewModel.activeTerminals["s1"] = surface
-    try await seedPending(viewModel, watcher)
+    try await seedPending(viewModel, watcher, toolUseId: "t1")
 
     #expect(viewModel.respondToApproval(sessionId: "s1", decision: .approveOnce) == .sent)
     #expect(surface.agentTyped == ["1"])
     #expect(surface.activeTyped.isEmpty)
-    let signature = ApprovalSignature(state: viewModel.monitorStates["s1"])
-    #expect(viewModel.approvalTracker.phase(for: "s1", current: signature) == .sending(.approveOnce))
+    #expect(viewModel.approvalTracker.phase(for: "s1", request: currentRequest(viewModel)) == .sending(.approveOnce))
 
+    // The menu still shows (or the tool runs): a second answer is refused.
+    #expect(viewModel.respondToApproval(sessionId: "s1", decision: .deny) == .answerInTerminal(.alreadyAnswered))
+    #expect(viewModel.respondToApproval(sessionId: "s1", decision: .approveOnce) == .answerInTerminal(.alreadyAnswered))
+    #expect(surface.escapes == 0)
+    #expect(surface.agentTyped == ["1"])
+
+    // A new request can be answered again.
+    try await seedPending(viewModel, watcher, toolUseId: "t2")
     #expect(viewModel.respondToApproval(sessionId: "s1", decision: .deny) == .sent)
     #expect(surface.escapes == 1)
   }
 
-  @Test("The view model fails closed without a terminal and says so")
+  @Test("No screen text: an approved tool still pending in the sidecar never gets a second key")
+  func viewModelNonTextBackendRunningTool() async throws {
+    // The hook writes `resolved` only after the tool finishes, so while it runs
+    // the sidecar still shows this request open.
+    let (viewModel, watcher) = makeViewModel(openToolUseId: "t1")
+    let surface = ApprovalSurface(screen: nil, canReadScreen: false)
+    viewModel.activeTerminals["s1"] = surface
+    try await seedPending(viewModel, watcher, toolUseId: "t1")
+
+    #expect(viewModel.respondToApproval(sessionId: "s1", decision: .approveOnce) == .sent)
+    for decision in [ApprovalDecision.approveOnce, .deny] {
+      #expect(viewModel.respondToApproval(sessionId: "s1", decision: decision) == .answerInTerminal(.alreadyAnswered))
+    }
+    #expect(surface.agentTyped == ["1"])
+    #expect(surface.escapes == 0)
+    #expect(viewModel.approvalTracker.hasAnswered(sessionId: "s1", request: currentRequest(viewModel)!))
+  }
+
+  @Test("The view model fails closed without a terminal and allows a retry")
   func viewModelWithoutTerminal() async throws {
     let (viewModel, watcher) = makeViewModel()
-    try await seedPending(viewModel, watcher)
+    try await seedPending(viewModel, watcher, toolUseId: "t1")
     #expect(
       viewModel.respondToApproval(sessionId: "s1", decision: .approveOnce)
         == .answerInTerminal(.terminalUnavailable))
-    let signature = ApprovalSignature(state: viewModel.monitorStates["s1"])
-    #expect(viewModel.approvalTracker.phase(for: "s1", current: signature) == .answerInTerminal)
+    #expect(viewModel.approvalTracker.phase(for: "s1", request: currentRequest(viewModel)) == .answerInTerminal)
+
+    let surface = ApprovalSurface(screen: ClaudePermissionMenuFixtures.bashPlain, canReadScreen: true)
+    viewModel.activeTerminals["s1"] = surface
+    #expect(viewModel.respondToApproval(sessionId: "s1", decision: .approveOnce) == .sent)
   }
 
   @Test("The ⌘↩ handler is set and cleared on the session's surface")
   func shortcutHandlerRegistration() {
     let (viewModel, _) = makeViewModel()
-    let surface = ApprovalSurface(screen: nil)
+    let surface = ApprovalSurface(screen: nil, canReadScreen: false)
     viewModel.activeTerminals["s1"] = surface
     viewModel.setApprovalShortcutHandler(forKey: "s1") {}
     #expect(surface.approvalShortcutHandler != nil)
@@ -217,10 +278,40 @@ struct ApprovalResponderTests {
     #expect(surface.approvalShortcutHandler == nil)
   }
 
+  // MARK: Refusal fallbacks
+
+  @Test("The tree pill opens the session only when the app could not answer")
+  func sidebarOpensSessionOnRefusalOnly() {
+    let node = SessionNode(
+      id: "s1", session: CLISession(id: "s1", projectPath: "/tmp/Repo"), providerKind: .claude,
+      isPending: false, status: .awaitingApproval(tool: "Bash"), pendingToolName: "Bash")
+    var opened: [String] = []
+    var outcome = ApprovalResponseOutcome.sent
+    let approve = SidebarApproval.respond(
+      answer: { _ in outcome }, openSession: { opened.append($0.id) })
+
+    approve(node)
+    #expect(opened.isEmpty)
+    outcome = .answerInTerminal(.menuNotVisible)
+    approve(node)
+    outcome = .answerInTerminal(.alreadyAnswered)
+    approve(node)
+    #expect(opened == ["s1", "s1"])
+  }
+
+  @Test("The chat Approve switches to the terminal only when the app could not answer")
+  func chatFallsBackToTerminalOnRefusal() {
+    var shown = 0
+    ChatApprovalAction.approve({ true }, fallback: { shown += 1 })
+    #expect(shown == 0)
+    ChatApprovalAction.approve({ false }, fallback: { shown += 1 })
+    #expect(shown == 1)
+  }
+
   // MARK: Helpers
 
-  private func responder(sidecarOpen: Bool = false) -> TerminalKeystrokeApprovalResponder {
-    TerminalKeystrokeApprovalResponder(sidecar: StubSidecar(isOpen: sidecarOpen))
+  private func responder(openToolUseId: String? = nil) -> TerminalKeystrokeApprovalResponder {
+    TerminalKeystrokeApprovalResponder(sidecar: StubSidecar(openToolUseId: openToolUseId))
   }
 
   private func request(
@@ -234,18 +325,26 @@ struct ApprovalResponderTests {
       pendingToolUse: pending ? PendingToolUse(toolName: tool, toolUseId: "t1", timestamp: Date()) : nil)
   }
 
+  private func currentRequest(_ viewModel: CLISessionsViewModel) -> ApprovalRequestKey? {
+    ApprovalRequestKey(state: viewModel.monitorStates["s1"])
+  }
+
   /// Seeds a pending Bash request the way the file watcher delivers it.
-  private func seedPending(_ viewModel: CLISessionsViewModel, _ watcher: StubFileWatcher) async throws {
-    viewModel.startMonitoring(session: CLISession(id: "s1", projectPath: "/tmp/approval-project"))
+  private func seedPending(
+    _ viewModel: CLISessionsViewModel, _ watcher: StubFileWatcher, toolUseId: String
+  ) async throws {
+    if viewModel.monitorStates["s1"] == nil {
+      viewModel.startMonitoring(session: CLISession(id: "s1", projectPath: "/tmp/approval-project"))
+    }
     watcher.send(
       sessionId: "s1",
       state: SessionMonitorState(
         status: .awaitingApproval(tool: "Bash"),
-        pendingToolUse: PendingToolUse(toolName: "Bash", toolUseId: "t1", timestamp: Date(), input: "ls")))
-    for _ in 0..<50 where viewModel.monitorStates["s1"]?.pendingToolUse == nil {
+        pendingToolUse: PendingToolUse(toolName: "Bash", toolUseId: toolUseId, timestamp: Date(), input: "ls")))
+    for _ in 0..<50 where viewModel.monitorStates["s1"]?.pendingToolUse?.toolUseId != toolUseId {
       try await Task.sleep(for: .milliseconds(20))
     }
-    #expect(viewModel.monitorStates["s1"]?.pendingToolUse != nil)
+    #expect(viewModel.monitorStates["s1"]?.pendingToolUse?.toolUseId == toolUseId)
   }
 }
 
@@ -254,14 +353,17 @@ struct ApprovalResponderTests {
 @MainActor
 private final class MockApprovalTerminal: ApprovalKeystrokeTarget {
   let screen: [String]?
+  let canReadScreen: Bool
   let hasAgentTab: Bool
   private(set) var agentTyped: [String] = []
   private(set) var escapes = 0
   /// The responder has no way to reach the active tab; this stays empty.
   private(set) var activeTabTyped: [String] = []
 
-  init(screen: [String]?, hasAgentTab: Bool = true) {
+  /// `canReadScreen` defaults to "a screen was given" (SwiftTerm vs Ghostty).
+  init(screen: [String]?, canReadScreen: Bool? = nil, hasAgentTab: Bool = true) {
     self.screen = screen
+    self.canReadScreen = canReadScreen ?? (screen != nil)
     self.hasAgentTab = hasAgentTab
   }
 
@@ -283,8 +385,8 @@ private final class MockApprovalTerminal: ApprovalKeystrokeTarget {
 }
 
 private struct StubSidecar: ApprovalSidecarReading {
-  let isOpen: Bool
-  func hasOpenRequest(sessionId: String) -> Bool { isOpen }
+  let openToolUseId: String?
+  func openRequestToolUseId(sessionId: String) -> String? { openToolUseId }
 }
 
 /// A surface with a separate agent tab and active tab.
@@ -297,12 +399,14 @@ private final class ApprovalSurface: NSView, EmbeddedTerminalSurface {
   var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)?
   var approvalShortcutHandler: (() -> Void)?
   let screen: [String]?
+  let canReadAgentScreen: Bool
   private(set) var activeTyped: [String] = []
   private(set) var agentTyped: [String] = []
   private(set) var escapes = 0
 
-  init(screen: [String]?) {
+  init(screen: [String]?, canReadScreen: Bool) {
     self.screen = screen
+    self.canReadAgentScreen = canReadScreen
     super.init(frame: .zero)
   }
 
@@ -363,7 +467,7 @@ private final class StubFileWatcher: SessionFileWatcherProtocol, @unchecked Send
 }
 
 @MainActor
-private func makeViewModel() -> (CLISessionsViewModel, StubFileWatcher) {
+private func makeViewModel(openToolUseId: String? = nil) -> (CLISessionsViewModel, StubFileWatcher) {
   let watcher = StubFileWatcher()
   let viewModel = CLISessionsViewModel(
     monitorService: StubMonitorService(),
@@ -374,6 +478,7 @@ private func makeViewModel() -> (CLISessionsViewModel, StubFileWatcher) {
     approvalNotificationService: NoOpApprovalNotificationService()
   )
   // Never read the real sidecar directory from a test.
-  viewModel.approvalResponder = TerminalKeystrokeApprovalResponder(sidecar: StubSidecar(isOpen: false))
+  viewModel.approvalResponder = TerminalKeystrokeApprovalResponder(
+    sidecar: StubSidecar(openToolUseId: openToolUseId))
   return (viewModel, watcher)
 }

@@ -160,12 +160,27 @@ private struct SessionApprovePill: View {
     let toolName = node.pendingToolName
     AttentionPill(
       title: "Approve",
-      isBusy: phase.map { if case .sending = $0 { true } else { false } } ?? false,
-      help: phase == .answerInTerminal
-        ? "Claude did not respond. Answer in the terminal."
-        : (toolName.map { "Allow \($0) once" } ?? "Allow once"),
+      isBusy: Self.isBusy(phase),
+      help: Self.help(phase, toolName: toolName),
       accessibilityLabel: toolName.map { "Approve \($0)" } ?? "Approve"
     ) { actions.approve(node) }
+  }
+
+  /// Spinner while the key is in flight and while an approved tool runs.
+  private static func isBusy(_ phase: ApprovalResponsePhase?) -> Bool {
+    switch phase {
+    case .sending, .answered: true
+    case .checkTerminal, .answerInTerminal, nil: false
+    }
+  }
+
+  private static func help(_ phase: ApprovalResponsePhase?, toolName: String?) -> String {
+    switch phase {
+    case .answerInTerminal: "The app could not confirm Claude's menu. Answer in the terminal."
+    // A click now is refused (already answered) and opens the session.
+    case .checkTerminal: "Sent once. Check the terminal."
+    default: toolName.map { "Allow \($0) once" } ?? "Allow once"
+    }
   }
 }
 

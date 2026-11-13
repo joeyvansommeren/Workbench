@@ -518,6 +518,10 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
     return true
   }
 
+  /// SwiftTerm holds the screen buffer, so text is readable. A scrolled-back
+  /// tab still returns nil from `agentScreenTail`, and approvals refuse then.
+  public var canReadAgentScreen: Bool { true }
+
   /// The bottom rows of the agent tab's visible screen, verbatim. Bounded by
   /// `maxRows`; reads the buffer SwiftTerm already holds, no new process or I/O.
   public func agentScreenTail(maxRows: Int) -> [String]? {

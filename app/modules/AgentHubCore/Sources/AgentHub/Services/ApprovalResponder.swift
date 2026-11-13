@@ -37,10 +37,14 @@ public enum ApprovalRefusal: Equatable, Sendable {
   /// The agent tab is not mounted, or the backend has no agent tab to type into.
   case terminalUnavailable
   /// The screen tail does not show Claude's permission menu (or option 2 for
-  /// "Always allow").
+  /// "Always allow"), or the tab is scrolled back so the live rows can't be read.
   case menuNotVisible
-  /// The backend can't read text and the sidecar has no open `pending` line.
+  /// The backend can't read text and the sidecar has no open `pending` line
+  /// for this tool use.
   case noOpenSidecarRequest
+  /// The app already answered this request. While an approved tool runs, the
+  /// request still looks pending; a second key would land in a running turn.
+  case alreadyAnswered
 }
 
 public enum ApprovalResponseOutcome: Equatable, Sendable {
@@ -81,29 +85,31 @@ public enum ClaudePermissionMenu {
 
 // MARK: - Sidecar
 
-/// Whether the hook sidecar still holds an open permission request. The proof
+/// The tool use id of the hook sidecar's open permission request: the proof
 /// the menu is up when the backend can't read the screen (Ghostty).
 @MainActor
 public protocol ApprovalSidecarReading {
-  func hasOpenRequest(sessionId: String) -> Bool
+  func openRequestToolUseId(sessionId: String) -> String?
 }
 
 public enum ApprovalSidecarState {
-  /// True when the last `pending` / `resolved` / `denied` line is `pending`.
-  /// `observed` lines are tool/mode bookkeeping and do not close a request.
-  public static func hasOpenRequest(lines: [Substring]) -> Bool {
+  /// The tool use id of the last `pending` line when no `resolved` / `denied`
+  /// line follows it, else nil. `observed` lines are tool/mode bookkeeping and
+  /// do not close a request. A missing id maps to `hook-<sessionId>`, as in
+  /// `ClaudeHookSidecarWatcher`, so it compares with `PendingToolUse.toolUseId`.
+  public static func openRequestToolUseId(lines: [Substring], sessionId: String) -> String? {
     for line in lines.reversed() {
       guard let data = line.data(using: .utf8),
         let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
         let event = object["event"] as? String
       else { continue }
       switch event {
-      case "pending": return true
-      case "resolved", "denied": return false
+      case "pending": return object["toolUseId"] as? String ?? "hook-\(sessionId)"
+      case "resolved", "denied": return nil
       default: continue
       }
     }
-    return false
+    return nil
   }
 }
 
@@ -121,29 +127,33 @@ public struct FileApprovalSidecarReader: ApprovalSidecarReading {
     self.maxBytes = maxBytes
   }
 
-  public func hasOpenRequest(sessionId: String) -> Bool {
-    guard let handle = try? FileHandle(forReadingFrom: fileURL(sessionId)) else { return false }
+  public func openRequestToolUseId(sessionId: String) -> String? {
+    guard let handle = try? FileHandle(forReadingFrom: fileURL(sessionId)) else { return nil }
     defer { try? handle.close() }
-    guard let size = try? handle.seekToEnd() else { return false }
+    guard let size = try? handle.seekToEnd() else { return nil }
     let start = size > maxBytes ? size - maxBytes : 0
     guard (try? handle.seek(toOffset: start)) != nil,
       let data = try? handle.readToEnd(),
       let text = String(data: data, encoding: .utf8)
-    else { return false }
+    else { return nil }
     var lines = text.split(separator: "\n", omittingEmptySubsequences: true)
     // A cut first line is never valid JSON; dropping it avoids a misparse.
     if start > 0, !lines.isEmpty { lines.removeFirst() }
-    return ApprovalSidecarState.hasOpenRequest(lines: lines)
+    return ApprovalSidecarState.openRequestToolUseId(lines: lines, sessionId: sessionId)
   }
 }
 
 // MARK: - Terminal
 
-/// The three things the responder needs from a terminal, all aimed at the
-/// agent's own tab (never an accessory or child tab).
+/// What the responder needs from a terminal, all aimed at the agent's own tab
+/// (never an accessory or child tab).
 @MainActor
 public protocol ApprovalKeystrokeTarget {
-  /// Nil when the backend cannot read text.
+  /// True when the backend can read screen text at all (SwiftTerm). On such a
+  /// backend a nil tail means "not right now" (scrolled back) and the answer
+  /// is refused; it never falls back to the weaker sidecar check.
+  var canReadScreen: Bool { get }
+  /// The live bottom rows, or nil when they can't be read.
   func agentScreenTail(maxRows: Int) -> [String]?
   func typeTextToAgentSession(_ text: String) -> Bool
   func sendEscapeToAgentSession() -> Bool
@@ -154,6 +164,7 @@ public protocol ApprovalKeystrokeTarget {
 struct SurfaceApprovalKeystrokeTarget: ApprovalKeystrokeTarget {
   let surface: any EmbeddedTerminalSurface
 
+  var canReadScreen: Bool { surface.canReadAgentScreen }
   func agentScreenTail(maxRows: Int) -> [String]? { surface.agentScreenTail(maxRows: maxRows) }
   func typeTextToAgentSession(_ text: String) -> Bool { surface.typeTextToAgentSession(text) }
   func sendEscapeToAgentSession() -> Bool { surface.sendEscapeToAgentSession() }
@@ -183,6 +194,8 @@ public protocol ApprovalResponding {
   ) -> ApprovalResponseOutcome
 }
 
+/// Stateless. "This request was already answered" is checked by the view model
+/// (`ApprovalResponseTracker.hasAnswered`) before it calls this.
 @MainActor
 public struct TerminalKeystrokeApprovalResponder: ApprovalResponding {
   private let sidecar: any ApprovalSidecarReading
@@ -197,23 +210,22 @@ public struct TerminalKeystrokeApprovalResponder: ApprovalResponding {
     decision: ApprovalDecision,
     terminal: (any ApprovalKeystrokeTarget)?
   ) -> ApprovalResponseOutcome {
-    guard request.providerKind == .claude else { return .answerInTerminal(.unsupportedProvider) }
     guard let pending = request.pendingToolUse else { return .answerInTerminal(.nothingPending) }
-    guard !SessionInteractiveInputTool.matches(pending.toolName) else {
-      return .answerInTerminal(.interactiveInput)
+    guard pending.isApprovablePermission(providerKind: request.providerKind) else {
+      return .answerInTerminal(request.providerKind == .claude ? .interactiveInput : .unsupportedProvider)
     }
     guard let terminal else { return .answerInTerminal(.terminalUnavailable) }
 
     // Escape outside the menu interrupts Claude's turn and a stray "1" lands in
     // the prompt, so deny is gated exactly like approve.
-    if let tail = terminal.agentScreenTail(maxRows: ClaudePermissionMenu.tailRows) {
-      guard
+    if terminal.canReadScreen {
+      guard let tail = terminal.agentScreenTail(maxRows: ClaudePermissionMenu.tailRows),
         ClaudePermissionMenu.isVisible(in: tail, requiresAllowAlways: decision == .approveAlways)
       else { return .answerInTerminal(.menuNotVisible) }
     } else {
       // Without the screen there is no way to tell whether option 2 is "Yes".
       guard decision != .approveAlways else { return .answerInTerminal(.menuNotVisible) }
-      guard sidecar.hasOpenRequest(sessionId: request.sessionId) else {
+      guard sidecar.openRequestToolUseId(sessionId: request.sessionId) == pending.toolUseId else {
         return .answerInTerminal(.noOpenSidecarRequest)
       }
     }

@@ -155,16 +155,25 @@ tab, behind `ApprovalResponding` (`Services/ApprovalResponder.swift`).
   serves the banner, the tree pill, the chat `onApprove` and voice. Allow once
   types "1"; "Always allow" types "2"; Deny sends Escape (the "No" number is
   not stable across tools).
-- **Fail closed.** It only types when `pendingToolUse != nil`, the tool is not
-  an input question, and either the agent tab's screen tail shows Claude's
-  menu (`ClaudePermissionMenu`; wording pinned in the test fixture
-  `ClaudePermissionMenuFixtures`) or, on backends without screen text
-  (Ghostty), the sidecar has an open `pending` line. "Always allow" also needs
-  option 2 to read "Yes" on screen, so it is refused on Ghostty. Otherwise:
-  "Answer in the terminal".
-- **Progress.** `ApprovalResponseTracker` (on the view model) keeps the click
-  until the session's `ApprovalSignature` (tool use id + last activity) moves;
-  after 3 s with no change it points to the terminal. Banner and pill share it.
+- **Fail closed.** It only types when the pending tool use is approvable
+  (`PendingToolUse.isApprovablePermission`: Claude, not an input question), and:
+  on a text backend (`canReadAgentScreen`, SwiftTerm) the live screen tail
+  shows Claude's menu (`ClaudePermissionMenu`; wording pinned in the test
+  fixture `ClaudePermissionMenuFixtures`). A scrolled-back tab is refused,
+  never sent to the sidecar check. On backends without screen text (Ghostty)
+  the sidecar's open `pending` line must carry this tool use id. "Always allow"
+  also needs option 2 to read "Yes" on screen, so it is refused on Ghostty.
+  Otherwise: "Answer in the terminal".
+- **One key per request.** The hook writes `resolved` only after the tool
+  finishes, so an approved, running tool still looks pending. Once a key went
+  out for an `ApprovalRequestKey` (tool use id, plus the timestamp when the id
+  is empty or synthetic), the view model refuses more (`.alreadyAnswered`) and
+  the banner shows no Approve/Deny buttons for it.
+- **Progress.** `ApprovalResponseTracker` (on the view model): `sending`, then
+  `answered` once the screen no longer shows the menu (polled for 3 s), or
+  `checkTerminal` ("Sent. Check the terminal.") when it can't confirm. A
+  refusal (`answerInTerminal`) keeps the buttons for a retry. Banner and pill
+  share it.
 - **Banner** (`Session/ApprovalBanner.swift`): an overlay on the terminal
   content in `SessionDetailView`, never a sibling, so the PTY never resizes.
   "Show in terminal" swaps it for a top-corner "Show approval" chip.

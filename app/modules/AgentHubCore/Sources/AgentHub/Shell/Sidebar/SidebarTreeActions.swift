@@ -36,9 +36,14 @@ final class SidebarTreeActions {
     self.shellModel = shellModel
     self.navigationModel = navigationModel
     self.coordinator = coordinator
-    self.approve = SidebarApproval.respond(agentHub: agentHub) { [weak self] node in
-      self?.open(node)
-    }
+    self.approve = SidebarApproval.respond(
+      answer: { node in
+        let viewModel =
+          node.providerKind == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
+        return viewModel.respondToApproval(sessionId: node.session.id, decision: .approveOnce)
+      },
+      openSession: { [weak self] node in self?.open(node) }
+    )
   }
 
   /// Progress of the last approval click on `node`'s current request.
@@ -46,7 +51,7 @@ final class SidebarTreeActions {
     let viewModel = viewModel(for: node.providerKind)
     return viewModel.approvalTracker.phase(
       for: node.session.id,
-      current: ApprovalSignature(state: viewModel.monitorStates[node.session.id]))
+      request: ApprovalRequestKey(state: viewModel.monitorStates[node.session.id]))
   }
 
   private var claude: CLISessionsViewModel { agentHub.claudeSessionsViewModel }
@@ -304,17 +309,15 @@ final class SidebarTreeActions {
 
 @MainActor
 enum SidebarApproval {
-  /// Allows the pending call once through `CLISessionsViewModel.respondToApproval`.
-  /// When the app can't confirm Claude's menu, it opens the session so the
-  /// user answers in its terminal (the banner there says so).
+  /// Allows the pending call once (`answer`, in the app
+  /// `CLISessionsViewModel.respondToApproval`). When the app can't answer, it
+  /// opens the session so the user answers in its terminal (the banner says so).
   static func respond(
-    agentHub: AgentHubProvider,
+    answer: @escaping (SessionNode) -> ApprovalResponseOutcome,
     openSession: @escaping (SessionNode) -> Void
   ) -> (SessionNode) -> Void {
     { node in
-      let viewModel =
-        node.providerKind == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
-      if viewModel.respondToApproval(sessionId: node.session.id, decision: .approveOnce) != .sent {
+      if answer(node) != .sent {
         openSession(node)
       }
     }
