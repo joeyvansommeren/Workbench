@@ -417,6 +417,14 @@ The short version: GitHub observation is a shared actor service in `AgentHubGitH
 - Theme system: built-in themes (Claude, Codex, Bat, Xcode) + YAML hot-reload via `ThemeFileWatcher`
 - Approval notifications: `ApprovalNotificationService` sends macOS alerts when tools await confirmation
 
+## Layout-Loop Crash (open, first seen 2026-11-13)
+
+- **Symptom:** the window freezes for ~5 s, then the app quits. The crash report shows `EXC_BREAKPOINT` in `+[NSApplication _crashOnException:]`, thrown by `-[NSWindow(NSDisplayCycle) _postWindowNeedsUpdateConstraints]`. The log text is "…already had more Update Constraints in Window passes than there are views in the window". The loop: `-[NSSplitView setFrameSize:]` → KVO → `NSHostingView.invalidateSafeAreaInsets` → `setNeedsUpdateConstraints`, again and again.
+- **Known so far:** seen once in 2.5 h, in the first build with the 2026-11-13 UI pass. The window was 1885 × 1099, so it was not narrow. The loop started under 0.6 s after a double-click. Reviews was probably open.
+- **Ruled out** in stand-alone copies of the layouts (none looped): split-pane minimums wider than the window, `.toolbar(removing: .sidebarToggle)`, tab switching, sidebar toggling, the Sessions `GeometryReader` sidebar width, MarkdownUI pull-request bodies, and window zoom.
+- **Next time:** `MainThreadStallMonitor` logs the last 20 breadcrumbs with the freeze: tabs, review selection, double-clicks with the view hit, and window resize, zoom, display and full-screen changes (`UIEventBreadcrumbs`). Read them with `/usr/bin/log show --last 2h --predicate 'process == "Workbench" AND (category == "Performance" OR eventMessage CONTAINS "Update Constraints" OR eventMessage CONTAINS "has continued for")'`. Call `/usr/bin/log` by its full path, because a shell function named `log` can hide it and return nothing. At the limit, AppKit also writes `[com.apple.AppKit:DisplayCycle]` lines with the window frame.
+- When you add a navigation or selection surface, add a `MainThreadStallMonitor.breadcrumb(...)` for it.
+
 ## Git Commits
 
 - Never add "Co-Authored-By: Claude" or any Claude co-author line

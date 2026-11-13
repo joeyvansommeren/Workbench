@@ -26,13 +26,32 @@ public final class MainThreadStallMonitor: @unchecked Sendable {
   /// Stalls shorter than this are not logged.
   let threshold: TimeInterval = 1.0
 
+  /// How many breadcrumbs a stall report carries. Window and click events
+  /// (see `UIEventBreadcrumbs`) arrive in bursts, so keep enough to reach back
+  /// past them to the action that started the stall.
+  static let breadcrumbCapacity = 20
+
+  /// Milliseconds, so breadcrumbs line up with `/usr/bin/log show` timestamps.
+  private static let timestampFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "HH:mm:ss.SSS"
+    return formatter
+  }()
+
   /// Records what the app is doing ("chat open: <session>"); the last few are
   /// logged with a stall so the cause can be traced.
   public static func breadcrumb(_ text: String) {
+    let stamped = "\(timestampFormatter.string(from: Date())) \(text)"
     shared.lock.withLock { state in
-      state.breadcrumbs.append("\(Date().formatted(date: .omitted, time: .standard)) \(text)")
-      if state.breadcrumbs.count > 8 { state.breadcrumbs.removeFirst() }
+      state.breadcrumbs.append(stamped)
+      if state.breadcrumbs.count > breadcrumbCapacity { state.breadcrumbs.removeFirst() }
     }
+  }
+
+  /// The breadcrumbs a stall report would log right now, oldest first.
+  static func recentBreadcrumbs() -> [String] {
+    shared.lock.withLock { $0.breadcrumbs }
   }
 
   public func start() {

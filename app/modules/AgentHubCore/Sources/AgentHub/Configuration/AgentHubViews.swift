@@ -190,6 +190,9 @@ public struct AgentHubOperationsView: View {
       Color.adaptiveBackground(for: colorScheme, theme: runtimeTheme)
         .ignoresSafeArea()
     )
+    .onChange(of: section) { _, newSection in
+      MainThreadStallMonitor.breadcrumb("tab: \(newSection.rawValue)")
+    }
     .onChange(
       of: agentHub?.claudeSessionsViewModel.resolvedPendingSessionHistory ?? [:]
     ) { _, resolutions in
@@ -553,6 +556,9 @@ public struct AgentHubSessionsView: View {
     )
     .frame(minWidth: AgentHubLayout.windowMinWidth)
     .modifier(RemoveTitleToolbarModifier())
+    .onChange(of: columnVisibility) { _, visibility in
+      MainThreadStallMonitor.breadcrumb("sessions sidebar: \(visibility == .detailOnly ? "hidden" : "shown")")
+    }
     .task {
       provider.startWorktreeLaunchRequestMonitoring()
     }
