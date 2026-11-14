@@ -68,6 +68,10 @@ public enum PalettePreference: String, CaseIterable, Sendable, Identifiable {
   case standard
   case warm
 
+  /// The palette used when nothing is saved. Every reader of
+  /// `AgentHubDefaults.palette` falls back to this, so they agree.
+  public static let defaultPalette: PalettePreference = .warm
+
   public var id: String { rawValue }
 
   public var displayName: String {
@@ -85,10 +89,10 @@ public enum PalettePreference: String, CaseIterable, Sendable, Identifiable {
     }
   }
 
-  /// Read from UserDefaults, defaulting to `.standard`.
+  /// Read from UserDefaults, defaulting to `defaultPalette`.
   public static func fromDefaults() -> PalettePreference {
-    let raw = UserDefaults.standard.string(forKey: AgentHubDefaults.palette) ?? "standard"
-    return PalettePreference(rawValue: raw) ?? .standard
+    UserDefaults.standard.string(forKey: AgentHubDefaults.palette)
+      .flatMap(PalettePreference.init(rawValue:)) ?? defaultPalette
   }
 
   /// Write to UserDefaults.

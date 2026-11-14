@@ -76,8 +76,8 @@ struct AppearancePreferenceTests {
     }
   }
 
-  @Test("palette preference defaults to standard")
-  func paletteDefaultsToStandard() {
+  @Test("palette preference defaults to warm; a saved standard still wins")
+  func paletteDefaultsToWarm() {
     let defaults = UserDefaults.standard
     let key = AgentHubDefaults.palette
     let oldValue = defaults.string(forKey: key)
@@ -89,6 +89,9 @@ struct AppearancePreferenceTests {
       }
     }
     defaults.removeObject(forKey: key)
+    #expect(PalettePreference.defaultPalette == .warm)
+    #expect(PalettePreference.fromDefaults() == .warm)
+    defaults.set("standard", forKey: key)
     #expect(PalettePreference.fromDefaults() == .standard)
   }
 }
