@@ -209,8 +209,8 @@ struct AgentHubApp: App {
           .font(.geist(size: 13))
       }
     }
-    // Both roots draw their own top bar. The new shell's is a 52 pt row
-    // (Variant B, AgentHubCore Shell/README.md).
+    // Both roots draw their own top bar. The new shell's is a title band
+    // (height from ShellTitleBarMetrics; AgentHubCore Shell/README.md).
     .windowStyle(.hiddenTitleBar)
     .commands {
       if usesAppleShell {

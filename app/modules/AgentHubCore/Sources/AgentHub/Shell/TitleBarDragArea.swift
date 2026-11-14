@@ -2,10 +2,11 @@
 //  TitleBarDragArea.swift
 //  AgentHub
 //
-//  The new shell draws its own 52 pt title row (no NSToolbar, see
-//  Shell/README.md). Put this behind that row so its empty space acts like a
-//  real title bar: drag moves the window, and a double-click follows the
-//  user's "double-click a window's title bar to" setting.
+//  The new shell draws its own title band (height from
+//  `ShellTitleBarMetrics`; no NSToolbar, see Shell/README.md). Put this
+//  behind that band so its empty space acts like a real title bar: drag
+//  moves the window, and a double-click follows the user's "double-click a
+//  window's title bar to" setting.
 //
 
 import AppKit
@@ -33,6 +34,12 @@ struct TitleBarDragArea: NSViewRepresentable {
 }
 
 final class TitleBarDragView: NSView {
+  /// The user's `AppleActionOnDoubleClick` value. Tests replace it, so the
+  /// result never depends on the machine's global setting.
+  var doubleClickPreference: () -> String? = {
+    UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick")
+  }
+
   override var mouseDownCanMoveWindow: Bool { true }
 
   // Like a real title bar: the first click on an inactive window already
@@ -45,8 +52,7 @@ final class TitleBarDragView: NSView {
       window.performDrag(with: event)
       return
     }
-    let preference = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick")
-    switch TitleBarDoubleClickAction.from(preference: preference) {
+    switch TitleBarDoubleClickAction.from(preference: doubleClickPreference()) {
     case .zoom: window.performZoom(nil)
     case .minimize: window.performMiniaturize(nil)
     case .none: break

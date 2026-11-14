@@ -167,11 +167,24 @@ struct ShellOverlayHost: ViewModifier {
         currentlyDark: WorkbenchAppearanceController.isShowingDark
       )
       MainThreadStallMonitor.breadcrumb("appearance: \(next.rawValue)")
+      let window = NSApp.keyWindow
       // One window crossfade instead of a brightness cut (motion plan item 13).
-      ThemeCrossfade.perform(in: NSApp.keyWindow) {
-        WorkbenchAppearanceController.selectAppearance(next)
+      // The palette is still fading out here; a snapshot now would freeze
+      // it into the crossfade, so wait until its exit is done.
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.paletteExitDuration) {
+        ThemeCrossfade.perform(in: window) {
+          WorkbenchAppearanceController.selectAppearance(next)
+        }
       }
     }
+  }
+
+  /// How long the palette's exit (`DesignTokens.Motion.fast`) runs; zero
+  /// under Reduce Motion, where it does not animate.
+  @MainActor static var paletteExitDuration: TimeInterval {
+    guard Animation.wbAnimation(DesignTokens.Motion.fast) != nil else { return 0 }
+    // Same spring as `Motion.fast`.
+    return Spring(response: 0.12, dampingRatio: 1).settlingDuration
   }
 }
 

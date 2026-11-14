@@ -30,9 +30,10 @@ Measured in an AppKit test host on macOS 27.
   900 pt wide the spacer item jumps before the toggle, and an item with
   `maxWidth: .infinity` stays at its minimum, so P6's tab strip cannot fill.
 - **Variant B (chosen).** `.hiddenTitleBar` window (as legacy), no toolbar items,
-  safe-area top is 0, and the shell draws its own 52 pt row. Nothing ignores the
-  top safe area except backgrounds. `TitleBarDragArea` gives the empty row drag
-  and double-click (it honours `AppleActionOnDoubleClick`).
+  safe-area top is 0, and the shell draws its own title band (height from
+  `ShellTitleBarMetrics`, see "Title band"). Nothing ignores the top safe area
+  except backgrounds. `TitleBarDragArea` gives the empty band drag and
+  double-click (it honours `AppleActionOnDoubleClick`).
 - **Traffic lights.** Without a toolbar the system title bar is 32 pt and the
   traffic lights sit at x 9–69, centred 16 pt from the top (macOS 27). P12
   centred them in a 52 pt bar with a toolbar; that broke every click in the
@@ -307,10 +308,19 @@ GeometryReader.
   enter SwiftUI's region, and there is no public API for it.
 - **Guard.** `ShellTitleBarHitTests` hosts the real `ShellFrame` the way a
   scene does and clicks every title-row control through `NSWindow.sendEvent`
-  at 1440 and 900 pt. It also checks the empty bar (drag, double-click zoom)
-  and that the window has no toolbar. It failed on the P12 code and passes
-  now. `TitleBarDragView` accepts the first mouse, like a real title bar, so
-  an inactive window drags and zooms from the first click.
+  at 1440 and 900 pt. It also checks the empty bar (drag, double-click zoom,
+  with the double-click setting injected, not read from the machine) and
+  that the window has no toolbar. It failed on the P12 code and passes now.
+  (The real `WorkbenchShellView` root cannot be hosted in `xctest`: its
+  sessions view model asks `UNUserNotificationCenter` for permission, which
+  throws without an app bundle. The static guard below covers the root.)
+  `TitleBarDragView` accepts the first mouse, like a real title bar, so an
+  inactive window drags and zooms from the first click.
+- **Static guard.** `scripts/check-shell.sh` (run by `scripts/test.sh`, also
+  in `packages`, so CI runs it) fails on `.toolbar`, `ToolbarItem…` and
+  `.searchable` in `Shell/`, `Reviews/`, `Sprint/`, `Design/` and the two
+  Sprint destination files. Any of them gives the window an `NSToolbar`
+  again. Legacy flag-off files are listed in the script's `ALLOWED`.
 
 ## Title band (2026-11-14)
 
@@ -319,8 +329,13 @@ GeometryReader.
   The lights cannot move safely (see "Rejected" in P12), so the band follows
   them.
 - **Measured, not assumed.** `ShellWindowChrome` reads the real close and
-  zoom buttons once at window hookup (next run-loop turn) and again when the
-  window leaves full screen, never from layout. The result goes to
+  zoom buttons at window hookup (next run-loop turn) and again on window
+  notifications: leaving full screen (a window that opened in full screen
+  keeps the default until then), a screen or backing-scale change, and
+  becoming key. Never from layout; the model ignores equal metrics.
+  `ShellRoot` applies it (`.shellWindowChrome(_:)`) outside the
+  `.wbRedrawsOnPaletteChange()` subtree, so a palette switch keeps it; it
+  removes its observers when dismantled. The result goes to
   `WorkbenchShellModel.titleBar` (`ShellTitleBarMetrics`): band height = 2 ×
   the close button's centre below the top edge; toggle leading = the zoom
   button's right edge + 12. The buttons' place does not depend on our

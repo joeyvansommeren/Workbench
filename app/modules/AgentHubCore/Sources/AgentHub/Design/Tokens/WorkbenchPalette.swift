@@ -328,7 +328,8 @@ extension WorkbenchPalette {
     surfaceTooltip: .init(hex: "#FFFFFF"),
     textPrimary: .init(hex: "#141413"),
     textSecondary: .init(hex: "#3D3D3A"),
-    textTertiary: .init(hex: "#6B6A64"),
+    // 4.6:1 on the sidebar under a selected row (#6B6A64 was 4.08:1).
+    textTertiary: .init(hex: "#63625C"),
     textOnAccent: .init(hex: "#FFFFFF"),
     textPlaceholder: .init(hex: "#605F59"),
     textTooltip: .init(hex: "#141413"),

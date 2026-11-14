@@ -26,8 +26,9 @@ import SwiftUI
 /// Where AppKit puts the traffic lights in this window. The title band is
 /// twice the lights' centre high, so the row's controls share their line.
 ///
-/// Read from the real window buttons once, when the window is hooked up and
-/// again when it leaves full screen (`ShellWindowChrome`), never from layout:
+/// Read from the real window buttons when the window is hooked up, and again
+/// on window notifications (leaving full screen, screen or backing change,
+/// becoming key; `ShellWindowChrome`), never from layout:
 /// the buttons' place does not depend on our content, so nothing can feed
 /// back. The default is the measurement on macOS 27 (a 32 pt title bar,
 /// lights at x 9, 32, 55, centred 16 pt from the top); older systems can
@@ -45,17 +46,34 @@ struct ShellTitleBarMetrics: Equatable {
   @MainActor
   static func measured(in window: NSWindow) -> ShellTitleBarMetrics? {
     guard
-      !window.styleMask.contains(.fullScreen),
       let frameView = window.contentView?.superview,
       let close = window.standardWindowButton(.closeButton),
-      let zoom = window.standardWindowButton(.zoomButton),
-      !close.isHidden
+      let zoom = window.standardWindowButton(.zoomButton)
     else { return nil }
-    // The frame view is not flipped: y grows upward from the bottom edge.
-    let closeCentreFromTop = frameView.bounds.height - close.convert(close.bounds, to: nil).midY
+    return measured(
+      isFullScreen: window.styleMask.contains(.fullScreen),
+      isCloseButtonHidden: close.isHidden,
+      frameHeight: frameView.bounds.height,
+      closeFrame: close.convert(close.bounds, to: nil),
+      zoomFrame: zoom.convert(zoom.bounds, to: nil)
+    )
+  }
+
+  /// The rule behind `measured(in:)`, on plain values. Frames are in window
+  /// coordinates: the frame view is not flipped, so y grows upward from the
+  /// bottom edge.
+  static func measured(
+    isFullScreen: Bool,
+    isCloseButtonHidden: Bool,
+    frameHeight: CGFloat,
+    closeFrame: CGRect,
+    zoomFrame: CGRect
+  ) -> ShellTitleBarMetrics? {
+    guard !isFullScreen, !isCloseButtonHidden else { return nil }
+    let closeCentreFromTop = frameHeight - closeFrame.midY
     let metrics = ShellTitleBarMetrics(
       bandHeight: (2 * closeCentreFromTop).rounded(),
-      trafficLightsTrailing: zoom.convert(zoom.bounds, to: nil).maxX.rounded()
+      trafficLightsTrailing: zoomFrame.maxX.rounded()
     )
     guard (20...60).contains(metrics.bandHeight), (30...140).contains(metrics.trafficLightsTrailing) else {
       return nil
@@ -119,20 +137,44 @@ struct ShellWindowChrome: NSViewRepresentable {
   }
 
   func updateNSView(_ nsView: ShellWindowChromeView, context: Context) {}
+
+  static func dismantleNSView(_ nsView: ShellWindowChromeView, coordinator: ()) {
+    nsView.stopObserving()
+  }
+}
+
+extension View {
+  /// Feeds `shellModel` the window's full-screen state and title-bar
+  /// metrics. Apply it outside `.wbRedrawsOnPaletteChange()`: inside, every
+  /// palette switch would rebuild the listener and hook up its observers
+  /// again.
+  func shellWindowChrome(_ shellModel: WorkbenchShellModel) -> some View {
+    background(
+      ShellWindowChrome(
+        onFullScreenChange: { shellModel.setFullScreen($0) },
+        onTitleBarMetrics: { shellModel.setTitleBar($0) }
+      )
+    )
+  }
 }
 
 final class ShellWindowChromeView: NSView {
   var onFullScreenChange: (Bool) -> Void = { _ in }
   var onTitleBarMetrics: (ShellTitleBarMetrics) -> Void = { _ in }
-  private var observers: [NSObjectProtocol] = []
+  // Only touched on the main thread; `nonisolated(unsafe)` lets deinit
+  // remove the observers (NotificationCenter is thread-safe).
+  nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+  deinit {
+    observers.forEach(NotificationCenter.default.removeObserver)
+  }
 
   // A listener only: it sits behind the whole frame and must never take a click.
   override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
-    observers.forEach(NotificationCenter.default.removeObserver)
-    observers = []
+    stopObserving()
     guard let window else { return }
     // Next turn: state must not change during a view update, and AppKit has
     // laid out the window buttons by then.
@@ -149,14 +191,32 @@ final class ShellWindowChromeView: NSView {
       center.addObserver(forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main) {
         [weak self] _ in MainActor.assumeIsolated { self?.onFullScreenChange(false) }
       },
-      // A window opened in full screen measures here for the first time.
-      center.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) {
-        [weak self, weak window] _ in MainActor.assumeIsolated {
+    ]
+    // Measure again whenever the lights can have moved: leaving full screen
+    // (also the first real measurement of a window that opened in full
+    // screen; until then the default stands), another screen or backing
+    // scale, and becoming key (catches a system change made meanwhile).
+    // `measured(in:)` returns nil while the lights are hidden, and the model
+    // ignores equal metrics, so a repeat costs nothing.
+    let remeasureOn: [Notification.Name] = [
+      NSWindow.didExitFullScreenNotification,
+      NSWindow.didChangeScreenNotification,
+      NSWindow.didChangeBackingPropertiesNotification,
+      NSWindow.didBecomeKeyNotification,
+    ]
+    observers += remeasureOn.map { name in
+      center.addObserver(forName: name, object: window, queue: .main) { [weak self, weak window] _ in
+        MainActor.assumeIsolated {
           guard let self, let window else { return }
           self.reportMetrics(of: window)
         }
-      },
-    ]
+      }
+    }
+  }
+
+  func stopObserving() {
+    observers.forEach(NotificationCenter.default.removeObserver)
+    observers = []
   }
 
   private func reportMetrics(of window: NSWindow) {

@@ -36,6 +36,20 @@ struct ShellTitleBarHitTests {
     #expect(host.window.toolbar == nil)
   }
 
+  @Test("The title-bar drag view takes the first click, like a real title bar")
+  func dragViewAcceptsFirstMouse() {
+    #expect(TitleBarDragView().acceptsFirstMouse(for: nil))
+  }
+
+  @Test("No metrics are measured while the traffic lights are hidden")
+  func noMetricsWithHiddenLights() throws {
+    let host = try ShellTitleBarTestWindow(width: 1440)
+    defer { host.close() }
+    #expect(ShellTitleBarMetrics.measured(in: host.window) != nil)
+    host.window.standardWindowButton(.closeButton)?.isHidden = true
+    #expect(ShellTitleBarMetrics.measured(in: host.window) == nil)
+  }
+
   @Test("Clicks on the destination tabs switch the destination", arguments: [1440.0, 900.0])
   func tabsReceiveClicks(width: Double) throws {
     let host = try ShellTitleBarTestWindow(width: width)
@@ -81,6 +95,10 @@ struct ShellTitleBarHitTests {
     let point = host.bandPoint(x: 800)
     let hit = host.frameViewHit(at: point)
     #expect(hit?.mouseDownCanMoveWindow == true, "empty bar hit \(String(describing: hit)) cannot move the window")
+    // Fix the double-click setting to "Maximize" (zoom), so the result does
+    // not depend on this machine's global `AppleActionOnDoubleClick`.
+    let dragView = try #require(hit as? TitleBarDragView, "empty bar hit \(String(describing: hit)), not the drag view")
+    dragView.doubleClickPreference = { "Maximize" }
     host.doubleClick(at: point)
     #expect(host.zoomRequests == 1, "a double-click on the empty bar must zoom")
   }
@@ -160,6 +178,8 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
       toolbar: { ShellToolbar() },
       detail: { Color.clear }
     )
+    // As `ShellRoot` applies it.
+    .shellWindowChrome(shellModel)
     .frame(minWidth: ShellLayout.windowMinWidth, minHeight: ShellLayout.windowMinHeight)
     .environment(shellModel)
     .environment(overlays)

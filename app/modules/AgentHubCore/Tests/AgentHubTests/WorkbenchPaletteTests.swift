@@ -167,6 +167,11 @@ struct WorkbenchPaletteTests {
       ("secondary on content", p.textSecondary, p.surfaceContent),
       ("tertiary on content", p.textTertiary, p.surfaceContent),
       ("primary on sidebar", p.textPrimary, p.surfaceSidebar),
+      // Sidebar role labels: tertiary on the sidebar, also under a hovered
+      // or selected row (translucent fills over the sidebar).
+      ("tertiary on sidebar", p.textTertiary, p.surfaceSidebar),
+      ("tertiary on sidebar + hover", p.textTertiary, p.surfaceHover.composited(over: p.surfaceSidebar)),
+      ("tertiary on sidebar + selected", p.textTertiary, p.surfaceSelected.composited(over: p.surfaceSidebar)),
     ]
     for (name, fg, bg) in pairs {
       // Composite translucent surfaces over the content panel, as they render.

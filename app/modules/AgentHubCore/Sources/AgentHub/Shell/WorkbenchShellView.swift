@@ -61,6 +61,9 @@ private struct ShellRoot: View {
       // Keyed on the palette revision; the per-window models above live
       // outside the keyed subtree, so a palette switch keeps them.
       .wbRedrawsOnPaletteChange()
+      // Outside the keyed subtree, so a palette switch keeps the window
+      // listener and its observers.
+      .shellWindowChrome(shellModel)
       .frame(minWidth: ShellLayout.windowMinWidth, minHeight: ShellLayout.windowMinHeight)
       .environment(shellModel)
       .environment(overlays)
@@ -208,7 +211,8 @@ where Sidebar == ShellSidebarContainer, Toolbar == ShellToolbar, Detail == Shell
 /// the window's top edge and never reads the inset, so a change of inset
 /// (full screen) cannot feed back into the layout. The window has no
 /// `NSToolbar` (Shell/README.md, "Title row clicks"); the sidebar toggle is
-/// the `ShellWindowControls` overlay.
+/// the `ShellWindowControls` overlay. Full screen and the title-bar metrics
+/// come from `.shellWindowChrome(_:)`, applied by the window root.
 struct ShellFrame<Sidebar: View, Toolbar: View, Detail: View>: View {
   @Environment(WorkbenchShellModel.self) private var shellModel
   @ViewBuilder let sidebar: Sidebar
@@ -239,11 +243,5 @@ struct ShellFrame<Sidebar: View, Toolbar: View, Detail: View>: View {
     .animation(.wbAnimation(DesignTokens.Motion.medium), value: shellModel.sidebarVisible)
     .ignoresSafeArea(.container, edges: .top)
     .background(Color.wbSurfaceWindow.ignoresSafeArea())
-    .background(
-      ShellWindowChrome(
-        onFullScreenChange: { shellModel.setFullScreen($0) },
-        onTitleBarMetrics: { shellModel.setTitleBar($0) }
-      )
-    )
   }
 }
