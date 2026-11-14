@@ -195,7 +195,7 @@ extension WorkbenchPalette {
     textSecondary: .init(hex: "#5C5C62"),
     textTertiary: .init(hex: "#636369"),
     textOnAccent: .init(hex: "#FFFFFF"),
-    textPlaceholder: .init(hex: "#636369"),
+    textPlaceholder: .init(hex: "#5E5E64"),
     textTooltip: .init(hex: "#1D1D1F"),
     borderHairline: .init(0, 0, 0, 0.08),
     borderControl: .init(0, 0, 0, 0.14),

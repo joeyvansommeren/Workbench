@@ -247,12 +247,7 @@ struct WorkbenchPaletteTests {
     #expect(restRatio >= 4.5, "\(label) placeholder on field: \(restRatio)")
 
     let hoverRatio = palette.textPlaceholder.contrastRatio(with: hover)
-    // Standard light is outside the Warm retune and is left unchanged (4.42).
-    withKnownIssue("Standard light hover placeholder is 4.42:1") {
-      #expect(hoverRatio >= 4.5, "\(label) placeholder on hovered field: \(hoverRatio)")
-    } when: {
-      label == "standard light"
-    }
+    #expect(hoverRatio >= 4.5, "\(label) placeholder on hovered field: \(hoverRatio)")
   }
 
   @Test("WCAG >= 4.5 status text pairs (standard light)")
