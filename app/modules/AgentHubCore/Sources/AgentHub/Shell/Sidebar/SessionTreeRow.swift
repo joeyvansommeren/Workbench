@@ -269,6 +269,7 @@ private struct SessionRowMenu: View {
     Button("Open", systemImage: "arrow.right.circle") { actions.open(node) }
     if !node.isPending {
       Button("Copy Session ID", systemImage: "doc.on.doc") { actions.copySessionID(node) }
+      Button("View Transcript", systemImage: "doc.text") { actions.viewTranscript(node) }
       if node.providerKind == .claude {
         Button("Open in Terminal", systemImage: "rectangle.portrait.and.arrow.right") {
           actions.openInTerminal(node)

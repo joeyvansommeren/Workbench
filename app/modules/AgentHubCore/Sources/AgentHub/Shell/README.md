@@ -313,3 +313,25 @@ Plan: `Workbench-ui-explorations/apple/MOTION-PLAN.md`.
   runs under Reduce Motion.
 - **Hover preview:** 700 ms for the first, then at once while one is open or
   for 1 s after (`HoverPreviewTiming` on `SidebarTreeActions`).
+
+## P16: sidebar follow-ups
+
+- **CI-failure notifications.** `SidebarCIFailureNotifications`
+  (`Sidebar/SidebarCIFailureNotifications.swift`) is applied once per window
+  in `ShellRoot`, not on the sidebar: tree rows are lazy and the sidebar
+  leaves the hierarchy when hidden. `SidebarCIFailureObserver` keeps one
+  `SessionGitHubQuickAccessViewModel` per monitored session (key: item id +
+  repository key, as the legacy row's task id) with the legacy row's settings
+  (stagger, no refresh on subscribe) and feeds `GitHubCIFailureNotifier`, so
+  a failure notifies once per (repo, PR, head commit), whichever surface sees
+  it first.
+- **View Transcript** in the session row's context menu calls
+  `SessionsActionCoordinator.openSessionFile`; `SessionsPresentationModifier`
+  presents `coordinator.sessionFileSheetItem` with the legacy
+  `SessionTranscriptSheetView` (the legacy views never set it). The header
+  "…" menu already had it. Breadcrumb `tree: transcript <id>`.
+- **First-run sidebar.** `CLISessionsViewModel.hasLoadedRepositories` turns on
+  once the launch restore has put the saved repositories in place (or found
+  none); it stays off when the saved state can't be read. The sidebar shows
+  "No projects" with Open project only when both providers have loaded and
+  nothing is tracked (`SidebarFirstRun`).
