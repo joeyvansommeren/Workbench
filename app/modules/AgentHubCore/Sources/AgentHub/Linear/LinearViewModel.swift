@@ -52,6 +52,14 @@ public final class LinearViewModel {
   /// A refresh failed while issues were on screen; the board stays.
   public private(set) var refreshError: String?
 
+  /// The result of a Move To, shown above the board until dismissed.
+  public struct StatusNotice: Equatable {
+    public let text: String
+    public let isError: Bool
+  }
+
+  public private(set) var statusNotice: StatusNotice?
+
   public var searchText = ""
 
   public var assigneeFilter: AssigneeFilter {
@@ -270,6 +278,7 @@ public final class LinearViewModel {
     activeCycle = nil
     selectedTeamID = nil
     refreshError = nil
+    statusNotice = nil
     closeIssue()
     loadState = .noKey
   }
@@ -388,6 +397,52 @@ public final class LinearViewModel {
       }
     } catch {
       // Best effort: the session still starts.
+    }
+  }
+
+  // MARK: - Move To
+
+  /// Moves an issue to another workflow state (the board's and the detail's
+  /// Move To). The board updates at once and rolls back if Linear refuses,
+  /// as Jira's `moveTicket` does.
+  public func moveIssue(_ issueID: String, toStateID stateID: String) async {
+    guard
+      let original = issues.first(where: { $0.id == issueID })
+        ?? (issueDetail?.id == issueID ? issueDetail : nil),
+      original.state.id != stateID,
+      let target = workflowStates.first(where: { $0.id == stateID })
+    else { return }
+    let originalDetail = issueDetail
+    applyState(target, to: issueID)
+    do {
+      try await service.transitionIssue(id: issueID, stateID: stateID)
+      statusNotice = StatusNotice(text: "\(original.identifier) moved to \(target.name)", isError: false)
+    } catch {
+      applyState(original.state, to: issueID)
+      if originalDetail?.id == issueID { issueDetail = originalDetail }
+      statusNotice = StatusNotice(
+        text: "Could not move \(original.identifier) to \(target.name): \(Self.moveFailureMessage(error))",
+        isError: true)
+    }
+  }
+
+  public func dismissStatusNotice() {
+    statusNotice = nil
+  }
+
+  private func applyState(_ state: LinearWorkflowState, to issueID: String) {
+    issues = issues.map { $0.id == issueID ? withState($0, state) : $0 }
+    if let issueDetail, issueDetail.id == issueID {
+      self.issueDetail = withState(issueDetail, state)
+    }
+  }
+
+  private static func moveFailureMessage(_ error: Error) -> String {
+    switch mapError(error) {
+    case .failed(let message): return SprintErrorText.summary(message)
+    case .rateLimited: return rateLimitedMessage
+    case .unauthorized, .noKey: return "Linear did not accept the API key."
+    case .idle, .loading, .loaded: return error.localizedDescription
     }
   }
 

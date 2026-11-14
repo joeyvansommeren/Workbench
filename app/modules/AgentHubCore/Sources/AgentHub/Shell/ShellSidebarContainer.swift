@@ -20,9 +20,9 @@ struct ShellSidebarContainer: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      SessionTreeView()
+      // Includes the Open project footer, hidden on the first-run empty state.
+      SidebarTreeOrEmptyState(openProject: openProject)
         .frame(maxHeight: .infinity, alignment: .top)
-      SidebarFooter(openProject: openProject)
     }
     .padding(.top, DesignTokens.Size.titlebar)
     .padding(.bottom, DesignTokens.Inset.sidebar)

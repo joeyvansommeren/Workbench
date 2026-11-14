@@ -33,11 +33,11 @@ public struct FilterChip: View {
       Button(action: onRemove) {
         Image(systemName: "xmark")
           .font(.system(size: 9, weight: .semibold))
-          .foregroundStyle(Color.wbTextSecondary)
           .frame(width: DesignTokens.Size.controlSmall, height: DesignTokens.Size.controlSmall)
           .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
+      // Hover tints the "x" only, as the prototype does; press adds a fill.
+      .buttonStyle(WBInlineButtonStyle(hoverFill: false))
       .accessibilityLabel("Remove filter \(title)")
     }
     .frame(height: DesignTokens.Size.controlSmall)
@@ -83,7 +83,7 @@ public struct FiltersButton: View {
         .frame(height: DesignTokens.Size.control)
         .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
+      .buttonStyle(WBInlineButtonStyle(tintsLabel: false, cornerRadius: 0))
 
       if activeCount > 0 {
         Divider()
@@ -93,15 +93,16 @@ public struct FiltersButton: View {
         Button(action: onClear) {
           Image(systemName: "xmark")
             .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(Color.wbTextSecondary)
             .frame(width: 28, height: DesignTokens.Size.control)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WBInlineButtonStyle(cornerRadius: 0))
         .accessibilityLabel("Clear filters")
       }
     }
-    .background(Color.wbSurfaceControl, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous))
+    .background(Color.wbSurfaceControl)
+    // The halves' hover fills are square; the outer shape rounds them.
+    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous))
     .wbElevation(.control)
     .optionalAccessibilityIdentifier(accessibilityIdentifier)
   }

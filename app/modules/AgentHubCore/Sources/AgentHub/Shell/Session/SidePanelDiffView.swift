@@ -195,8 +195,7 @@ private struct SidePanelDiffFileRow: View {
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 
-  /// Split from the relative path itself: `GitDiffFileEntry.directoryPath`
-  /// goes through `URL(fileURLWithPath:)`, which makes it absolute.
+  /// Folder (with its trailing slash) in secondary, name in primary.
   private var path: Text {
     let relativePath = file.relativePath
     let slash = relativePath.lastIndex(of: "/")

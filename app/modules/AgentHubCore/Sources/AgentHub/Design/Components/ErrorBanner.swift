@@ -7,13 +7,27 @@
 
 import SwiftUI
 
-/// A tinted error banner with an icon and a message.
+/// A tinted error banner with an icon, a message, an optional action (for
+/// example Retry) and an optional dismiss "x".
 public struct ErrorBanner: View {
+  /// A trailing button in the banner, such as "Retry".
+  public struct Action {
+    let title: String
+    let perform: () -> Void
+
+    public init(_ title: String, perform: @escaping () -> Void) {
+      self.title = title
+      self.perform = perform
+    }
+  }
+
   let message: String
+  let action: Action?
   let onDismiss: (() -> Void)?
 
-  public init(_ message: String, onDismiss: (() -> Void)? = nil) {
+  public init(_ message: String, action: Action? = nil, onDismiss: (() -> Void)? = nil) {
     self.message = message
+    self.action = action
     self.onDismiss = onDismiss
   }
 
@@ -33,6 +47,12 @@ public struct ErrorBanner: View {
         .help(message)
         .frame(maxWidth: .infinity, alignment: .leading)
 
+      if let action {
+        Button(action.title, action: action.perform)
+          .buttonStyle(.wbSecondary)
+          .fixedSize()
+      }
+
       if let onDismiss {
         Button(action: onDismiss) {
           Image(systemName: "xmark")
@@ -44,7 +64,8 @@ public struct ErrorBanner: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // The "x" keeps the error colour; hover and press add a fill.
+        .buttonStyle(WBInlineButtonStyle(tintsLabel: false))
         .accessibilityLabel("Dismiss")
       }
     }

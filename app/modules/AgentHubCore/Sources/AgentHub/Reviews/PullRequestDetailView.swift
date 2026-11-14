@@ -482,5 +482,50 @@ extension MarkdownUI.Theme {
       .link {
         ForegroundColor(Color.wbAccentText)
       }
+      // Headings stay below the panel title (`title2`), so a `# Title` in a
+      // body never outranks the pull request or ticket it belongs to.
+      .heading1 { descriptionHeading($0, level: 1) }
+      .heading2 { descriptionHeading($0, level: 2) }
+      .heading3 { descriptionHeading($0, level: 3) }
+      .heading4 { descriptionHeading($0, level: 4) }
+      .heading5 { descriptionHeading($0, level: 5) }
+      .heading6 { descriptionHeading($0, level: 6) }
   }
+
+  @MainActor
+  private static func descriptionHeading(_ configuration: BlockConfiguration, level: Int) -> some View {
+    let style = DescriptionMarkdownHeading.style(level: level)
+    return configuration.label
+      .markdownMargin(top: DescriptionMarkdownHeading.marginTop, bottom: DescriptionMarkdownHeading.marginBottom)
+      .markdownTextStyle {
+        FontFamily(.custom(interDisplayName(for: style.weight)))
+        FontSize(style.size)
+        ForegroundColor(Color.wbTextPrimary)
+      }
+  }
+
+  private static func interDisplayName(for weight: Font.Weight) -> String {
+    switch weight {
+    case .semibold: return WorkbenchTypography.InterDisplay.semiBold
+    case .medium: return WorkbenchTypography.InterDisplay.medium
+    default: return WorkbenchTypography.InterDisplay.regular
+    }
+  }
+}
+
+/// Heading sizes in pull request and ticket descriptions, capped below the
+/// detail panel's title (`title2`).
+enum DescriptionMarkdownHeading {
+  /// h1 = title3, h2 = headline, h3 and lower = bodyEmphasis.
+  static func style(level: Int) -> WorkbenchTextStyle {
+    switch level {
+    case 1: return .title3
+    case 2: return .headline
+    default: return .bodyEmphasis
+    }
+  }
+
+  /// One spacing for every level: room above to start a section, a little below.
+  static let marginTop = DesignTokens.Spacing.md
+  static let marginBottom = DesignTokens.Spacing.xs
 }

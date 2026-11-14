@@ -141,6 +141,70 @@ struct LinearViewModelTests {
     #expect(await service.workflowStateCalls == 3)
   }
 
+  @Test("The Filters assignee choice scopes the board to my issues and is remembered")
+  func assigneeScope() async {
+    let suiteName = "LinearViewModelTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    defaults.set("everyone", forKey: AgentHubDefaults.linearAssigneeFilter)
+    let viewModel = LinearViewModel(service: MockLinearService(), userDefaults: defaults, hasAPIKey: { true })
+    await viewModel.load(keepsBoardOnFailure: true)
+    #expect(viewModel.filteredIssues.count == 3)
+
+    viewModel.assigneeFilter = .me
+    #expect(viewModel.filteredIssues.map(\.id) == ["todo-2"])
+    #expect(viewModel.columns.flatMap(\.issues).map(\.id) == ["todo-2"])
+    #expect(defaults.string(forKey: AgentHubDefaults.linearAssigneeFilter) == "me")
+    #expect(LinearViewModel(userDefaults: defaults).assigneeFilter == .me)
+
+    viewModel.assigneeFilter = .everyone
+    #expect(viewModel.filteredIssues.count == 3)
+    #expect(LinearViewModel(userDefaults: defaults).assigneeFilter == .everyone)
+  }
+
+  @Test("Move To updates the board at once and calls Linear with the state")
+  func moveIssue() async {
+    let service = MockLinearService()
+    let viewModel = await loadedViewModel(service)
+    viewModel.openIssue("todo-1")
+
+    await viewModel.moveIssue("todo-1", toStateID: "s-doing")
+
+    #expect(await service.transitions == [TransitionCall(issueID: "todo-1", stateID: "s-doing")])
+    #expect(viewModel.issues.first { $0.id == "todo-1" }?.state.id == "s-doing")
+    #expect(viewModel.columns.first { $0.id == "s-doing" }?.issues.map(\.id).contains("todo-1") == true)
+    #expect(viewModel.selectedIssueID == "todo-1")
+    #expect(viewModel.statusNotice == .init(text: "XFA-1 moved to In Progress", isError: false))
+  }
+
+  @Test("A refused Move To rolls the issue back and says why")
+  func moveIssueRollsBack() async {
+    let service = MockLinearService()
+    let viewModel = await loadedViewModel(service)
+    await service.setTransitionError(LinearAPIError.network("offline"))
+
+    await viewModel.moveIssue("todo-1", toStateID: "s-doing")
+
+    #expect(viewModel.issues.first { $0.id == "todo-1" }?.state.id == "s-todo")
+    #expect(viewModel.statusNotice?.isError == true)
+    #expect(viewModel.statusNotice?.text == "Could not move XFA-1 to In Progress: offline")
+    viewModel.dismissStatusNotice()
+    #expect(viewModel.statusNotice == nil)
+  }
+
+  @Test("Moving to the current or an unknown state does nothing")
+  func moveIssueNoOp() async {
+    let service = MockLinearService()
+    let viewModel = await loadedViewModel(service)
+
+    await viewModel.moveIssue("todo-1", toStateID: "s-todo")
+    await viewModel.moveIssue("todo-1", toStateID: "s-missing")
+    await viewModel.moveIssue("missing", toStateID: "s-doing")
+
+    #expect(await service.transitions.isEmpty)
+    #expect(viewModel.statusNotice == nil)
+  }
+
   @Test("Without a key the board asks to connect and never calls Linear")
   func noKey() async {
     let service = MockLinearService()
@@ -196,7 +260,9 @@ private actor MockLinearService: LinearIssueReading, LinearIssueTransitioning {
     if let error { throw error }
     return [
       LinearIssue(id: "todo-1", identifier: "XFA-1", title: "One", state: Self.todo),
-      LinearIssue(id: "todo-2", identifier: "XFA-2", title: "Two", state: Self.todo),
+      LinearIssue(
+        id: "todo-2", identifier: "XFA-2", title: "Two", state: Self.todo,
+        assignee: LinearUser(id: "me", name: "Joey")),
       LinearIssue(id: "doing-1", identifier: "XFA-3", title: "Three", state: Self.doing),
     ]
   }
@@ -207,5 +273,18 @@ private actor MockLinearService: LinearIssueReading, LinearIssueTransitioning {
     throw LinearAPIError.graphQL(["not in mock"])
   }
 
-  func transitionIssue(id: String, stateID: String) async throws {}
+  private(set) var transitions: [TransitionCall] = []
+  private var transitionError: Error?
+
+  func setTransitionError(_ value: Error?) { transitionError = value }
+
+  func transitionIssue(id: String, stateID: String) async throws {
+    if let transitionError { throw transitionError }
+    transitions.append(TransitionCall(issueID: id, stateID: stateID))
+  }
+}
+
+private struct TransitionCall: Equatable, Sendable {
+  let issueID: String
+  let stateID: String
 }

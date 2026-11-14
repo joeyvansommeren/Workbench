@@ -82,6 +82,7 @@ private struct ShellRoot: View {
           contextProfileService: agentHub.contextProfileService
         )
       )
+      .modifier(SidebarCIFailureNotifications(agentHub: agentHub))
       .modifier(
         ShownSessionSync(
           stateModel: sessionDetailState,

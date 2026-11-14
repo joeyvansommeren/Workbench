@@ -514,9 +514,10 @@ public actor GitHubCLIService {
   /// used as a stable working directory.
   func runAuthenticatedCommand(
     _ arguments: [String],
-    timeout: TimeInterval = commandTimeout
+    timeout: TimeInterval = commandTimeout,
+    allowedExitCodes: Set<Int> = [0]
   ) async throws -> String {
-    try await runGH(arguments, at: NSHomeDirectory(), timeout: timeout)
+    try await runGH(arguments, at: NSHomeDirectory(), timeout: timeout, allowedExitCodes: allowedExitCodes)
   }
 
   /// Runs a command with arguments and returns stdout

@@ -136,7 +136,7 @@ struct JiraSprintDestination: View {
       JiraSprintFailureView(message: message, viewModel: viewModel)
     case .idle, .loading, .loaded:
       if viewModel.sprintTickets.isEmpty && viewModel.state != .loaded {
-        SprintLoadingView()
+        WBLoadingState("Loading sprint")
       } else if viewModel.selectedSprint == nil {
         WBEmptyState(
           systemImage: "calendar",
@@ -220,23 +220,38 @@ struct JiraSprintDestination: View {
   @ViewBuilder
   private var detail: some View {
     if let ticket = viewModel.selectedTicket {
-      JiraTicketDetailView(
-        ticket: ticket,
-        sprintName: viewModel.selectedSprint?.name,
-        isLoadingDetail: viewModel.isLoadingDetail,
-        browseURL: viewModel.browseURL(for: ticket),
+      let links = linkedSessions[ticket.key] ?? []
+      TicketDetailView(
+        detail: TicketDetailPresentation.jira(
+          ticket: ticket,
+          sprintName: viewModel.selectedSprint?.name,
+          isLoadingDetail: viewModel.isLoadingDetail,
+          browseURL: viewModel.browseURL(for: ticket),
+          columns: viewModel.columns,
+          linkedSessions: links,
+          pullRequests: viewModel.pullRequestsByTicket[ticket.key],
+          isLoadingPullRequests: viewModel.loadingPullRequestKeys.contains(ticket.key),
+          status: sessionStatus
+        ),
         repositoryPath: $viewModel.repositoryPath,
         repositories: repositories,
-        linkedSessions: linkedSessions[ticket.key] ?? [],
-        pullRequests: viewModel.pullRequestsByTicket[ticket.key],
-        isLoadingPullRequests: viewModel.loadingPullRequestKeys.contains(ticket.key),
-        onRefreshPullRequests: { viewModel.loadPullRequestsIfNeeded(for: ticket.key, force: true) },
-        isStartingSession: viewModel.startingSessionKeys.contains(ticket.key),
+        isStarting: viewModel.startingSessionKeys.contains(ticket.key),
         isClaudeAvailable: isClaudeAvailable,
         isCodexAvailable: isCodexAvailable,
-        onStart: { provider in start(ticket.key, provider: provider) },
-        onOpenSession: onOpenSession,
-        onClose: close
+        actions: TicketDetailActions(
+          onStart: { provider in start(ticket.key, provider: provider) },
+          onOpenSession: { id in
+            guard let link = links.first(where: { $0.id == id }) else { return }
+            MainThreadStallMonitor.breadcrumb("sprint ticket: open session")
+            onOpenSession(link)
+          },
+          onMove: { columnID in
+            let category = viewModel.columns.first { $0.id == columnID }?.category
+            Task { await viewModel.moveTicket(ticket.key, toStatus: columnID, category: category) }
+          },
+          onRefreshPullRequests: { viewModel.loadPullRequestsIfNeeded(for: ticket.key, force: true) },
+          onClose: close
+        )
       )
     }
   }
