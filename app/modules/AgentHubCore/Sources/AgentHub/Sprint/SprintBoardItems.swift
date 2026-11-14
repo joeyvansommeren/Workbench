@@ -203,7 +203,8 @@ extension LinearLinkedSession: SprintLinkedSession {}
 
 // MARK: - Assignee scope
 
-/// The All | Mine switch. Finer filters (a person, unassigned) live in Filters.
+/// The All | Mine switch. In Jira a person or Unassigned is picked in the
+/// people filter next to it (`SprintPeopleStrip`).
 enum SprintAssigneeScope: String, CaseIterable, CustomStringConvertible {
   case all
   case mine

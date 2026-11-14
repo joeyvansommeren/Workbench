@@ -134,6 +134,18 @@ trailing panel in a plain HStack (not `.inspector`); since P16 it hosts
 `Sprint/TicketDetailView` (see "P16: ticket detail"). Breadcrumbs:
 `sprint filter: …`, `sprint ticket: open|close|start …`.
 
+**People filter (Jira, 2026-11-14, Joey).** P9 had moved the legacy avatar
+bar into Filters; it is back in the head, after All | Mine
+(`SprintPeopleStrip`, logic in `SprintPeopleFilter`). You first, then
+everyone by name, then Unassigned. One click filters to that person, a
+second click shows everyone; your own avatar is the Mine filter. Selected =
+accent tint and ring; hover and press change colour only. The head's
+`ViewThatFits` shows 6 avatars, then 3, then only the menu; the rest sit in
+a "+n" menu (never a "+1"). Filters no longer has an Assignee picker, and
+its count and clear cover the search only. Linear has no per-person filter
+(Everyone / Mine), so its head is unchanged. Breadcrumb `sprint filter:
+person on|off`.
+
 ## P7: Approvals (Claude only)
 
 Approve and Deny work in the app. There is no programmatic channel (the hook

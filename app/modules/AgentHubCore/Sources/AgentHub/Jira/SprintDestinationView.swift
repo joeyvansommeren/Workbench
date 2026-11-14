@@ -3,7 +3,7 @@
 //  AgentHub
 //
 //  The new shell's Jira and Linear destinations (`SprintBoardView` in the
-//  prototype): a list head (sprint name, All | Mine, Filters) and a board of
+//  prototype): a list head (sprint name, All | Mine, people (Jira), Filters) and a board of
 //  equal columns. Each tracker is its own tab. The legacy `JiraSprintView` and
 //  `LinearBoardView` stay for the flag-off path.
 //
@@ -89,7 +89,11 @@ struct JiraSprintDestination: View {
 
   var body: some View {
     SprintDestinationLayout(isDetailVisible: viewModel.selectedTicketKey != nil) {
-      SprintListHead(title: listHeadTitle, scope: scope) {
+      SprintListHead(title: listHeadTitle, scope: scope) { limit in
+        if !isFailed {
+          peopleStrip(visibleLimit: limit)
+        }
+      } trailing: {
         if !isFailed {
           refreshButton
           filtersButton
@@ -202,7 +206,7 @@ struct JiraSprintDestination: View {
         SprintNoMatchesView(
           title: "No matching tickets",
           onClearFilters: activeFilterCount > 0 ? clearFilters : nil,
-          onShowAll: viewModel.assigneeFilter == .me ? { viewModel.assigneeFilter = .everyone } : nil)
+          onShowAll: viewModel.assigneeFilter == .everyone ? nil : { viewModel.assigneeFilter = .everyone })
       }
     }
   }
@@ -265,7 +269,9 @@ struct JiraSprintDestination: View {
 
   private var scope: Binding<SprintAssigneeScope> {
     SprintAssigneeScope.binding(
-      isMine: { viewModel.assigneeFilter == .me },
+      // The same normalised selection as the avatars: a stored person
+      // filter on your own account is Mine too.
+      isMine: { SprintPeopleFilter.isMine(viewModel.assigneeFilter, myAccountID: myAccountID) },
       setMine: { viewModel.assigneeFilter = $0 ? .me : .everyone }
     )
   }
@@ -276,13 +282,33 @@ struct JiraSprintDestination: View {
     }
   }
 
+  /// What Filters holds: only the search now. The people filter is in the
+  /// head, where its selection shows.
   private var activeFilterCount: Int {
-    var count = viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : 1
-    switch viewModel.assigneeFilter {
-    case .person, .unassigned: count += 1
-    case .everyone, .me: break
+    viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : 1
+  }
+
+  private var myAccountID: String? {
+    viewModel.assignees.first(where: viewModel.isMe)?.accountId
+  }
+
+  @ViewBuilder
+  private func peopleStrip(visibleLimit: Int) -> some View {
+    let people = SprintPeopleFilter.jira(
+      assignees: viewModel.assignees, isMe: viewModel.isMe, unassignedCount: viewModel.unassignedCount)
+    if !people.isEmpty {
+      SprintPeopleStrip(
+        people: people,
+        selected: SprintPeopleFilter.selectedKind(viewModel.assigneeFilter, myAccountID: myAccountID),
+        visibleLimit: visibleLimit,
+        onToggle: togglePerson)
     }
-    return count
+  }
+
+  private func togglePerson(_ kind: SprintPerson.Kind) {
+    let filter = SprintPeopleFilter.toggled(kind, current: viewModel.assigneeFilter, myAccountID: myAccountID)
+    viewModel.assigneeFilter = filter
+    MainThreadStallMonitor.breadcrumb("sprint filter: person \(filter == .everyone ? "off" : "on")")
   }
 
   private var filtersButton: some View {
@@ -306,13 +332,10 @@ struct JiraSprintDestination: View {
 
   // MARK: Actions
 
-  /// Clears search and a person filter; All | Mine stays as it is.
+  /// Clears the search. All | Mine and the people filter stay: both show
+  /// their state in the head and undo with one click.
   private func clearFilters() {
     viewModel.searchText = ""
-    switch viewModel.assigneeFilter {
-    case .person, .unassigned: viewModel.assigneeFilter = .everyone
-    case .everyone, .me: break
-    }
     MainThreadStallMonitor.breadcrumb("sprint filter: clear")
   }
 
@@ -392,19 +415,6 @@ private struct JiraSprintFiltersPopover: View {
           .labelsHidden()
         }
       }
-      SprintFilterSection(title: "Assignee") {
-        Picker("Assignee", selection: assigneeSelection) {
-          Text("Everyone").tag(JiraSprintViewModel.AssigneeFilter.everyone)
-          Text("Mine").tag(JiraSprintViewModel.AssigneeFilter.me)
-          ForEach(viewModel.assignees) { assignee in
-            Text(assignee.name).tag(JiraSprintViewModel.AssigneeFilter.person(accountId: assignee.accountId))
-          }
-          if viewModel.unassignedCount > 0 {
-            Text("Unassigned").tag(JiraSprintViewModel.AssigneeFilter.unassigned)
-          }
-        }
-        .labelsHidden()
-      }
       syncButton
     }
     .padding(DesignTokens.Spacing.lg)
@@ -444,16 +454,6 @@ private struct JiraSprintFiltersPopover: View {
       set: { id in
         MainThreadStallMonitor.breadcrumb("sprint filter: board \(id)")
         Task { await viewModel.selectBoard(id) }
-      }
-    )
-  }
-
-  private var assigneeSelection: Binding<JiraSprintViewModel.AssigneeFilter> {
-    Binding(
-      get: { viewModel.assigneeFilter },
-      set: { filter in
-        viewModel.assigneeFilter = filter
-        MainThreadStallMonitor.breadcrumb("sprint filter: assignee")
       }
     )
   }
