@@ -40,6 +40,27 @@ struct CommandPaletteEntriesTests {
     #expect(entries.first?.trailingText == "Needs approval")
   }
 
+  @Test("A typed query caps Sessions and Pull requests and counts the rest")
+  func typedQueryIsCappedPerGroup() {
+    let sessions = (0..<30).map { session("s\($0)", "Fix \($0)", status: .idle) }
+    let pullRequests = (0..<4).map {
+      CommandPalettePullRequestInput(
+        id: "PR_\($0)", title: "Fix bug \($0)", number: $0, repositoryName: "workbench",
+        repositoryNameWithOwner: "joey/workbench")
+    }
+    let results = CommandPaletteEntries.results(
+      query: "fix", sessions: sessions, pullRequests: pullRequests, groupLimit: 25)
+    #expect(results.entries.filter { $0.group == .sessions }.count == 25)
+    #expect(results.entries.filter { $0.group == .pullRequests }.count == 4)
+    #expect(results.moreText(for: .sessions) == "5 more, keep typing")
+    #expect(results.moreText(for: .pullRequests) == nil)
+    // The kept rows are the first matches, in order.
+    #expect(results.entries.first?.id == "session-s0")
+
+    let idle = CommandPaletteEntries.results(query: "", sessions: sessions, pullRequests: pullRequests)
+    #expect(idle.hiddenCounts.isEmpty)
+  }
+
   @Test("Equal status keeps the caller's order; a pending session counts as thinking")
   func stableWithinRank() {
     let sessions = [
@@ -166,6 +187,26 @@ struct CommandPaletteEntriesTests {
     // No pick yet, or a pick that is gone: the first row.
     #expect(CommandPaletteEntries.activeIndex(for: nil, in: after) == 0)
     #expect(CommandPaletteEntries.activeIndex(for: "session-gone", in: after) == 0)
+  }
+
+  @Test("The highlighted session stays in its capped group when a reorder pushes it past the cap")
+  func activeEntrySurvivesCap() {
+    // s29 is highlighted; then the others start asking for approval and sort above it.
+    var sessions = (0..<30).map { session("s\($0)", "Fix \($0)", status: .awaitingApproval(tool: "Edit")) }
+    sessions[29] = session("s29", "Fix 29", status: .idle)
+    let results = CommandPaletteEntries.results(
+      query: "fix", sessions: sessions, pullRequests: [], activeEntryID: "session-s29", groupLimit: 25)
+
+    #expect(results.entries.filter { $0.group == .sessions }.count == 26)
+    #expect(results.moreText(for: .sessions) == "4 more, keep typing")
+    let index = CommandPaletteEntries.activeIndex(for: "session-s29", in: results.entries)
+    #expect(results.entries[index].id == "session-s29")
+
+    // The idle list keeps it too.
+    let idle = CommandPaletteEntries.results(
+      query: "", sessions: sessions, pullRequests: [], activeEntryID: "session-s29")
+    #expect(idle.entries.contains { $0.id == "session-s29" })
+    #expect(idle.entries.filter { $0.group == .sessions }.count == CommandPaletteEntries.idleSessionLimit + 1)
   }
 
   @Test("Opening and closing the palette toggles the overlay state")

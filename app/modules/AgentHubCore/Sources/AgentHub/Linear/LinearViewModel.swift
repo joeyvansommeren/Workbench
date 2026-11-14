@@ -49,6 +49,8 @@ public final class LinearViewModel {
   public private(set) var isStartingSession = false
   /// Issue ids with a session launch in flight (prevents double starts).
   public private(set) var startingIssueIDs = Set<String>()
+  /// A refresh failed while issues were on screen; the board stays.
+  public private(set) var refreshError: String?
 
   public var searchText = ""
 
@@ -75,6 +77,8 @@ public final class LinearViewModel {
 
   @ObservationIgnored private let service: any LinearService
   @ObservationIgnored private let userDefaults: UserDefaults
+  /// Whether a key is stored. Injected so tests never read the Keychain.
+  @ObservationIgnored private let hasAPIKey: () -> Bool
   @ObservationIgnored private var detailTask: Task<Void, Never>?
   @ObservationIgnored let sessionLinker = LinearSessionLinker()
 
@@ -84,10 +88,12 @@ public final class LinearViewModel {
 
   public init(
     service: any LinearService = LinearAPIClient(),
-    userDefaults: UserDefaults = .standard
+    userDefaults: UserDefaults = .standard,
+    hasAPIKey: @escaping () -> Bool = { LinearKeychainStore.apiKey() != nil }
   ) {
     self.service = service
     self.userDefaults = userDefaults
+    self.hasAPIKey = hasAPIKey
     assigneeFilter = userDefaults.string(forKey: AgentHubDefaults.linearAssigneeFilter) == "everyone"
       ? .everyone : .me
     moveToStartedOnLaunch = userDefaults.object(forKey: AgentHubDefaults.linearMoveToStarted) as? Bool ?? true
@@ -163,8 +169,15 @@ public final class LinearViewModel {
 
   // MARK: - Loading
 
-  public func load() async {
-    guard LinearKeychainStore.apiKey() != nil else {
+  /// - Parameter keepsBoardOnFailure: The new shell's board passes true: a
+  ///   refresh that fails while issues are on screen keeps the board and sets
+  ///   `refreshError`. A rejected or missing key still shows the connect
+  ///   state. The legacy board keeps its failure states.
+  public func load(keepsBoardOnFailure: Bool = false) async {
+    // Fast clicks on Retry or Refresh must not start parallel loads.
+    guard loadState != .loading else { return }
+    guard hasAPIKey() else {
+      refreshError = nil
       loadState = .noKey
       return
     }
@@ -175,9 +188,29 @@ public final class LinearViewModel {
       if selectedTeam == nil { selectedTeamID = teams.first?.id }
       try await loadTeamData()
       loadState = .loaded
+      refreshError = nil
     } catch {
-      loadState = Self.mapError(error)
+      let failure = Self.mapError(error)
+      let keepsBoard = keepsBoardOnFailure && !issues.isEmpty
+      switch failure {
+      case .failed(let message) where keepsBoard:
+        loadState = .loaded
+        refreshError = "Could not refresh Linear: \(SprintErrorText.summary(message))"
+      case .rateLimited where keepsBoard:
+        loadState = .loaded
+        refreshError = Self.rateLimitedMessage
+      default:
+        // The failure state replaces the board, so a refresh notice is stale.
+        refreshError = nil
+        loadState = failure
+      }
     }
+  }
+
+  static let rateLimitedMessage = "Linear asked Workbench to slow down. Try again in a moment."
+
+  public func dismissRefreshError() {
+    refreshError = nil
   }
 
   public func loadIfNeeded() async {
@@ -193,7 +226,9 @@ public final class LinearViewModel {
     do {
       try await loadTeamData()
       loadState = .loaded
+      refreshError = nil
     } catch {
+      refreshError = nil
       loadState = Self.mapError(error)
     }
   }
@@ -234,7 +269,16 @@ public final class LinearViewModel {
     workflowStates = []
     activeCycle = nil
     selectedTeamID = nil
+    refreshError = nil
+    closeIssue()
     loadState = .noKey
+  }
+
+  /// Keyboard navigation over the visible board (`SprintBoardNavigation`).
+  public func moveSelection(_ direction: SprintMoveDirection) {
+    let next = SprintBoardNavigation.target(
+      columns: columns.map { $0.issues.map(\.id) }, selected: selectedIssueID, direction: direction)
+    if let next { openIssue(next) }
   }
 
   // MARK: - Issue detail

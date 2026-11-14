@@ -52,9 +52,12 @@ public struct IconButton: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(IconButtonStyle(isToggled: isToggled, isHovered: isHovered, cornerRadius: cornerRadius))
+    // `IconButtonBody` draws `wbFocusRing` in place of the native ring.
+    .focusEffectDisabled()
     .onHover { isHovered = $0 }
     .accessibilityLabel(accessibilityLabel)
-    .accessibilityIdentifier(accessibilityIdentifier ?? "")
+    .accessibilityAddTraits(isToggled ? .isSelected : [])
+    .optionalAccessibilityIdentifier(accessibilityIdentifier)
   }
 
   private var cornerRadius: CGFloat {
@@ -75,8 +78,9 @@ private struct IconButtonStyle: ButtonStyle {
   }
 }
 
-/// A view, so it can read `isEnabled`: a disabled icon button dims like the
-/// other button styles and shows no hover or press fill.
+/// A view (not the style), so it can read `isEnabled` and keyboard focus.
+/// A disabled icon button dims like the other button styles and shows no
+/// hover or press fill; the toggled fill stays.
 private struct IconButtonBody: View {
   let configuration: ButtonStyleConfiguration
   let isToggled: Bool
@@ -84,14 +88,19 @@ private struct IconButtonBody: View {
   let cornerRadius: CGFloat
 
   @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.isFocused) private var isFocused
 
   var body: some View {
     let isPressed = isEnabled && configuration.isPressed
     let isHovered = isEnabled && isHovered
     configuration.label
       .foregroundStyle(isHovered || isToggled || isPressed ? Color.wbTextPrimary : Color.wbTextSecondary)
-      .background(fill(isPressed: isPressed, isHovered: isHovered), in: RoundedRectangle(cornerRadius: cornerRadius))
-      .opacity(isEnabled ? 1 : WBButtonKind.disabledOpacity)
+      .background(
+        fill(isPressed: isPressed, isHovered: isHovered),
+        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+      )
+      .opacity(isEnabled ? 1 : DesignTokens.Opacity.disabled)
+      .wbFocusRing(isFocused, cornerRadius: cornerRadius)
   }
 
   private func fill(isPressed: Bool, isHovered: Bool) -> Color {

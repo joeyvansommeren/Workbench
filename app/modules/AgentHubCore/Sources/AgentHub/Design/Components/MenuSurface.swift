@@ -24,14 +24,14 @@ public struct MenuSurface<Content: View>: View {
     .padding(DesignTokens.Inset.container)
     .frame(width: width)
     .background {
-      RoundedRectangle(cornerRadius: DesignTokens.Radius.container)
+      RoundedRectangle(cornerRadius: DesignTokens.Radius.container, style: .continuous)
         .fill(.ultraThinMaterial)
         .overlay {
-          RoundedRectangle(cornerRadius: DesignTokens.Radius.container)
+          RoundedRectangle(cornerRadius: DesignTokens.Radius.container, style: .continuous)
             .fill(Color.wbSurfaceOverlay)
         }
     }
-    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.container))
+    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.container, style: .continuous))
     .wbElevation(.overlay)
   }
 }

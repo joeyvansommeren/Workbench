@@ -41,9 +41,9 @@ public struct FilterChip: View {
       .accessibilityLabel("Remove filter \(title)")
     }
     .frame(height: DesignTokens.Size.controlSmall)
-    .background(Color.wbSurfaceRaised, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.segment))
+    .background(Color.wbSurfaceRaised, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.segment, style: .continuous))
     .wbElevation(.control, cornerRadius: DesignTokens.Radius.segment)
-    .accessibilityIdentifier(accessibilityIdentifier ?? "")
+    .optionalAccessibilityIdentifier(accessibilityIdentifier)
   }
 }
 
@@ -101,8 +101,8 @@ public struct FiltersButton: View {
         .accessibilityLabel("Clear filters")
       }
     }
-    .background(Color.wbSurfaceControl, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
+    .background(Color.wbSurfaceControl, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous))
     .wbElevation(.control)
-    .accessibilityIdentifier(accessibilityIdentifier ?? "")
+    .optionalAccessibilityIdentifier(accessibilityIdentifier)
   }
 }

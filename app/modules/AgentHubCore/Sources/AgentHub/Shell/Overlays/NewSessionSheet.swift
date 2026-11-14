@@ -26,7 +26,25 @@ struct NewSessionSheet: View {
       Grid(alignment: .leading, horizontalSpacing: DesignTokens.Spacing.md, verticalSpacing: DesignTokens.Spacing.md) {
         GridRow {
           NewSessionFormLabel("Agent")
-          NewSessionAgentPicker(model: model)
+          WorkbenchSegmentedControl(
+            selection: $model.agent,
+            items: SessionProviderKind.allCases,
+            title: { $0.agentDisplayName },
+            // A missing CLI disables its segment.
+            isItemEnabled: { model.isAgentAvailable($0) },
+            help: { model.isAgentAvailable($0) ? nil : $0.notInstalledHelp },
+            fillsWidth: true,
+            accessibilityLabel: "Agent"
+          )
+        }
+        if !model.isAgentAvailable(model.agent) {
+          // Start stays disabled; say why where the eye is, not in a tooltip.
+          GridRow {
+            Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+            Text(model.agent.notInstalledHelp)
+              .wbText(.callout)
+              .foregroundStyle(Color.wbTextSecondary)
+          }
         }
         GridRow {
           NewSessionFormLabel("Project")
@@ -72,11 +90,8 @@ struct NewSessionSheet: View {
         .keyboardShortcut(.cancelAction)
       Button(action: model.start) {
         HStack(spacing: DesignTokens.Spacing.xsPlus) {
-          Text("Start")
-          HStack(spacing: DesignTokens.Spacing.xxs) {
-            StartKeyCap("⌘")
-            StartKeyCap("↩")
-          }
+          Text(model.launchViewModel.isLaunching ? "Starting…" : "Start")
+          KeyCaps(["⌘", "↩"], style: .onAccent)
         }
         .contentShape(Rectangle())
       }
@@ -102,66 +117,6 @@ private struct NewSessionFormLabel: View {
       .wbText(.body)
       .foregroundStyle(Color.wbTextSecondary)
       .frame(width: 76, alignment: .trailing)
-  }
-}
-
-/// A key cap on the accent button (`.button-primary .keycap`).
-private struct StartKeyCap: View {
-  let text: String
-
-  init(_ text: String) { self.text = text }
-
-  var body: some View {
-    Text(text)
-      .font(.system(size: 11, weight: .medium))
-      .foregroundStyle(Color.wbTextOnAccent)
-      .frame(minWidth: 20, minHeight: 20)
-      .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.small))
-  }
-}
-
-/// Two equal segments (`.segmented-wide`). A missing CLI disables its segment.
-private struct NewSessionAgentPicker: View {
-  @Bindable var model: NewSessionSheetModel
-
-  var body: some View {
-    HStack(spacing: DesignTokens.Spacing.xxs) {
-      ForEach(SessionProviderKind.allCases, id: \.self) { provider in
-        segment(provider)
-      }
-    }
-    .padding(DesignTokens.Inset.control)
-    .frame(height: DesignTokens.Size.control)
-    .background(Color.wbSurfaceField, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel("Agent")
-  }
-
-  private func segment(_ provider: SessionProviderKind) -> some View {
-    let isSelected = model.agent == provider
-    let isAvailable = model.isAgentAvailable(provider)
-    return Button {
-      model.agent = provider
-    } label: {
-      Text(provider.agentDisplayName)
-        .wbText(.body)
-        .fontWeight(.medium)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .foregroundStyle(isSelected ? Color.wbTextPrimary : Color.wbTextSecondary)
-    .background {
-      if isSelected {
-        RoundedRectangle(cornerRadius: DesignTokens.Radius.segment)
-          .fill(Color.wbSurfaceSegmentSelected)
-          .wbElevation(.raised, cornerRadius: DesignTokens.Radius.segment)
-      }
-    }
-    .disabled(!isAvailable)
-    .opacity(isAvailable ? 1 : 0.45)
-    .help(isAvailable ? "" : provider.notInstalledHelp)
-    .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 }
 
@@ -194,47 +149,24 @@ private struct NewSessionPromptField: View {
   }
 }
 
-// MARK: - Popup buttons
-
-/// `.popup-button`: control surface, leading content, trailing chevron.
-private struct PopupButtonLabel<Leading: View>: View {
-  let title: String
-  let isMonospaced: Bool
-  @ViewBuilder let leading: Leading
-  @State private var isHovered = false
-
-  var body: some View {
-    HStack(spacing: DesignTokens.Spacing.sm) {
-      leading
-      Text(title)
-        .wbText(isMonospaced ? .code : .body)
-        .foregroundStyle(Color.wbTextPrimary)
-        .lineLimit(1)
-        .truncationMode(.middle)
-      Image(systemName: "chevron.down")
-        .font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(Color.wbTextSecondary)
-        .padding(.leading, DesignTokens.Spacing.xs)
-    }
-    .padding(.horizontal, DesignTokens.Spacing.sm)
-    .frame(height: DesignTokens.Size.control)
-    .background(
-      isHovered ? Color.wbSurfaceControlHover : Color.wbSurfaceControl,
-      in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
-    )
-    .wbElevation(.control, cornerRadius: DesignTokens.Radius.item)
-    .contentShape(Rectangle())
-    .onHover { isHovered = $0 }
-  }
-}
-
+/// A native menu, so arrow keys, type-select, Escape and long lists (it
+/// scrolls) work for free.
 private struct NewSessionProjectPicker: View {
   @Bindable var model: NewSessionSheetModel
-  @State private var isOpen = false
 
   var body: some View {
-    Button { isOpen.toggle() } label: {
-      PopupButtonLabel(title: model.project?.name ?? "Choose project", isMonospaced: false) {
+    Menu {
+      Picker("Project", selection: selection) {
+        ForEach(model.repositories) { repository in
+          Text(repository.name).tag(Optional(repository.path))
+        }
+      }
+      .pickerStyle(.inline)
+      .labelsHidden()
+      if !model.repositories.isEmpty { Divider() }
+      Button("Other…", action: model.chooseOtherProject)
+    } label: {
+      WBMenuButtonLabel(model.project?.name ?? "Choose project") {
         if let project = model.project {
           LetterTile(name: project.name, path: project.path)
         } else {
@@ -242,30 +174,21 @@ private struct NewSessionProjectPicker: View {
         }
       }
     }
+    .menuStyle(.button)
     .buttonStyle(.plain)
+    .menuIndicator(.hidden)
+    .fixedSize()
     .accessibilityLabel("Project, \(model.project?.name ?? "none")")
-    .popover(isPresented: $isOpen, arrowEdge: .bottom) {
-      OverlayMenuList {
-        ForEach(model.repositories) { repository in
-          OverlayMenuRow(
-            title: repository.name,
-            isChecked: repository.path == model.project?.path
-          ) {
-            LetterTile(name: repository.name, path: repository.path)
-          } action: {
-            model.selectProject(repository)
-            isOpen = false
-          }
-        }
-        if !model.repositories.isEmpty { OverlayMenuDivider() }
-        OverlayMenuRow(title: "Other…", isChecked: false) {
-          Image(systemName: "folder")
-        } action: {
-          isOpen = false
-          model.chooseOtherProject()
-        }
+  }
+
+  private var selection: Binding<String?> {
+    Binding(
+      get: { model.project?.path },
+      set: { path in
+        guard let repository = model.repositories.first(where: { $0.path == path }) else { return }
+        model.selectProject(repository)
       }
-    }
+    )
   }
 }
 
@@ -275,7 +198,7 @@ private struct NewSessionWorktreePicker: View {
 
   var body: some View {
     Button { isOpen.toggle() } label: {
-      PopupButtonLabel(title: title, isMonospaced: isExisting) {
+      WBMenuButtonLabel(title, isMonospaced: isExisting) {
         Image(systemName: icon).foregroundStyle(Color.wbTextSecondary)
       }
     }
@@ -330,6 +253,8 @@ private struct WorktreePopoverContent: View {
         TextField("Search worktrees", text: $model.worktreeSearch)
           .textFieldStyle(.plain)
           .wbText(.body)
+          // Return picks the first match, so a search needs no mouse.
+          .onSubmit(selectFirstMatch)
       }
       .padding(.horizontal, DesignTokens.Spacing.sm)
       .frame(height: 36)
@@ -337,12 +262,40 @@ private struct WorktreePopoverContent: View {
       OverlayMenuLabel("Start session in")
 
       row("New worktree", icon: NewSessionWorktreeIcon.new, choice: .newWorktree, mono: false)
-      ForEach(model.existingWorktrees) { worktree in
-        row(worktree.name, icon: NewSessionWorktreeIcon.existing, choice: .existing(worktree), mono: true)
+      let worktrees = model.existingWorktrees
+      if worktrees.isEmpty, !isSearchEmpty {
+        Text("No worktrees match")
+          .wbText(.body)
+          .foregroundStyle(Color.wbTextSecondary)
+          .padding(.horizontal, DesignTokens.Spacing.sm)
+          .frame(height: DesignTokens.Size.row)
+      } else {
+        // Search, "New worktree" and "No worktree" stay put; only the list scrolls.
+        ScrollView(.vertical) {
+          VStack(alignment: .leading, spacing: 0) {
+            ForEach(worktrees) { worktree in
+              row(worktree.name, icon: NewSessionWorktreeIcon.existing, choice: .existing(worktree), mono: true)
+            }
+          }
+        }
+        .frame(maxHeight: Self.listMaxHeight)
+        .fixedSize(horizontal: false, vertical: true)
       }
       OverlayMenuDivider()
       row("No worktree", icon: NewSessionWorktreeIcon.none, choice: .none, mono: false)
     }
+  }
+
+  static let listMaxHeight: CGFloat = 320
+
+  private var isSearchEmpty: Bool {
+    model.worktreeSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private func selectFirstMatch() {
+    guard !isSearchEmpty, let first = model.existingWorktrees.first else { return }
+    model.selectWorktree(.existing(first))
+    onClose()
   }
 
   private func row(

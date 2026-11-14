@@ -38,6 +38,9 @@ struct SprintTitle: Equatable {
 
   static let fallback = SprintTitle(title: "Sprint", daysLeft: nil)
 
+  /// The name alone, for a narrow list head.
+  var withoutDaysLeft: SprintTitle { SprintTitle(title: title, daysLeft: nil) }
+
   static func jira(_ sprint: JiraSprint?, now: Date = .now) -> SprintTitle {
     guard let sprint else { return .fallback }
     return SprintTitle(

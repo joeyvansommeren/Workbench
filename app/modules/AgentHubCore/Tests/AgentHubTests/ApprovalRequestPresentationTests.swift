@@ -87,4 +87,22 @@ struct ApprovalRequestPresentationTests {
     let exact = String(repeating: "b", count: ApprovalRequestPresentation.maxDetailLength)
     #expect(ApprovalRequestPresentation(toolName: "Bash", input: exact).detail == exact)
   }
+
+  @Test("The banner's full detail keeps line breaks and is not cut at the tooltip cap")
+  func fullDetail() {
+    let multiline = ApprovalRequestPresentation(toolName: "Bash", input: "  cd app\nmake test && rm -rf build\n")
+    #expect(multiline.fullDetail == "cd app\nmake test && rm -rf build")
+
+    let long = String(repeating: "a", count: ApprovalRequestPresentation.maxDetailLength + 50)
+    #expect(ApprovalRequestPresentation(toolName: "Bash", input: long).fullDetail == long)
+
+    let huge = String(repeating: "c", count: ApprovalRequestPresentation.maxFullDetailLength + 1)
+    let capped = ApprovalRequestPresentation(toolName: "Bash", input: huge).fullDetail ?? ""
+    #expect(capped.count == ApprovalRequestPresentation.maxFullDetailLength)
+    #expect(capped.hasSuffix("…"))
+
+    #expect(ApprovalRequestPresentation(toolName: "Bash", input: " \n ").fullDetail == nil)
+    let edit = ApprovalRequestPresentation(toolName: "Write", input: nil, filePath: "/repo/a.swift")
+    #expect(edit.fullDetail == "/repo/a.swift")
+  }
 }

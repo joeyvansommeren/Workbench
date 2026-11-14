@@ -41,7 +41,8 @@ struct RepoHeaderRow: View, Equatable {
           .padding(.leading, -DesignTokens.Spacing.xsPlus)
         Spacer(minLength: 0)
         if model.isCollapsed, model.attentionCount > 0 {
-          SidebarAttentionCount(count: model.attentionCount)
+          CountBadge(model.attentionCount, style: .attention)
+            .accessibilityLabel("\(model.attentionCount) need attention")
         }
       }
       .padding(.horizontal, DesignTokens.Spacing.smPlus)
@@ -87,19 +88,3 @@ struct RepoHeaderRow: View, Equatable {
   }
 }
 
-/// Count of sessions needing attention, shown on a collapsed repository.
-struct SidebarAttentionCount: View {
-  let count: Int
-
-  var body: some View {
-    Text("\(count)")
-      .font(.system(size: 11, weight: .semibold))
-      .monospacedDigit()
-      .foregroundStyle(Color.wbStatusAttentionText)
-      .padding(.horizontal, DesignTokens.Spacing.xs)
-      .frame(minWidth: DesignTokens.Size.tile, minHeight: DesignTokens.Size.tile)
-      .background(Color.wbStatusAttentionTint, in: Capsule())
-      .fixedSize()
-      .accessibilityLabel("\(count) need attention")
-  }
-}

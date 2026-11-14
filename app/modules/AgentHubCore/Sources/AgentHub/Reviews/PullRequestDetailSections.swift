@@ -39,6 +39,7 @@ struct PullRequestChecksSection: View {
             Text(showsAll ? "Show fewer" : "Show all \(items.count)")
               .wbText(.callout)
               .foregroundStyle(Color.wbAccentText)
+              .frame(minHeight: DesignTokens.Size.controlSmall)
               .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
@@ -59,55 +60,68 @@ private struct PullRequestCheckRow: View {
   @State private var isHovered = false
 
   var body: some View {
-    Button {
-      guard let url = item.detailsURL else { return }
-      NSWorkspace.shared.open(url)
-    } label: {
-      HStack(spacing: DesignTokens.Spacing.sm) {
-        if let state = item.state {
-          PullRequestChecksIcon(state: state)
-        } else {
-          Image(systemName: "circle.dashed")
-            .font(.system(size: 12))
-            .foregroundStyle(Color.wbTextTertiary)
-            .frame(width: 14, height: 14)
-        }
-        Text(item.name)
-          .wbText(.body)
-          .foregroundStyle(Color.wbTextPrimary)
-          .lineLimit(1)
-          .truncationMode(.tail)
-        if let workflow = item.workflow {
-          Text(workflow)
-            .wbText(.callout)
-            .foregroundStyle(Color.wbTextTertiary)
-            .lineLimit(1)
-        }
-        Spacer(minLength: DesignTokens.Spacing.sm)
-        Text(item.statusText)
+    // Without a URL the row is plain content: a button that does nothing
+    // would still be offered to VoiceOver and the keyboard.
+    if let url = item.detailsURL {
+      Button {
+        NSWorkspace.shared.open(url)
+      } label: {
+        content
+      }
+      .buttonStyle(.plain)
+      .background(
+        isHovered ? Color.wbSurfaceHover : .clear,
+        in: RoundedRectangle(cornerRadius: DesignTokens.Radius.segment)
+      )
+      .overlay(alignment: .bottom) { divider }
+      .onHover { isHovered = $0 }
+      .help("Open \(item.name) on GitHub")
+      .accessibilityLabel("\(item.name), \(item.statusText)")
+    } else {
+      content
+        .overlay(alignment: .bottom) { divider }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(item.name), \(item.statusText)")
+    }
+  }
+
+  @ViewBuilder
+  private var divider: some View {
+    if showsDivider {
+      Color.wbBorderHairline.frame(height: 1).padding(.horizontal, DesignTokens.Spacing.sm)
+    }
+  }
+
+  private var content: some View {
+    HStack(spacing: DesignTokens.Spacing.sm) {
+      if let state = item.state {
+        PullRequestChecksIcon(state: state)
+      } else {
+        Image(systemName: "circle.dashed")
+          .font(.system(size: 12))
+          .foregroundStyle(Color.wbTextTertiary)
+          .frame(width: 14, height: 14)
+      }
+      Text(item.name)
+        .wbText(.body)
+        .foregroundStyle(Color.wbTextPrimary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+      if let workflow = item.workflow {
+        Text(workflow)
           .wbText(.callout)
-          .foregroundStyle(Color.wbTextSecondary)
-          .fixedSize()
+          .foregroundStyle(Color.wbTextTertiary)
+          .lineLimit(1)
       }
-      .padding(.horizontal, DesignTokens.Spacing.sm)
-      .frame(minHeight: 30)
-      .contentShape(Rectangle())
+      Spacer(minLength: DesignTokens.Spacing.sm)
+      Text(item.statusText)
+        .wbText(.callout)
+        .foregroundStyle(Color.wbTextSecondary)
+        .fixedSize()
     }
-    .buttonStyle(.plain)
-    // Not `.disabled` without a URL: that would dim the row like an error.
-    .allowsHitTesting(item.detailsURL != nil)
-    .background(
-      isHovered && item.detailsURL != nil ? Color.wbSurfaceHover : .clear,
-      in: RoundedRectangle(cornerRadius: DesignTokens.Radius.segment)
-    )
-    .overlay(alignment: .bottom) {
-      if showsDivider {
-        Color.wbBorderHairline.frame(height: 1).padding(.horizontal, DesignTokens.Spacing.sm)
-      }
-    }
-    .onHover { isHovered = $0 }
-    .help(item.detailsURL == nil ? item.name : "Open \(item.name) on GitHub")
-    .accessibilityLabel("\(item.name), \(item.statusText)")
+    .padding(.horizontal, DesignTokens.Spacing.sm)
+    .frame(minHeight: 30)
+    .contentShape(Rectangle())
   }
 }
 
@@ -117,7 +131,11 @@ struct PullRequestConversationSection: View {
   let entries: [PullRequestDetailPresentation.ConversationEntry]
   let viewerLogin: String?
 
+  /// Long threads show the latest entries first; this unfolds the rest.
+  @State private var showsAll = false
+
   var body: some View {
+    let visible = PullRequestDetailPresentation.visibleConversation(entries, showsAll: showsAll)
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
       PullRequestSectionTitle(title: "Conversation", count: entries.count)
       if entries.isEmpty {
@@ -125,8 +143,24 @@ struct PullRequestConversationSection: View {
           .wbText(.body)
           .foregroundStyle(Color.wbTextSecondary)
       } else {
-        ForEach(entries) { entry in
-          PullRequestConversationEntryView(entry: entry, isViewer: isViewer(entry.author))
+        if visible.hiddenCount > 0 {
+          Button {
+            showsAll = true
+          } label: {
+            Text("Show \(visible.hiddenCount) earlier")
+              .wbText(.callout)
+              .foregroundStyle(Color.wbAccentText)
+              .frame(minHeight: DesignTokens.Size.controlSmall)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+        }
+        ForEach(visible.entries) { entry in
+          PullRequestConversationEntryView(
+            entry: entry,
+            isViewer: isViewer(entry.author),
+            showsDivider: entry.id != visible.entries.last?.id
+          )
         }
       }
     }
@@ -141,6 +175,7 @@ struct PullRequestConversationSection: View {
 private struct PullRequestConversationEntryView: View {
   let entry: PullRequestDetailPresentation.ConversationEntry
   let isViewer: Bool
+  let showsDivider: Bool
 
   var body: some View {
     HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
@@ -157,7 +192,9 @@ private struct PullRequestConversationEntryView: View {
     }
     .padding(.bottom, DesignTokens.Spacing.sm)
     .overlay(alignment: .bottom) {
-      Color.wbBorderHairline.frame(height: 1)
+      if showsDivider {
+        Color.wbBorderHairline.frame(height: 1)
+      }
     }
   }
 
@@ -167,7 +204,8 @@ private struct PullRequestConversationEntryView: View {
         .wbText(.bodyEmphasis)
         .foregroundStyle(Color.wbTextPrimary)
         .lineLimit(1)
-        .fixedSize()
+        .truncationMode(.tail)
+        .layoutPriority(1)
       switch entry.kind {
       case .comment:
         EmptyView()

@@ -103,14 +103,23 @@ struct SessionHeaderView<ActionsMenu: View>: View {
         accessibilityIdentifier: "session.toggleSidePanel",
         action: onToggleSidePanel
       )
-      .help(isSidePanelVisible ? "Hide side panel  ⌥⌘0" : "Show side panel  ⌥⌘0")
+      .help("\(isSidePanelVisible ? "Hide" : "Show") side panel  \(ShellShortcut.toggleSidePanel.keyCaps.joined())")
     }
   }
 
   private func modesAndContext(showsLabel: Bool, showsDots: Bool) -> some View {
     HStack(spacing: DesignTokens.Spacing.xs) {
       if availableContentModes.count > 1 {
-        ContentModeControl(modes: availableContentModes, selection: $contentMode)
+        // Icon-only segments: each mode's label is its tooltip and VoiceOver name.
+        WorkbenchSegmentedControl(
+          selection: $contentMode,
+          items: availableContentModes,
+          title: { $0.label },
+          showsTitle: false,
+          icon: { $0.systemImage },
+          size: .small,
+          accessibilityLabel: "Session view"
+        )
           .padding(.trailing, DesignTokens.Spacing.xs)
       }
       if let contextFraction {
@@ -137,8 +146,9 @@ private struct ContextMeter: View {
       if showsDots {
         DotMeter(fraction: fraction)
       }
-      Text("\(Int((min(max(fraction, 0), 1) * 100).rounded()))%")
-        .font(.system(size: 12, weight: .medium))
+      Text("\(percent)%")
+        .wbText(.callout)
+        .fontWeight(.medium)
         .monospacedDigit()
         .foregroundStyle(Color.wbTextPrimary)
         .frame(minWidth: 28, alignment: .trailing)
@@ -147,8 +157,11 @@ private struct ContextMeter: View {
     .frame(height: DesignTokens.Size.control)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Context used")
-    .accessibilityValue("\(Int((fraction * 100).rounded())) percent")
+    .accessibilityValue("\(percent) percent")
   }
+
+  /// Clamped once, so the screen and VoiceOver say the same number.
+  private var percent: Int { Int((min(max(fraction, 0), 1) * 100).rounded()) }
 }
 
 private struct ToolbarDivider: View {
@@ -160,41 +173,3 @@ private struct ToolbarDivider: View {
   }
 }
 
-/// A small icon segmented control for Terminal / Chat / Files / Diffs.
-private struct ContentModeControl: View {
-  let modes: [MonitoringCardContentMode]
-  @Binding var selection: MonitoringCardContentMode
-
-  var body: some View {
-    HStack(spacing: DesignTokens.Spacing.xxs) {
-      ForEach(modes) { mode in
-        let isSelected = mode == selection
-        Button {
-          selection = mode
-        } label: {
-          Image(systemName: mode.systemImage)
-            .font(.system(size: 11))
-            .frame(width: 26, height: DesignTokens.Size.controlSmall - 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? Color.wbTextPrimary : Color.wbTextSecondary)
-        .background {
-          if isSelected {
-            RoundedRectangle(cornerRadius: DesignTokens.Radius.segment)
-              .fill(Color.wbSurfaceSegmentSelected)
-              .wbElevation(.raised, cornerRadius: DesignTokens.Radius.segment)
-          }
-        }
-        .help(mode.label)
-        .accessibilityLabel(mode.label)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-      }
-    }
-    .padding(DesignTokens.Inset.control)
-    .frame(height: DesignTokens.Size.controlSmall)
-    .background(Color.wbSurfaceField, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel("Session view")
-  }
-}

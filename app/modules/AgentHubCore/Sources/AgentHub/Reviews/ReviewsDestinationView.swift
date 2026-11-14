@@ -21,7 +21,8 @@ enum ReviewsLayout {
   static let tableMinWidth: CGFloat = ReviewsTableLayout.minimumWidth
   static let hairlineWidth: CGFloat = 1
   static let detailWidth: CGFloat = DesignTokens.Width.sidePanel
-  static let barHeight: CGFloat = 52
+  /// The prototype's `.list-head`, shared with Sprint (`SprintListHead`).
+  static let barHeight: CGFloat = 56
 
   /// The narrowest content panel Reviews fits in, with the detail open.
   static var minimumContentWidth: CGFloat { tableMinWidth + hairlineWidth + detailWidth }
@@ -46,19 +47,28 @@ struct ReviewsDestinationView: View {
   /// True once no pull request was open while Reviews was on screen: only
   /// then does the detail panel's entrance run (not on ⌘2 or at launch).
   @State private var detailWasClosed = false
+  /// A running "Start for N" launch: its progress in the bar, and the task
+  /// Stop cancels. The id tells a finished launch from a newer one.
+  @State private var bulkLauncher = ReviewsBulkLaunchRunner()
+  @State private var isFiltersOpen = false
+  @State private var linkCache = ReviewsSessionLinkCache()
 
   private var viewModel: GitHubReviewsViewModel { agentHub.gitHubReviewsViewModel }
   private var support: ReviewSessionSupport { ReviewSessionSupport(agentHub: agentHub) }
 
   var body: some View {
-    // Built once per render and handed down, as in the legacy view.
-    let inventories = support.inventories
     let visible = viewModel.visiblePullRequests
     let tileColors = tileColorsByRepositoryName
-    let links = Dictionary(
-      visible.map { ($0.id, support.links(for: $0, inventories: inventories)) },
-      uniquingKeysWith: { first, _ in first }
-    )
+    // Relinked only when the pull requests, launches or session inventory
+    // change; a status tick only refreshes the statuses on the cached links.
+    let cachedLinks = linkCache.links(key: support.linkKey(for: visible)) {
+      let inventories = support.inventories
+      return Dictionary(
+        visible.map { ($0.id, support.links(for: $0, inventories: inventories)) },
+        uniquingKeysWith: { first, _ in first }
+      )
+    }
+    let links = ReviewsSessionLinkCache.applyingStatuses(cachedLinks, statuses: support.statuses)
     let rows = ReviewsTableRows.make(pullRequests: visible, links: links, sort: viewModel.tableSort)
     let detailPullRequest = openDetailPullRequest(in: visible)
     let bulkActions = ReviewsBulkActions(rows: rows, viewModel: viewModel)
@@ -66,10 +76,13 @@ struct ReviewsDestinationView: View {
     VStack(spacing: 0) {
       ReviewsBar(
         viewModel: viewModel,
+        isFiltersOpen: $isFiltersOpen,
         feedback: bulkFeedback,
         onRetry: { await support.recoverAndRestoreSessions() }
       ) {
-        if !bulkActions.isEmpty {
+        if let bulkProgress = bulkLauncher.progress {
+          ReviewsBulkLaunchProgressView(progress: bulkProgress, onStop: stopBulkLaunch)
+        } else if !bulkActions.isEmpty {
           ReviewsBulkActionsMenu(
             actions: bulkActions,
             templates: GitHubPromptLibrary.shared.templates,
@@ -91,7 +104,8 @@ struct ReviewsDestinationView: View {
         ReviewsQueueContent(
           viewModel: viewModel,
           isEmpty: visible.isEmpty,
-          onRetry: { await support.recoverAndRestoreSessions() }
+          onRetry: { await support.recoverAndRestoreSessions() },
+          onOpenFilters: { isFiltersOpen = true }
         ) {
           table(rows: rows, links: links, tileColors: tileColors)
         }
@@ -136,6 +150,9 @@ struct ReviewsDestinationView: View {
       guard !Task.isCancelled else { return }
       bulkFeedback = nil
     }
+    // These notices go away after a few seconds; VoiceOver users hear them.
+    .onChange(of: sessionFeedback) { _, text in announce(text) }
+    .onChange(of: bulkFeedback) { _, text in announce(text) }
     .confirmationDialog(
       pendingBulkLaunch?.title ?? "",
       isPresented: Binding(
@@ -157,7 +174,9 @@ struct ReviewsDestinationView: View {
       ),
       presenting: pendingFollowUp
     ) { followUp in
-      Button("Send to \(followUp.targets.count) sessions") { runFollowUp(followUp) }
+      Button("Send to \(ReviewsCopy.count(followUp.targets.count, "session"))") {
+        runFollowUp(followUp)
+      }
       Button("Cancel", role: .cancel) { pendingFollowUp = nil }
     } message: { followUp in
       Text(followUp.message)
@@ -226,6 +245,7 @@ struct ReviewsDestinationView: View {
         select(pullRequest)
       },
       onMoveSelection: { delta in moveSelection(by: delta, in: ids, pullRequests: pullRequestsByID) },
+      isDetailOpen: isDetailOpen,
       onOpenDetail: openDetail,
       onCloseDetail: closeDetail
     )
@@ -334,22 +354,40 @@ struct ReviewsDestinationView: View {
       link.provider == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
     let didSend = sessions.sendAutomatedPrompt(to: link.session, prompt: prompt)
     MainThreadStallMonitor.breadcrumb("reviews session command: \(link.provider.rawValue)")
-    sessionFeedback = didSend ? "Sent to \(link.provider.rawValue)" : "Could not send command"
+    sessionFeedback =
+      didSend
+      ? "Sent to \(PullRequestReviewControl.displayName(link.provider))" : "Could not send command"
   }
 
   // MARK: - Bulk actions
 
   /// Sequential, as in the legacy header: each launch registers its session
-  /// link before the next starts.
+  /// link before the next starts. The bar shows "Starting 3 of 40" and a
+  /// Stop button until the last one has started.
   private func runBulkLaunch(_ launch: GitHubReviewBulkLaunch) {
     pendingBulkLaunch = nil
-    Task {
-      for pullRequest in launch.pullRequests {
-        guard viewModel.beginStartingReview(for: pullRequest.id) else { continue }
-        defer { viewModel.endStartingReview(for: pullRequest.id) }
+    let viewModel = viewModel
+    let actions = actions
+    bulkLauncher.run(
+      launch.pullRequests,
+      begin: { viewModel.beginStartingReview(for: $0.id) },
+      launch: { pullRequest in
         await actions.startReview(pullRequest, provider: launch.provider, template: launch.template)
+        viewModel.endStartingReview(for: pullRequest.id)
       }
+    )
+  }
+
+  private func stopBulkLaunch() {
+    MainThreadStallMonitor.breadcrumb("reviews bulk: stop")
+    if let started = bulkLauncher.stop() {
+      bulkFeedback = "Stopped after \(ReviewsCopy.count(started, "session"))"
     }
+  }
+
+  private func announce(_ text: String?) {
+    guard let text else { return }
+    AccessibilityNotification.Announcement(text).post()
   }
 
   private func runFollowUp(_ followUp: GitHubReviewBulkFollowUp) {
@@ -364,7 +402,7 @@ struct ReviewsDestinationView: View {
         sent += 1
       }
     }
-    bulkFeedback = "Sent to \(sent) of \(followUp.targets.count) sessions"
+    bulkFeedback = "Sent to \(sent) of \(ReviewsCopy.count(followUp.targets.count, "session"))"
   }
 
   // MARK: - Review
@@ -449,11 +487,12 @@ struct ReviewsDestinationView: View {
 /// popover, above the table.
 private struct ReviewsBar<Actions: View>: View {
   @Bindable var viewModel: GitHubReviewsViewModel
+  /// Lifted, so the "Choose a project view" state can open Filters too.
+  @Binding var isFiltersOpen: Bool
   let feedback: String?
   let onRetry: () async -> Void
   @ViewBuilder let actions: () -> Actions
 
-  @State private var isFiltersOpen = false
   @State private var reloadTask: Task<Void, Never>?
 
   var body: some View {
@@ -464,6 +503,7 @@ private struct ReviewsBar<Actions: View>: View {
           set: { viewModel.setReviewScope($0) }
         ),
         showCounts: { viewModel.count(for: $0) },
+        accessibilityLabel: "Review scope",
         accessibilityIdentifier: "reviews.scope"
       )
       .fixedSize()
@@ -475,6 +515,7 @@ private struct ReviewsBar<Actions: View>: View {
           .lineLimit(1)
       }
       actions()
+      refreshButton
       FiltersButton(
         activeCount: isSearching ? 1 : 0,
         accessibilityIdentifier: "reviews.filters",
@@ -486,10 +527,11 @@ private struct ReviewsBar<Actions: View>: View {
       )
       .fixedSize()
       .popover(isPresented: $isFiltersOpen, arrowEdge: .bottom) {
-        ReviewsFiltersPopover(viewModel: viewModel, onReload: toggleReload)
+        ReviewsFiltersPopover(viewModel: viewModel, onStop: stopRefresh)
       }
     }
-    .padding(.horizontal, DesignTokens.Spacing.lg)
+    .padding(.leading, DesignTokens.Spacing.lg)
+    .padding(.trailing, DesignTokens.Spacing.md)
     .frame(height: ReviewsLayout.barHeight)
     .onDisappear {
       reloadTask?.cancel()
@@ -501,13 +543,36 @@ private struct ReviewsBar<Actions: View>: View {
     !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  private func toggleReload() {
+  /// ⌘R, as in Jira and Linear. While a refresh runs, a spinner takes its
+  /// place (same size); Stop is in the Filters popover.
+  @ViewBuilder
+  private var refreshButton: some View {
     if viewModel.isRefreshing {
-      viewModel.cancelRefresh()
-      reloadTask?.cancel()
-      reloadTask = nil
-      return
+      ProgressView()
+        .controlSize(.small)
+        .frame(width: DesignTokens.Size.control, height: DesignTokens.Size.control)
+        .accessibilityLabel("Refreshing pull requests")
+    } else {
+      IconButton(
+        systemImage: "arrow.clockwise",
+        accessibilityLabel: "Refresh pull requests",
+        accessibilityIdentifier: "reviews.refresh",
+        action: refresh
+      )
+      .help("Refresh pull requests  \(ShellShortcut.refresh.keyCaps.joined())")
+      .keyboardShortcut(ShellShortcut.refresh)
     }
+  }
+
+  private func stopRefresh() {
+    viewModel.cancelRefresh()
+    reloadTask?.cancel()
+    reloadTask = nil
+    MainThreadStallMonitor.breadcrumb("reviews refresh: stop")
+  }
+
+  private func refresh() {
+    guard !viewModel.isRefreshing else { return }
     MainThreadStallMonitor.breadcrumb("reviews refresh")
     reloadTask = Task {
       await viewModel.reloadProjects()
@@ -526,6 +591,7 @@ private struct ReviewsQueueContent<Table: View>: View {
   @Bindable var viewModel: GitHubReviewsViewModel
   let isEmpty: Bool
   let onRetry: () async -> Void
+  let onOpenFilters: () -> Void
   @ViewBuilder let table: () -> Table
 
   @State private var recoveryFeedback: String?
@@ -540,6 +606,19 @@ private struct ReviewsQueueContent<Table: View>: View {
 
   @ViewBuilder
   private var banners: some View {
+    // A failed refresh with saved rows on screen: the rows stay, and this
+    // says they are the saved list and offers the way out.
+    if let issue = viewModel.recoveryIssue, !viewModel.pullRequests.isEmpty {
+      ReviewsRecoveryBanner(
+        title: issue.title,
+        detail: recoveryFeedback ?? "Showing the saved list.",
+        actionTitle: issue.primaryActionTitle,
+        isActionDisabled: issue.primaryAction == .retry && viewModel.isRefreshing,
+        action: { perform(issue.primaryAction) }
+      )
+      .padding(.horizontal, DesignTokens.Spacing.sm)
+      .padding(.top, DesignTokens.Spacing.sm)
+    }
     if let message = viewModel.errorMessage ?? viewModel.sessionLinkErrorMessage {
       ErrorBanner(message)
         .padding(.horizontal, DesignTokens.Spacing.sm)
@@ -556,19 +635,28 @@ private struct ReviewsQueueContent<Table: View>: View {
     if let issue = viewModel.recoveryIssue, viewModel.pullRequests.isEmpty {
       recoveryState(issue)
     } else if viewModel.isLoadingProjects, viewModel.projects.isEmpty {
-      state(.pullRequest, title: "Loading pull requests")
+      ReviewsLoadingView()
     } else if viewModel.selectedProject == nil {
       state(
         "rectangle.3.group", title: "No GitHub Projects",
         description: "Sign in to gh with the project scope.")
     } else if viewModel.selectedView == nil {
-      state("line.3.horizontal.decrease", title: "Choose a project view in Filters")
+      state("line.3.horizontal.decrease", title: "Choose a project view") {
+        Button("Open Filters", action: onOpenFilters).buttonStyle(.wbSecondary)
+      }
     } else if viewModel.isLoadingPullRequests, viewModel.pullRequests.isEmpty {
-      state(.pullRequest, title: "Loading pull requests")
+      ReviewsLoadingView()
     } else if isEmpty {
       if isSearching {
         state("magnifyingglass", title: "No matches") {
           Button("Clear search") { viewModel.searchText = "" }.buttonStyle(.wbSecondary)
+        }
+      } else if viewModel.reviewScope == .mine, viewModel.viewerLogin == nil {
+        // Mine needs your GitHub login (offline, signed out).
+        state("person.crop.circle.badge.questionmark", title: "Can't tell which pull requests are yours") {
+          Button("Try again") { perform(.retry) }
+            .buttonStyle(.wbSecondary)
+            .disabled(viewModel.isRefreshing)
         }
       } else {
         state("checkmark.circle", title: "No pull requests")
@@ -585,12 +673,12 @@ private struct ReviewsQueueContent<Table: View>: View {
     isError: Bool = false,
     @ViewBuilder actions: @escaping () -> Actions = { EmptyView() }
   ) -> some View {
+    // Centred, as in every other destination.
     WBEmptyState(
       icon: icon, isError: isError, title: title, description: description,
       actions: actions
     )
-    .padding(.top, 64)
-    .frame(maxWidth: .infinity)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   private func recoveryState(_ issue: GitHubReviewRecoveryIssue) -> some View {
@@ -598,8 +686,11 @@ private struct ReviewsQueueContent<Table: View>: View {
       state("exclamationmark.triangle", title: issue.title, description: issue.message, isError: true) {
         Button(issue.primaryActionTitle) { perform(issue.primaryAction) }
           .buttonStyle(.wbPrimary)
+          .disabled(issue.primaryAction == .retry && viewModel.isRefreshing)
         if let secondary = issue.secondaryAction, let title = issue.secondaryActionTitle {
-          Button(title) { perform(secondary) }.buttonStyle(.wbSecondary)
+          Button(title) { perform(secondary) }
+            .buttonStyle(.wbSecondary)
+            .disabled(secondary == .retry && viewModel.isRefreshing)
         }
       }
       if let recoveryFeedback {
@@ -610,11 +701,13 @@ private struct ReviewsQueueContent<Table: View>: View {
           .frame(maxWidth: 300)
       }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   private func perform(_ action: GitHubReviewRecoveryIssue.Action) {
     MainThreadStallMonitor.breadcrumb("reviews recovery: \(action)")
     if action == .retry {
+      guard !viewModel.isRefreshing else { return }
       recoveryFeedback = nil
       Task {
         await viewModel.reloadProjects()
@@ -625,15 +718,93 @@ private struct ReviewsQueueContent<Table: View>: View {
     }
     if let error = GitHubAuthenticationRecoveryLauncher.perform(action) {
       recoveryFeedback = error.localizedDescription
-      return
+    } else {
+      switch action {
+      case .reconnectWithProjectAccess, .signIn:
+        recoveryFeedback = "Finish signing in in Terminal and your browser, then choose Try again."
+      case .installCLI:
+        recoveryFeedback = "Install the GitHub CLI, then choose Try again."
+      case .retry:
+        break
+      }
     }
-    switch action {
-    case .reconnectWithProjectAccess, .signIn:
-      recoveryFeedback = "Finish signing in in Terminal and your browser, then choose Try again."
-    case .installCLI:
-      recoveryFeedback = "Install the GitHub CLI, then choose Try again."
-    case .retry:
-      break
+    if let recoveryFeedback {
+      AccessibilityNotification.Announcement(recoveryFeedback).post()
     }
+  }
+}
+
+/// A failed refresh above saved rows: the issue, "Showing the saved list."
+/// and the issue's first action (Try again, Sign in, Install). Looks like
+/// `ErrorBanner`, plus the action.
+private struct ReviewsRecoveryBanner: View {
+  let title: String
+  let detail: String
+  let actionTitle: String
+  let isActionDisabled: Bool
+  let action: () -> Void
+
+  var body: some View {
+    // In a narrow table (detail open at the window minimum) the action goes
+    // under the text instead of squeezing it.
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: DesignTokens.Spacing.sm) {
+        icon
+        message.frame(maxWidth: .infinity, alignment: .leading)
+        actionButton
+      }
+      HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+        icon
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+          message
+          actionButton
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .padding(.horizontal, DesignTokens.Spacing.md)
+    .padding(.vertical, DesignTokens.Spacing.sm)
+    .background(Color.wbStatusErrorTint, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.row))
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("reviews.recoveryBanner")
+  }
+
+  private var icon: some View {
+    Image(systemName: "exclamationmark.triangle.fill")
+      .font(.system(size: 13))
+      .foregroundStyle(Color.wbStatusErrorFill)
+      .accessibilityHidden(true)
+  }
+
+  private var message: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(title)
+        .wbText(.bodyEmphasis)
+        .foregroundStyle(Color.wbStatusErrorText)
+        .fixedSize(horizontal: false, vertical: true)
+      Text(detail)
+        .wbText(.callout)
+        .foregroundStyle(Color.wbStatusErrorText)
+        .lineLimit(3)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private var actionButton: some View {
+    Button(actionTitle, action: action)
+      .buttonStyle(.wbSecondary)
+      .fixedSize()
+      .disabled(isActionDisabled)
+  }
+}
+
+/// A centred spinner while the queue loads, as `SprintLoadingView` does for
+/// the boards.
+private struct ReviewsLoadingView: View {
+  var body: some View {
+    ProgressView()
+      .controlSize(.small)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .accessibilityLabel("Loading pull requests")
   }
 }

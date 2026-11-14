@@ -26,6 +26,8 @@ struct ShellShortcut: Equatable {
   static let archiveCurrentSession = ShellShortcut(
     key: "a", modifiers: [.option, .command], keyCaps: ["⌥", "⌘", "A"])
   /// Settings is bound by the system Settings scene; listed for the palette.
+  /// Reload the Reviews table or the Sprint board on screen.
+  static let refresh = ShellShortcut(key: "r", modifiers: .command, keyCaps: ["⌘", "R"])
   static let openSettings = ShellShortcut(key: ",", modifiers: .command, keyCaps: ["⌘", ","])
 
   static func == (lhs: ShellShortcut, rhs: ShellShortcut) -> Bool {

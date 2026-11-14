@@ -88,8 +88,9 @@ removed in P12; see "P12" for selection and persistence).
   (workspace-owned sessions focus their workspace; others call
   `SessionNavigationModel.selectSession`). P6 makes that open a tab.
 - **Approve pill:** `SessionNode.showsApprovePill` (Claude, pending tool use,
-  not an input question). The action is the single closure
-  `SidebarTreeActions.approve`, now `SidebarApproval.respond` (P7, below).
+  not an input question). Since P15 it opens the session, where the banner
+  shows the whole command; it never approves from the tree
+  (`SidebarApprovePillText`).
 - **Collapse state** is `SelectedRepository.isExpanded`, persisted in
   `SessionWorkspaceState.expansionState` (SQLite) through
   `CLISessionsViewModel.setRepositoryExpanded(path:isExpanded:)`.
@@ -162,8 +163,8 @@ tab, behind `ApprovalResponding` (`Services/ApprovalResponder.swift`).
   `ApprovalShortcutRouting` sends ⌘↩ to Approve, on both backends; without a
   banner, nothing changes for any `NewlineShortcut`. When the terminal is not
   first responder, the Approve button's own ⌘↩ shortcut handles it.
-- **Tree:** Approve pill (spinner while sending; on refusal it opens the
-  session) and an Answer pill for input questions, which only opens the session.
+- **Tree:** Approve pill (spinner while an answer is in flight) and an Answer
+  pill for input questions. Both only open the session (P15).
 - Breadcrumbs: `approval: shown|approve|deny <tool>`.
 
 ## P10: overlays and settings
@@ -202,7 +203,7 @@ GeometryReader.
   first, git CLI fallback). `SidePanelDiffParser` (pure) turns it into hunks.
 - **Mode:** automatic until the user picks one in the compact "Branch ▾" menu.
   Automatic probes `DiffMode` order (branch → staged → unstaged) and takes the
-  first mode with changes, because the header diffstat and "Commit N files…"
+  first mode with changes, because the header diffstat and "Commit N files"
   count every mode. The legacy `GitDiffView` keeps its own rule.
 - **Refresh:** on appear, and when `localDiffSummary` or the session's
   `lastActivityAt` changes (catches staging and same-count re-edits), at most

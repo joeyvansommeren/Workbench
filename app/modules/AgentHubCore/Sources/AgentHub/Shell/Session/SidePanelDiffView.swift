@@ -28,6 +28,7 @@ struct SidePanelDiffView: View {
   let onShowFullDiff: () -> Void
 
   @FocusState private var isListFocused: Bool
+  @State private var isFileListExpanded = false
 
   var body: some View {
     Group {
@@ -78,12 +79,24 @@ struct SidePanelDiffView: View {
   }
 
   private var fileList: some View {
-    VStack(spacing: 0) {
-      ForEach(model.files) { file in
-        SidePanelDiffFileRow(file: file, isSelected: file.relativePath == model.selectedPath) {
+    let files = model.files
+    let visibleCount = SidePanelFileListWindow.visibleCount(
+      total: files.count,
+      selectedIndex: files.firstIndex { $0.relativePath == model.selectedPath },
+      isExpanded: isFileListExpanded
+    )
+    return LazyVStack(spacing: 0) {
+      ForEach(files.prefix(visibleCount)) { file in
+        let isSelected = file.relativePath == model.selectedPath
+        SidePanelDiffFileRow(file: file, isSelected: isSelected) {
           model.select(path: file.relativePath)
           isListFocused = true
         }
+        // Focus shows as a ring on the selected file; the fill stays grey.
+        .wbFocusRing(isListFocused && isSelected, cornerRadius: DesignTokens.Radius.item)
+      }
+      if visibleCount < files.count {
+        SidePanelShowAllFilesRow(count: files.count) { isFileListExpanded = true }
       }
     }
     .padding(.horizontal, DesignTokens.Spacing.sm)
@@ -194,6 +207,32 @@ private struct SidePanelDiffFileRow: View {
   }
 }
 
+/// Under a long file list: expands it in place.
+private struct SidePanelShowAllFilesRow: View {
+  let count: Int
+  let action: () -> Void
+
+  @State private var isHovered = false
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: DesignTokens.Spacing.sm) {
+        Color.clear.frame(width: DesignTokens.Size.icon, height: 1)
+        Text("Show all \(count) files")
+          .wbText(.callout)
+          .monospacedDigit()
+          .foregroundStyle(isHovered ? Color.wbTextPrimary : Color.wbTextSecondary)
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, DesignTokens.Spacing.sm)
+      .frame(height: DesignTokens.Size.row)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { isHovered = $0 }
+  }
+}
+
 // MARK: - Selected file
 
 private struct SidePanelFileDiffBody: View {
@@ -221,6 +260,9 @@ private struct SidePanelFileDiffBody: View {
     case .loaded(let diff):
       if diff.hunks.isEmpty {
         note("No content changes")
+      }
+      if diff.hasShortenedLines {
+        note("Long lines shortened")
       }
       ForEach(Array(diff.hunks.enumerated()), id: \.offset) { _, hunk in
         SidePanelDiffHunkView(hunk: hunk)

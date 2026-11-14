@@ -71,28 +71,25 @@ public struct LetterTile: View {
   }
 
   public var body: some View {
+    let shape = RoundedRectangle(cornerRadius: DesignTokens.Radius.small, style: .continuous)
     Text(String(letter).uppercased())
-      .font(.system(size: 11, weight: .bold))
+      // Prototype `.tile`: Inter 700 11px, letter-spacing 0.
+      .font(WorkbenchTypography.uiFont(size: 11, weight: .bold))
       .foregroundStyle(.white)
       .frame(width: DesignTokens.Size.tile, height: DesignTokens.Size.tile)
-      .background(tileColor.color, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.small))
+      .background(tileColor.color, in: shape)
       .overlay {
-        RoundedRectangle(cornerRadius: DesignTokens.Radius.small)
-          .strokeBorder(.black.opacity(0.15), lineWidth: 0.5)
-          .overlay(alignment: .top) {
-            Rectangle()
-              .fill(.white.opacity(0.3))
-              .frame(height: 0.5)
-              .clipShape(
-                UnevenRoundedRectangle(
-                  topLeadingRadius: DesignTokens.Radius.small,
-                  bottomLeadingRadius: 0,
-                  bottomTrailingRadius: 0,
-                  topTrailingRadius: DesignTokens.Radius.small
-                )
-              )
-          }
+        shape.strokeBorder(.black.opacity(0.15), lineWidth: 0.5)
           .allowsHitTesting(false)
+      }
+      .overlay {
+        // `inset 0 0.5px 0 white 0.3`: the top edge only. The stroke follows
+        // the corners and fades out down them, so no white ears stick out.
+        shape.strokeBorder(
+          LinearGradient(colors: [.white.opacity(0.3), .clear], startPoint: .top, endPoint: .center),
+          lineWidth: 0.5
+        )
+        .allowsHitTesting(false)
       }
       .fixedSize()
   }

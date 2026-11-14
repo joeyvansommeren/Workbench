@@ -225,6 +225,9 @@ struct ReviewsTableRowPresentation: Equatable {
   let sessionStatus: SessionStatusPresentation?
   /// Linked sessions beyond the first, shown as `+N`.
   let extraSessionCount: Int
+  /// What VoiceOver reads after the row label: status, priority, author,
+  /// age and checks, so the user does not have to step into every cell.
+  let accessibilityValue: String
 
   init(row: GitHubReviewTableRow, checks: CIStatus?, now: Date = Date()) {
     let pullRequest = row.pullRequest
@@ -243,6 +246,22 @@ struct ReviewsTableRowPresentation: Equatable {
     sessionName = link?.displayName
     sessionStatus = link.map { SessionStatusPresentation(status: $0.status, isPending: $0.isPending) }
     extraSessionCount = max(0, row.sessionLinks.count - 1)
+    accessibilityValue = [
+      status,
+      priority.map { "\($0) priority" },
+      "by \(author)",
+      pullRequest.updatedAt.map { "updated \(Self.spokenAge(from: $0, now: now))" },
+      self.checks?.accessibilityLabel,
+    ]
+    .compactMap { $0 }
+    .joined(separator: ", ")
+  }
+
+  /// "5 hours ago": the compact age ("5h") reads badly in VoiceOver.
+  static func spokenAge(from date: Date, now: Date) -> String {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .full
+    return formatter.localizedString(for: min(date, now), relativeTo: now)
   }
 
   private static func nonEmpty(_ value: String?) -> String? {
