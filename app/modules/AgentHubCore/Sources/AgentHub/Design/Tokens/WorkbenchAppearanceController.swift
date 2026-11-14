@@ -36,7 +36,7 @@ enum WorkbenchAppearanceController {
 
   static func storedPalette(defaults: UserDefaults = .standard) -> PalettePreference {
     defaults.string(forKey: AgentHubDefaults.palette)
-      .flatMap(PalettePreference.init(rawValue:)) ?? .standard
+      .flatMap(PalettePreference.init(rawValue:)) ?? .defaultPalette
   }
 
   static func apply(_ preference: AppearancePreference, to target: AppearanceApplying?) {

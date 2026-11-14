@@ -67,7 +67,8 @@ and match the prototype's CSS one to one (`Fixtures/workbench-apple-tokens.css` 
 
 ## 3. Palettes and appearance
 
-- **Palette:** Standard (neutral grey, blue accent) or Warm (warm paper, ink accent). Default Standard.
+- **Palette:** Warm (default) or Standard (neutral grey, blue accent). A saved choice wins over the default.
+- Warm borrows the Claude app's neutrals: ivory and stone in light, soft warm charcoal in dark, quiet hairlines and a sparing clay accent.
 - **Appearance:** System, Light or Dark. Each palette has a light and a dark set.
 - The user switches both live in Settings › Appearance; the palette's "Switch appearance" flips light and dark.
 - The window root applies `.wbRedrawsOnPaletteChange()`, or views stay stale after a switch.
