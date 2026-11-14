@@ -92,9 +92,8 @@ struct ShellDestinationTab: View {
       }
       .padding(.leading, DesignTokens.Spacing.sm)
       .padding(.trailing, DesignTokens.Spacing.smPlus)
-      // Control height, not tab height: the pill fits the title band with
-      // room above and below it.
-      .frame(height: DesignTokens.Size.control)
+      // The prototype's 32 pt tab: 10 pt above and below it in the 52 pt band.
+      .frame(height: DesignTokens.Size.tab)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)

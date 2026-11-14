@@ -83,9 +83,9 @@ struct WorkbenchShellModelTests {
     let bar = ShellTitleBarMetrics.standard
     #expect(ShellLayout.toolbarLeading(sidebarVisible: true, isFullScreen: false, titleBar: bar) == 0)
     #expect(ShellLayout.toolbarLeading(sidebarVisible: true, isFullScreen: true, titleBar: bar) == 0)
-    // Lights end at 69, toggle 12 pt later (81–109), row 14 pt after it.
-    #expect(ShellLayout.sidebarToggleLeading(isFullScreen: false, titleBar: bar) == 81)
-    #expect(ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: false, titleBar: bar) == 123)
+    // Lights end at 79, toggle 12 pt later (91–119), row 14 pt after it.
+    #expect(ShellLayout.sidebarToggleLeading(isFullScreen: false, titleBar: bar) == 91)
+    #expect(ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: false, titleBar: bar) == 133)
     #expect(ShellLayout.sidebarToggleLeading(isFullScreen: true, titleBar: bar) == 8)
     #expect(ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: true, titleBar: bar) == 50)
   }
@@ -94,7 +94,7 @@ struct WorkbenchShellModelTests {
   func titleBarMetrics() {
     let model = WorkbenchShellModel()
     #expect(model.titleBar == .standard)
-    #expect(ShellLayout.contentTop(titleBar: model.titleBar) == 40)
+    #expect(ShellLayout.contentTop(titleBar: model.titleBar) == 60)
     let older = ShellTitleBarMetrics(bandHeight: 28, trafficLightsTrailing: 68)
     model.setTitleBar(older)
     #expect(model.titleBar == older)
@@ -102,12 +102,12 @@ struct WorkbenchShellModelTests {
     #expect(ShellLayout.sidebarToggleLeading(isFullScreen: false, titleBar: older) == 80)
   }
 
-  @Test("Title-bar measurement: the macOS 27 buttons give the standard metrics; hidden or implausible give nil")
+  @Test("Title-bar measurement: the placed macOS 27 buttons give the standard metrics; hidden or implausible give nil")
   func titleBarMeasurementRule() {
-    // macOS 27, 800 pt window: close button centred 16 pt from the top
-    // (y grows upward), zoom button ending at x 69.
-    let close = CGRect(x: 9, y: 778, width: 14, height: 12)
-    let zoom = CGRect(x: 55, y: 778, width: 14, height: 12)
+    // macOS 27 after `ShellTrafficLights`, 800 pt window: close button
+    // centred 26 pt from the top (y grows upward), zoom ending at x 79.
+    let close = CGRect(x: 19, y: 768, width: 14, height: 12)
+    let zoom = CGRect(x: 65, y: 768, width: 14, height: 12)
     func measure(
       fullScreen: Bool = false, closeHidden: Bool = false, close: CGRect = close, zoom: CGRect = zoom
     ) -> ShellTitleBarMetrics? {
@@ -120,9 +120,9 @@ struct WorkbenchShellModelTests {
     // Full screen: the lights are gone, keep what the model has.
     #expect(measure(fullScreen: true) == nil)
     #expect(measure(closeHidden: true) == nil)
-    // A band outside 20–60 pt (close centred 5 pt or 40 pt from the top).
-    #expect(measure(close: close.offsetBy(dx: 0, dy: 11)) == nil)
-    #expect(measure(close: close.offsetBy(dx: 0, dy: -24)) == nil)
+    // A band outside 20–60 pt (close centred 6 pt or 36 pt from the top).
+    #expect(measure(close: close.offsetBy(dx: 0, dy: 20)) == nil)
+    #expect(measure(close: close.offsetBy(dx: 0, dy: -10)) == nil)
     // Lights ending outside x 30–140.
     #expect(measure(zoom: zoom.offsetBy(dx: 100, dy: 0)) == nil)
     #expect(measure(zoom: zoom.offsetBy(dx: -50, dy: 0)) == nil)
