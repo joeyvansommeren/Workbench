@@ -274,4 +274,39 @@ struct CLISessionsViewModelSidebarProjectionTests {
 
     #expect(viewModel.monitoredCLISessions.map(\.id) == viewModel.monitoredSessions.map(\.session.id))
   }
+
+  // MARK: - hasLoadedRepositories (first-run sidebar)
+
+  @Test("hasLoadedRepositories turns on when nothing was saved")
+  @MainActor
+  func loadedWithNoSavedRepositories() async throws {
+    let viewModel = makeProjectionViewModel(fileWatcher: ProjectionFileWatcher())
+    viewModel.workspaceStateReadOverride = { _ in SessionWorkspaceState() }
+    #expect(!viewModel.hasLoadedRepositories)
+    try await waitUntil { viewModel.hasLoadedRepositories }
+    #expect(viewModel.selectedRepositories.isEmpty)
+  }
+
+  @Test("hasLoadedRepositories turns on after saved repositories are restored")
+  @MainActor
+  func loadedAfterRestoringSavedRepositories() async throws {
+    let viewModel = makeProjectionViewModel(fileWatcher: ProjectionFileWatcher())
+    viewModel.workspaceStateReadOverride = { _ in
+      var state = SessionWorkspaceState()
+      state.selectedRepositoryPaths = ["/tmp/sidebar-first-run-repo"]
+      return state
+    }
+    try await waitUntil({ viewModel.hasLoadedRepositories }, timeoutAttempts: 150)
+  }
+
+  @Test("hasLoadedRepositories stays off when the saved state can't be read")
+  @MainActor
+  func notLoadedWhenReadFails() async throws {
+    struct ReadFailure: Error {}
+    let viewModel = makeProjectionViewModel(fileWatcher: ProjectionFileWatcher())
+    viewModel.workspaceStateReadOverride = { _ in throw ReadFailure() }
+    // The restore retries three times, 300 ms apart.
+    try await Task.sleep(for: .milliseconds(1200))
+    #expect(!viewModel.hasLoadedRepositories)
+  }
 }

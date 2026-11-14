@@ -244,6 +244,12 @@ final class SidebarTreeActions {
     viewModel(for: node.providerKind).copySessionId(node.session)
   }
 
+  /// The legacy card's transcript sheet, presented by `SessionsPresentationModifier`.
+  func viewTranscript(_ node: SessionNode) {
+    MainThreadStallMonitor.breadcrumb("tree: transcript \(node.id.prefix(20))")
+    coordinator.openSessionFile(for: node.session, viewModel: viewModel(for: node.providerKind))
+  }
+
   func openInTerminal(_ node: SessionNode) {
     _ = viewModel(for: node.providerKind).connectToSession(node.session)
   }

@@ -110,6 +110,16 @@ struct SessionsPresentationModifier: ViewModifier {
       .sheet(item: $coordinator.projectDetailsSheetItem) { item in
         projectDetailsSheet(item: item)
       }
+      // Set only by `openSessionFile(for:viewModel:)`, which the new shell's
+      // tree rows call; the legacy views keep their own transcript sheets.
+      .sheet(item: $coordinator.sessionFileSheetItem) { item in
+        SessionTranscriptSheetView(
+          session: item.session,
+          fileName: item.fileName,
+          content: item.content,
+          onDismiss: { coordinator.sessionFileSheetItem = nil }
+        )
+      }
       .overlay(alignment: .topTrailing) {
         archiveUndoOverlay
       }

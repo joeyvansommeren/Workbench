@@ -20,7 +20,7 @@ struct ShellSidebarContainer: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      SessionTreeView()
+      SidebarTreeOrEmptyState(openProject: openProject)
         .frame(maxHeight: .infinity, alignment: .top)
       SidebarFooter(openProject: openProject)
     }

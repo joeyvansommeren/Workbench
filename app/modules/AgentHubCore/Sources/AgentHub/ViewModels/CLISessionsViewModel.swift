@@ -92,6 +92,10 @@ public final class CLISessionsViewModel {
   // MARK: - State
 
   public private(set) var selectedRepositories: [SelectedRepository] = []
+  /// True once the launch restore has put the saved repositories in
+  /// `selectedRepositories` (or found none). Stays false when the saved
+  /// state could not be read, so the UI never claims "no projects" then.
+  public private(set) var hasLoadedRepositories = false
   public private(set) var lastFocusedSessionId: String?
   public private(set) var lastFocusedSessionAt: Date?
   public private(set) var selectedFolderPaths: [String] = []
@@ -2919,6 +2923,7 @@ public final class CLISessionsViewModel {
         .subtracting(archivedSessionIds)
       unrestoredSessionIds.formUnion(persistedSessionIds)
       guard !paths.isEmpty else {
+        hasLoadedRepositories = true
         return
       }
 
@@ -2993,6 +2998,7 @@ public final class CLISessionsViewModel {
         updated: restoredRepositoriesWithCurrent
       )
       restoreExpansionState(workspaceState.expansionState)
+      hasLoadedRepositories = true
       persistSelectedRepositories()
       syncClaudeHookInstalls(paths: claudeHookInstallPaths(from: selectedRepositories))
 
