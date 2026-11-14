@@ -45,7 +45,7 @@ struct WBButtonBody: View {
   @State private var isHovered = false
 
   var body: some View {
-    let shape = RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
+    let shape = RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
     // A pressed button always shows the hover fill underneath: the pointer is on it.
     let showsHoverFill = isHovered || configuration.isPressed
 
@@ -64,7 +64,10 @@ struct WBButtonBody: View {
       }
       .clipShape(shape)
       .modifier(WBButtonChrome(kind: kind))
-      .opacity(isEnabled ? 1 : 0.45)
+      .opacity(isEnabled ? 1 : DesignTokens.Opacity.disabled)
+      // Keyboard focus: the caller owns the `Button`, so it keeps the native
+      // macOS focus ring (a style cannot switch that off, and drawing
+      // `wbFocusRing` too would double it).
       .onHover { isHovered = $0 }
       // No `.animation`: feedback lands on the first frame (plan item 1).
   }
@@ -79,11 +82,10 @@ private struct WBButtonChrome: ViewModifier {
     case .primary:
       content
         .overlay {
-          RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
+          RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
             .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
             .allowsHitTesting(false)
         }
-        .shadow(color: .black.opacity(0.12), radius: 0.75, x: 0, y: 0.5)
         .shadow(color: .black.opacity(0.12), radius: 0.75, x: 0, y: 0.5)
     case .secondary, .destructive:
       content.wbElevation(.control)

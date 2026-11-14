@@ -52,9 +52,12 @@ public struct IconButton: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(IconButtonStyle(isToggled: isToggled, isHovered: isHovered, cornerRadius: cornerRadius))
+    // `IconButtonBody` draws `wbFocusRing` in place of the native ring.
+    .focusEffectDisabled()
     .onHover { isHovered = $0 }
     .accessibilityLabel(accessibilityLabel)
-    .accessibilityIdentifier(accessibilityIdentifier ?? "")
+    .accessibilityAddTraits(isToggled ? .isSelected : [])
+    .optionalAccessibilityIdentifier(accessibilityIdentifier)
   }
 
   private var cornerRadius: CGFloat {
@@ -70,9 +73,7 @@ private struct IconButtonStyle: ButtonStyle {
   let cornerRadius: CGFloat
 
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .foregroundStyle(isHovered || isToggled || configuration.isPressed ? Color.wbTextPrimary : Color.wbTextSecondary)
-      .background(fill(isPressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: cornerRadius))
+    IconButtonBody(configuration: configuration, fill: fill(isPressed: configuration.isPressed), isHighlighted: isHovered || isToggled || configuration.isPressed, cornerRadius: cornerRadius)
   }
 
   @MainActor
@@ -81,5 +82,22 @@ private struct IconButtonStyle: ButtonStyle {
     if isPressed { return .wbSurfacePressed }
     if isHovered { return .wbSurfaceHover }
     return .clear
+  }
+}
+
+/// A view (not the style) reads the button's keyboard focus.
+private struct IconButtonBody: View {
+  let configuration: ButtonStyleConfiguration
+  let fill: Color
+  let isHighlighted: Bool
+  let cornerRadius: CGFloat
+
+  @Environment(\.isFocused) private var isFocused
+
+  var body: some View {
+    configuration.label
+      .foregroundStyle(isHighlighted ? Color.wbTextPrimary : Color.wbTextSecondary)
+      .background(fill, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+      .wbFocusRing(isFocused, cornerRadius: cornerRadius)
   }
 }

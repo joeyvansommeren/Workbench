@@ -86,6 +86,33 @@ struct WorkbenchTypographyTests {
     #expect(WorkbenchTextStyle.codeSmall.trackingEm == 0)
   }
 
+  // MARK: - Line spacing
+
+  @Test("line spacing subtracts the font's natural line height, not the point size")
+  func lineSpacingUsesNaturalLineHeight() {
+    // Inter's natural line height at 13 pt is about 15.74 pt; body is 18 pt.
+    #expect(abs(WorkbenchTextStyle.lineSpacing(lineHeight: 18, naturalLineHeight: 15.74) - 2.26) < 0.001)
+  }
+
+  @Test("line spacing is never negative")
+  func lineSpacingNeverNegative() {
+    #expect(WorkbenchTextStyle.lineSpacing(lineHeight: 14, naturalLineHeight: 15) == 0)
+  }
+
+  // Font registration can change between two lookups when another suite
+  // registers the bundled fonts in parallel, so this checks bounds only; the
+  // exact math is covered by the two tests above.
+  @Test("every style's spacing is smaller than the old size-based value")
+  func lineSpacingBounds() {
+    for family in WorkbenchTypography.Family.allCases {
+      for style in WorkbenchTextStyle.allCases {
+        let spacing = style.lineSpacing(family: family)
+        #expect(spacing >= 0, "\(style) \(family)")
+        #expect(spacing < style.lineHeight - style.size, "\(style) \(family)")
+      }
+    }
+  }
+
   // MARK: - Family enum
 
   @Test("all families have an id")

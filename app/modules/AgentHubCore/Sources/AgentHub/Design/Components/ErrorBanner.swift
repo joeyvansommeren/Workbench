@@ -23,9 +23,14 @@ public struct ErrorBanner: View {
         .font(.system(size: 13))
         .foregroundStyle(Color.wbStatusErrorFill)
 
+      // Raw CLI stderr can run long: cap it, keep the full text in the
+      // tooltip, and let the user select and copy it.
       Text(message)
         .wbText(.body)
         .foregroundStyle(Color.wbStatusErrorText)
+        .lineLimit(4)
+        .textSelection(.enabled)
+        .help(message)
         .frame(maxWidth: .infinity, alignment: .leading)
 
       if let onDismiss {
@@ -45,6 +50,9 @@ public struct ErrorBanner: View {
     }
     .padding(.horizontal, DesignTokens.Spacing.md)
     .padding(.vertical, DesignTokens.Spacing.sm)
-    .background(Color.wbStatusErrorTint, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.row))
+    .background(
+      Color.wbStatusErrorTint,
+      in: RoundedRectangle(cornerRadius: DesignTokens.Radius.row, style: .continuous)
+    )
   }
 }
