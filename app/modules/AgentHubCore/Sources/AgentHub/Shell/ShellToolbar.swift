@@ -2,8 +2,9 @@
 //  ShellToolbar.swift
 //  AgentHub
 //
-//  TOOLBAR SLOT of the new shell: the 52 pt title row above the content panel
-//  (`.titlebar` in the prototype). Destination tabs at the content column, a
+//  TOOLBAR SLOT of the new shell: the title band above the content panel
+//  (`.titlebar` in the prototype), as high as the system title bar so every
+//  control sits on the traffic lights' line. Destination tabs at the content column, a
 //  flexible spacer, then Search. The row's structure never changes with the
 //  destination; only the selected tab does. Appearance and palette live in
 //  Settings › Appearance and the palette's "Switch appearance". The sidebar
@@ -15,28 +16,33 @@ import SwiftUI
 
 /// Fixed positions from the prototype's window chrome.
 enum ShellLayout {
-  /// Leading edge of the sidebar toggle (`ShellWindowControls`): 15 pt
-  /// right of the traffic lights, which AppKit puts at x 9–69 in a window
-  /// without a toolbar (measured, `ShellTitleBarHitTests`).
-  static let sidebarToggleLeading: CGFloat = 84
-  /// The same in full screen, where the traffic lights hide.
+  /// Gap between the zoom button and the sidebar toggle (prototype).
+  static let trafficLightsToToggleGap: CGFloat = 12
+  /// Leading edge of the sidebar toggle in full screen, where the traffic
+  /// lights hide.
   static let fullScreenSidebarToggleLeading: CGFloat = 8
+  /// Gap between the sidebar toggle and the title row's content while the
+  /// sidebar is hidden (prototype).
+  static let toggleToRowGap: CGFloat = 14
 
-  static func sidebarToggleLeading(isFullScreen: Bool) -> CGFloat {
-    isFullScreen ? fullScreenSidebarToggleLeading : sidebarToggleLeading
+  /// Leading edge of the sidebar toggle (`ShellWindowControls`): right of
+  /// the traffic lights, or at the edge in full screen.
+  static func sidebarToggleLeading(isFullScreen: Bool, titleBar: ShellTitleBarMetrics) -> CGFloat {
+    isFullScreen ? fullScreenSidebarToggleLeading : titleBar.trafficLightsTrailing + trafficLightsToToggleGap
   }
 
-  /// Leading padding of the title row while the sidebar is hidden, so its
-  /// content clears the traffic lights and the 28 pt sidebar toggle: 14 pt
-  /// after the toggle, as in the prototype.
-  static let collapsedToolbarLeading: CGFloat = sidebarToggleLeading + DesignTokens.Size.control + 14
-  /// The same in full screen.
-  static let fullScreenCollapsedToolbarLeading: CGFloat = fullScreenSidebarToggleLeading + DesignTokens.Size.control + 14
-
-  /// Leading padding of the title row.
-  static func toolbarLeading(sidebarVisible: Bool, isFullScreen: Bool) -> CGFloat {
+  /// Leading padding of the title row: none beside the sidebar; with the
+  /// sidebar hidden, enough to clear the traffic lights and the toggle.
+  static func toolbarLeading(sidebarVisible: Bool, isFullScreen: Bool, titleBar: ShellTitleBarMetrics) -> CGFloat {
     guard !sidebarVisible else { return 0 }
-    return isFullScreen ? fullScreenCollapsedToolbarLeading : collapsedToolbarLeading
+    return sidebarToggleLeading(isFullScreen: isFullScreen, titleBar: titleBar)
+      + DesignTokens.Size.control + toggleToRowGap
+  }
+
+  /// Top of the content panel and of the sidebar tree: the title band plus
+  /// the panel inset.
+  static func contentTop(titleBar: ShellTitleBarMetrics) -> CGFloat {
+    titleBar.bandHeight + DesignTokens.Inset.panel
   }
   /// Child minimums must fit the window minimum (CLAUDE.md, layout-loop
   /// crash). No split view is hosted in the shell any more: Reviews (P8) and
@@ -62,10 +68,14 @@ struct ShellToolbar: View {
     }
     .padding(
       .leading,
-      ShellLayout.toolbarLeading(sidebarVisible: shellModel.sidebarVisible, isFullScreen: shellModel.isFullScreen)
+      ShellLayout.toolbarLeading(
+        sidebarVisible: shellModel.sidebarVisible,
+        isFullScreen: shellModel.isFullScreen,
+        titleBar: shellModel.titleBar
+      )
     )
     .padding(.trailing, DesignTokens.Spacing.md)
-    .frame(height: DesignTokens.Size.titlebar)
+    .frame(height: shellModel.titleBar.bandHeight)
     .background(TitleBarDragArea())
   }
 }

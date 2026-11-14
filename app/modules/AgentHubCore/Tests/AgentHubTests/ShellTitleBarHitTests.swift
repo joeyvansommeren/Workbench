@@ -5,7 +5,7 @@ import Testing
 @testable import AgentHubCore
 
 /// Regression test for the title row (release blocker, 2026-11-14): in the
-/// real window no control in the 52 pt row took a click.
+/// real window no control in the title row took a click.
 ///
 /// Cause: with an `NSToolbar` (P12 used one for the 52 pt bar), AppKit sends
 /// a mouse-down under the titlebar to the content only inside the region the
@@ -85,18 +85,64 @@ struct ShellTitleBarHitTests {
     #expect(host.zoomRequests == 1, "a double-click on the empty bar must zoom")
   }
 
-  @Test("The traffic lights sit in the title row, left of the sidebar toggle")
-  func trafficLightsInTitleRow() throws {
+  @Test("Traffic lights, toggle, tabs and Search share one centre line", arguments: [1440.0, 900.0])
+  func oneLine(width: Double) throws {
+    let host = try ShellTitleBarTestWindow(width: width)
+    defer { host.close() }
+    // The band follows the real window buttons, measured at hookup.
+    let measured = try #require(ShellTitleBarMetrics.measured(in: host.window))
+    #expect(host.shellModel.titleBar == measured)
+    let lightsLine = host.trafficLightsCentreFromTop()
+
+    // Each control's clickable run, swept top to bottom: its middle is the
+    // control's centre line.
+    let tabs = host.tabCentres()
+    let reviews = try #require(tabs[.reviews])
+    let tabLine = try #require(host.verticalCentre(atX: reviews.x) {
+      host.shellModel.select(.sessions)
+    } hit: { host.shellModel.destination == .reviews })
+    #expect(abs(tabLine - lightsLine) <= 1, "tabs centred \(tabLine) pt from the top, lights \(lightsLine)")
+
+    let search = try #require(host.searchCentre())
+    let searchLine = try #require(host.verticalCentre(atX: search.x) {
+      host.overlays.closePalette()
+    } hit: { host.overlays.isPaletteOpen })
+    #expect(abs(searchLine - lightsLine) <= 1, "Search centred \(searchLine) pt from the top, lights \(lightsLine)")
+
+    let toggle = try #require(host.sidebarToggleCentre())
+    let toggleLine = try #require(host.verticalCentre(atX: toggle.x) {
+      if !host.shellModel.sidebarVisible { host.shellModel.toggleSidebar() }
+    } hit: { !host.shellModel.sidebarVisible })
+    #expect(abs(toggleLine - lightsLine) <= 1, "toggle centred \(toggleLine) pt from the top, lights \(lightsLine)")
+
+    // Nothing overlaps the lights: the toggle starts the prototype's 12 pt
+    // after the zoom button.
+    let zoom = try #require(host.window.standardWindowButton(.zoomButton))
+    let toggleLeading = toggle.x - DesignTokens.Size.control / 2
+    #expect(abs(toggleLeading - (zoom.convert(zoom.bounds, to: nil).maxX + ShellLayout.trafficLightsToToggleGap)) <= 4)
+  }
+
+  @Test("In full screen the toggle moves to the edge and the row still takes clicks")
+  func fullScreenRow() throws {
     let host = try ShellTitleBarTestWindow(width: 1440)
     defer { host.close() }
-    let close = try #require(host.window.standardWindowButton(.closeButton))
-    let zoom = try #require(host.window.standardWindowButton(.zoomButton))
-    let closeFrame = close.convert(close.bounds, to: nil)
-    let zoomFrame = zoom.convert(zoom.bounds, to: nil)
-    let centreFromTop = host.window.frame.height - closeFrame.midY
-    #expect(centreFromTop > 0 && centreFromTop < DesignTokens.Size.titlebar)
-    let toggle = try #require(host.sidebarToggleCentre())
-    #expect(zoomFrame.maxX < toggle.x - DesignTokens.Size.control / 2)
+    // A real full-screen window takes over the display, so this sets what
+    // full screen changes: the lights hide and the model's flag flips.
+    for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+      host.window.standardWindowButton(button)?.isHidden = true
+    }
+    host.shellModel.setFullScreen(true)
+    host.settle()
+    let toggle = try #require(host.sidebarToggleCentre(from: 2), "no click toggled the sidebar in full screen")
+    #expect(abs(toggle.x - (ShellLayout.fullScreenSidebarToggleLeading + DesignTokens.Size.control / 2)) <= 4)
+    // Sidebar hidden: the tabs start right after the toggle.
+    host.click(at: toggle)
+    #expect(!host.shellModel.sidebarVisible)
+    let tabs = host.tabCentres(from: ShellLayout.toolbarLeading(
+      sidebarVisible: false, isFullScreen: true, titleBar: host.shellModel.titleBar))
+    for destination in ShellDestination.allCases {
+      #expect(tabs[destination] != nil, "no click selected the \(destination.title) tab in full screen")
+    }
   }
 }
 
@@ -161,18 +207,40 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     }
   }
 
-  /// A point at `x` on the title row's centre line, in window coordinates.
-  func bandPoint(x: CGFloat) -> CGPoint {
-    CGPoint(x: x, y: window.frame.height - DesignTokens.Size.titlebar / 2)
+  /// A point at `x`, `fromTop` points below the window's top edge (default:
+  /// the title band's centre line), in window coordinates.
+  func bandPoint(x: CGFloat, fromTop: CGFloat? = nil) -> CGPoint {
+    CGPoint(x: x, y: window.frame.height - (fromTop ?? shellModel.titleBar.bandHeight / 2))
+  }
+
+  /// The close button's centre, in points below the window's top edge.
+  func trafficLightsCentreFromTop() -> CGFloat {
+    guard let close = window.standardWindowButton(.closeButton) else { return .nan }
+    return window.frame.height - close.convert(close.bounds, to: nil).midY
   }
 
   // MARK: - Finding controls by clicking
 
+  /// Clicks down a column at `x`, from the window's top edge to 20 pt below
+  /// the band; the middle of the longest run where `hit` became true, in
+  /// points below the top edge. `reset` runs before every click.
+  func verticalCentre(atX x: CGFloat, reset: () -> Void, hit: () -> Bool) -> CGFloat? {
+    var ys: [CGFloat] = []
+    for fromTop in stride(from: 1, through: shellModel.titleBar.bandHeight + 20, by: 1) {
+      reset()
+      settle(turns: 1)
+      click(at: bandPoint(x: x, fromTop: fromTop), turns: 2)
+      if hit() { ys.append(fromTop) }
+    }
+    reset()
+    settle()
+    return Self.centreOfLongestRun(ys, step: 1)
+  }
+
   /// Clicks along the tab strip; the centre of each run of points that
   /// selected a destination.
-  func tabCentres() -> [ShellDestination: CGPoint] {
+  func tabCentres(from start: CGFloat = DesignTokens.Width.sidebar) -> [ShellDestination: CGPoint] {
     var hits: [ShellDestination: [CGFloat]] = [:]
-    let start = DesignTokens.Width.sidebar
     let end = min(window.frame.width - 200, start + 560)
     // Two passes, so every tab, the selected one included, is found.
     for baseline in [ShellDestination.linear, .sessions] {
@@ -203,9 +271,10 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
 
   /// Clicks right of the traffic lights (never on them: that would close the
   /// window) until the sidebar hides; the centre of the points that did.
-  func sidebarToggleCentre() -> CGPoint? {
+  /// Pass `from` only while the lights are hidden.
+  func sidebarToggleCentre(from explicitStart: CGFloat? = nil) -> CGPoint? {
     guard let zoom = window.standardWindowButton(.zoomButton) else { return nil }
-    let start = zoom.convert(zoom.bounds, to: nil).maxX + 4
+    let start = explicitStart ?? (zoom.convert(zoom.bounds, to: nil).maxX + 4)
     var xs: [CGFloat] = []
     for x in stride(from: start, through: start + 120, by: 4) {
       click(at: bandPoint(x: x), turns: 2)

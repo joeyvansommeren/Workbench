@@ -33,10 +33,11 @@ Measured in an AppKit test host on macOS 27.
   safe-area top is 0, and the shell draws its own 52 pt row. Nothing ignores the
   top safe area except backgrounds. `TitleBarDragArea` gives the empty row drag
   and double-click (it honours `AppleActionOnDoubleClick`).
-- **Known gap.** Without a toolbar the system title bar is 32 pt and the
-  traffic lights sit at x 9–69, centred 16 pt from the top. P12 centred them
-  with a toolbar; that broke every click in the title row and was undone.
-  See "Title row clicks".
+- **Traffic lights.** Without a toolbar the system title bar is 32 pt and the
+  traffic lights sit at x 9–69, centred 16 pt from the top (macOS 27). P12
+  centred them in a 52 pt bar with a toolbar; that broke every click in the
+  title row and was undone. The title band now follows the lights instead.
+  See "Title row clicks" and "Title band".
 
 ## Layout-loop rules
 
@@ -238,11 +239,10 @@ GeometryReader.
   (`ThemeCrossfade`). Breadcrumbs: `appearance: <x>`, `shell: <destination>`.
 - **Sidebar toggle and traffic lights.** No `NSToolbar` (see "Title row
   clicks"). The toggle is `ShellWindowControls`, a SwiftUI overlay on
-  `ShellFrame` at x 84–112 (8–36 in full screen), centred in the 52 pt row;
-  it stays put when the sidebar hides. Its background is a `TitleBarDragArea`
-  over the sidebar column, so the whole band drags the window. The traffic
-  lights sit where AppKit puts them for a hidden title bar: x 9, 32, 55,
-  centred 16 pt from the top (measured), 10 pt above the row's centre line.
+  `ShellFrame`, 12 pt right of the zoom button (x 81–109 on macOS 27; 8–36 in
+  full screen), centred in the title band; it stays put when the sidebar
+  hides. Its background is a `TitleBarDragArea` over the sidebar column, so
+  the whole band drags the window. Band height and positions: "Title band".
 - **Rejected:** moving `standardWindowButton`s by hand. AppKit lays them out
   again on resize, zoom, full screen and appearance changes, and the 32 pt
   titlebar container would clip them, so they would need moving from layout
@@ -252,7 +252,7 @@ GeometryReader.
 - **Full screen.** `ShellWindowChrome` sets `WorkbenchShellModel.isFullScreen`
   from the window's full-screen notifications (never from geometry). The
   toggle moves to x 8 and, with the sidebar hidden, the title row's leading
-  padding drops from 126 to 50, since the traffic lights are gone.
+  padding drops from 123 to 50, since the traffic lights are gone.
 - **Narrow windows.** The tabs fall back to icon + count, then icon only
   (`ViewThatFits`); the row has `minWidth: 0` and gives way to the trailing
   controls.
@@ -270,7 +270,8 @@ GeometryReader.
   shown session per window in the v17 `openSessionTabIds` column (migration
   untouched; ordered union across windows via `OpenSessionTabsAggregate`; the
   first window takes it back via `claimRestoredOpenSessionTabIds`).
-- **Sidebar** starts with the repo → branch → session tree at 52 pt.
+- **Sidebar** starts with the repo → branch → session tree at the content
+  panel's top (`ShellLayout.contentTop`, 40 pt on macOS 27).
 
 ## Title row clicks (fix, 2026-11-14)
 
@@ -295,8 +296,8 @@ GeometryReader.
   a clipped or shadowed view was added below the row. P12's measurement used
   a stand-alone host with no such layers, so it saw clicks pass.
 - **Fix (approach c): no `NSToolbar`.** The toggle is a SwiftUI overlay again
-  (`ShellWindowControls`), as before P12. Cost: the traffic lights sit at
-  AppKit's default for a hidden title bar (centred 16 pt from the top, not 26).
+  (`ShellWindowControls`), as before P12. The lights stay at AppKit's default
+  for a hidden title bar, and the title band is fitted to them ("Title band").
 - **Rejected:** (a) the whole row as the toolbar's only item. Clicks work
   there, but AppKit sizes a flexible SwiftUI item to its minimum. Its width
   would have to come from window-resize state, and an item one frame too wide
@@ -310,6 +311,35 @@ GeometryReader.
   and that the window has no toolbar. It failed on the P12 code and passes
   now. `TitleBarDragView` accepts the first mouse, like a real title bar, so
   an inactive window drags and zooms from the first click.
+
+## Title band (2026-11-14)
+
+- **One line.** Traffic lights, sidebar toggle, tabs and Search share one
+  centre line, as in the prototype (Joey's complaint was that they did not).
+  The lights cannot move safely (see "Rejected" in P12), so the band follows
+  them.
+- **Measured, not assumed.** `ShellWindowChrome` reads the real close and
+  zoom buttons once at window hookup (next run-loop turn) and again when the
+  window leaves full screen, never from layout. The result goes to
+  `WorkbenchShellModel.titleBar` (`ShellTitleBarMetrics`): band height = 2 ×
+  the close button's centre below the top edge; toggle leading = the zoom
+  button's right edge + 12. The buttons' place does not depend on our
+  content, so nothing feeds back. Implausible values (lights hidden in full
+  screen, band outside 20–60) are ignored. The default, `.standard`, is the
+  macOS 27 measurement: band 32 pt (lights centred 16 pt from the top),
+  zoom button ending at x 69. Only macOS 27 was available to measure; older
+  systems may differ (a 28 pt title bar), which is why it is measured.
+- **Below the band.** The content panel starts 8 pt below it
+  (`DesignTokens.Inset.panel`, 40 pt on macOS 27), and the sidebar tree
+  starts at the same y (`ShellLayout.contentTop`).
+- **Controls.** The destination tabs are 28 pt (`Size.control`, not the
+  32 pt `Size.tab`), so the pill clears the window's top edge in a 32 pt
+  band. Search and the toggle are 28 pt too. All are centred in the band.
+  The old 52 pt `Size.titlebar` token is gone.
+- **Guard.** `ShellTitleBarHitTests` sweeps each control top to bottom and
+  checks that its centre line is the close button's (±1 pt) at 1440 and 900
+  pt, and that the toggle sits 12 pt after the zoom button. It also checks
+  full screen with the lights hidden: toggle at the edge, tabs still clicked.
 
 ## P14: motion pass
 

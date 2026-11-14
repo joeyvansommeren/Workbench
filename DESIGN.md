@@ -62,7 +62,7 @@ and match the prototype's CSS one to one (`Fixtures/workbench-apple-tokens.css` 
 | `TerminalPalette.swift`, `TerminalPaletteResolver.swift` | Terminal colours |
 
 - **Radius:** container 14 (panel, sheet, popover, palette), row 10, item 8 (button, field, menu item), segment 6, small 5.
-- **Sizes:** title bar 52, control 28, row 30, tab 32. **Widths:** sidebar 288, side panel 400, sheet 560, palette 640.
+- **Sizes:** title band = the system title bar (measured; 32 on macOS 27), control 28 (also the title-band tabs), row 30, tab 32. **Widths:** sidebar 288, side panel 400, sheet 560, palette 640.
 - **Window minimum:** 900. Child minimums must add up to no more than that.
 
 ## 3. Palettes and appearance

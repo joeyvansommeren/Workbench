@@ -4,8 +4,8 @@
 //
 //  The window controls next to the traffic lights (`.window-controls` in the
 //  prototype): the sidebar toggle, drawn by SwiftUI at a fixed position in
-//  the 52 pt title row, so it stays put when the sidebar hides. Plus
-//  `ShellWindowChrome`, which reports full screen.
+//  the title band, so it stays put when the sidebar hides. Plus
+//  `ShellWindowChrome`, which reports full screen and the title-bar metrics.
 //
 //  No NSToolbar. P12 made this toggle the window's only toolbar item, for a
 //  52 pt title bar with the traffic lights centred in it. With a toolbar,
@@ -13,29 +13,75 @@
 //  region SwiftUI reports as opaque, and SwiftUI leaves the row's controls
 //  out of it once the content has composited layers (the content panel's
 //  clip and shadow): every click on the tabs and Search became a window
-//  drag. Without a toolbar, clicks reach the content as usual, and the
-//  traffic lights sit where AppKit puts them for a hidden title bar
-//  (x 9–69, centred 16 pt from the top). Shell/README.md, "Title row clicks".
+//  drag. Without a toolbar, clicks reach the content as usual. The traffic
+//  lights then sit where AppKit puts them for a hidden title bar, so the
+//  title band follows them instead: its height is the system title bar's
+//  (`ShellTitleBarMetrics`), and every control is centred on the lights'
+//  line. Shell/README.md, "Title row clicks".
 //
 
 import AppKit
 import SwiftUI
 
+/// Where AppKit puts the traffic lights in this window. The title band is
+/// twice the lights' centre high, so the row's controls share their line.
+///
+/// Read from the real window buttons once, when the window is hooked up and
+/// again when it leaves full screen (`ShellWindowChrome`), never from layout:
+/// the buttons' place does not depend on our content, so nothing can feed
+/// back. The default is the measurement on macOS 27 (a 32 pt title bar,
+/// lights at x 9, 32, 55, centred 16 pt from the top); older systems can
+/// differ, which is why it is measured.
+struct ShellTitleBarMetrics: Equatable {
+  /// Height of the title band: the system title bar.
+  var bandHeight: CGFloat
+  /// Right edge of the zoom button, in window points.
+  var trafficLightsTrailing: CGFloat
+
+  static let standard = ShellTitleBarMetrics(bandHeight: 32, trafficLightsTrailing: 69)
+
+  /// The metrics of `window`, or nil while the lights are hidden (full
+  /// screen) or report something implausible.
+  @MainActor
+  static func measured(in window: NSWindow) -> ShellTitleBarMetrics? {
+    guard
+      !window.styleMask.contains(.fullScreen),
+      let frameView = window.contentView?.superview,
+      let close = window.standardWindowButton(.closeButton),
+      let zoom = window.standardWindowButton(.zoomButton),
+      !close.isHidden
+    else { return nil }
+    // The frame view is not flipped: y grows upward from the bottom edge.
+    let closeCentreFromTop = frameView.bounds.height - close.convert(close.bounds, to: nil).midY
+    let metrics = ShellTitleBarMetrics(
+      bandHeight: (2 * closeCentreFromTop).rounded(),
+      trafficLightsTrailing: zoom.convert(zoom.bounds, to: nil).maxX.rounded()
+    )
+    guard (20...60).contains(metrics.bandHeight), (30...140).contains(metrics.trafficLightsTrailing) else {
+      return nil
+    }
+    return metrics
+  }
+}
+
 /// The sidebar toggle at a fixed place right of the traffic lights, over a
-/// drag area that covers the title row above the sidebar. An overlay on
+/// drag area that covers the title band above the sidebar. An overlay on
 /// `ShellFrame`, so it never moves with the sidebar animation.
 struct ShellWindowControls: View {
   @Environment(WorkbenchShellModel.self) private var shellModel
 
   var body: some View {
     ShellSidebarToggle(shellModel: shellModel)
-      .padding(.leading, ShellLayout.sidebarToggleLeading(isFullScreen: shellModel.isFullScreen))
+      .padding(
+        .leading,
+        ShellLayout.sidebarToggleLeading(isFullScreen: shellModel.isFullScreen, titleBar: shellModel.titleBar)
+      )
       // Over the sidebar, the empty band drags the window like the rest of
       // the row. With the sidebar hidden the title row's own drag area
       // starts at the window edge, so only the toggle's own width is needed.
       .frame(
         width: shellModel.sidebarVisible ? DesignTokens.Width.sidebar : nil,
-        height: DesignTokens.Size.titlebar,
+        height: shellModel.titleBar.bandHeight,
         alignment: .leading
       )
       .background(TitleBarDragArea())
@@ -59,14 +105,16 @@ struct ShellSidebarToggle: View {
   }
 }
 
-/// Reports full screen from the window's full-screen notifications, hooked up
-/// once per window. Never driven by geometry or layout callbacks.
+/// Reports full screen and the title-bar metrics from window notifications,
+/// hooked up once per window. Never driven by geometry or layout callbacks.
 struct ShellWindowChrome: NSViewRepresentable {
   let onFullScreenChange: (Bool) -> Void
+  let onTitleBarMetrics: (ShellTitleBarMetrics) -> Void
 
   func makeNSView(context: Context) -> ShellWindowChromeView {
     let view = ShellWindowChromeView()
     view.onFullScreenChange = onFullScreenChange
+    view.onTitleBarMetrics = onTitleBarMetrics
     return view
   }
 
@@ -75,6 +123,7 @@ struct ShellWindowChrome: NSViewRepresentable {
 
 final class ShellWindowChromeView: NSView {
   var onFullScreenChange: (Bool) -> Void = { _ in }
+  var onTitleBarMetrics: (ShellTitleBarMetrics) -> Void = { _ in }
   private var observers: [NSObjectProtocol] = []
 
   // A listener only: it sits behind the whole frame and must never take a click.
@@ -85,10 +134,12 @@ final class ShellWindowChromeView: NSView {
     observers.forEach(NotificationCenter.default.removeObserver)
     observers = []
     guard let window else { return }
-    let isFullScreen = window.styleMask.contains(.fullScreen)
-    // Next turn: state must not change during a view update.
-    DispatchQueue.main.async { [weak self] in
-      self?.onFullScreenChange(isFullScreen)
+    // Next turn: state must not change during a view update, and AppKit has
+    // laid out the window buttons by then.
+    DispatchQueue.main.async { [weak self, weak window] in
+      guard let self, let window else { return }
+      self.onFullScreenChange(window.styleMask.contains(.fullScreen))
+      self.reportMetrics(of: window)
     }
     let center = NotificationCenter.default
     observers = [
@@ -98,6 +149,18 @@ final class ShellWindowChromeView: NSView {
       center.addObserver(forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main) {
         [weak self] _ in MainActor.assumeIsolated { self?.onFullScreenChange(false) }
       },
+      // A window opened in full screen measures here for the first time.
+      center.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) {
+        [weak self, weak window] _ in MainActor.assumeIsolated {
+          guard let self, let window else { return }
+          self.reportMetrics(of: window)
+        }
+      },
     ]
+  }
+
+  private func reportMetrics(of window: NSWindow) {
+    guard let metrics = ShellTitleBarMetrics.measured(in: window) else { return }
+    onTitleBarMetrics(metrics)
   }
 }

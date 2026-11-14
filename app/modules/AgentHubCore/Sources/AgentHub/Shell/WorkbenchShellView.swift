@@ -204,7 +204,7 @@ where Sidebar == ShellSidebarContainer, Toolbar == ShellToolbar, Detail == Shell
 /// and the main column (title row over the content panel). Generic over its
 /// three slots so each phase swaps one slot and previews/tests can stub them.
 ///
-/// The frame ignores the top safe area: it draws its own 52 pt title row from
+/// The frame ignores the top safe area: it draws its own title band from
 /// the window's top edge and never reads the inset, so a change of inset
 /// (full screen) cannot feed back into the layout. The window has no
 /// `NSToolbar` (Shell/README.md, "Title row clicks"); the sidebar toggle is
@@ -229,6 +229,8 @@ struct ShellFrame<Sidebar: View, Toolbar: View, Detail: View>: View {
             detail
           }
         }
+        // The prototype's 8 pt gap between the title band and the panel.
+        .padding(.top, DesignTokens.Inset.panel)
       }
     }
     .overlay(alignment: .topLeading) {
@@ -237,6 +239,11 @@ struct ShellFrame<Sidebar: View, Toolbar: View, Detail: View>: View {
     .animation(.wbAnimation(DesignTokens.Motion.medium), value: shellModel.sidebarVisible)
     .ignoresSafeArea(.container, edges: .top)
     .background(Color.wbSurfaceWindow.ignoresSafeArea())
-    .background(ShellWindowChrome { shellModel.setFullScreen($0) })
+    .background(
+      ShellWindowChrome(
+        onFullScreenChange: { shellModel.setFullScreen($0) },
+        onTitleBarMetrics: { shellModel.setTitleBar($0) }
+      )
+    )
   }
 }

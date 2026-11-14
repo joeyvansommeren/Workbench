@@ -27,6 +27,9 @@ final class WorkbenchShellModel {
   /// From the window's full-screen notifications (`ShellWindowChrome`). The
   /// traffic lights hide in full screen, so the title row needs less room.
   private(set) var isFullScreen = false
+  /// Where AppKit puts the traffic lights (`ShellWindowChrome`, measured at
+  /// window hookup). The title band follows them.
+  private(set) var titleBar = ShellTitleBarMetrics.standard
   /// Set when the side panel opens, consumed when it appears: only that
   /// appearance fades in (motion plan item 6). Not observed: reading or
   /// consuming it must not re-render anything.
@@ -53,6 +56,11 @@ final class WorkbenchShellModel {
   func setFullScreen(_ isFullScreen: Bool) {
     guard isFullScreen != self.isFullScreen else { return }
     self.isFullScreen = isFullScreen
+  }
+
+  func setTitleBar(_ metrics: ShellTitleBarMetrics) {
+    guard metrics != titleBar else { return }
+    titleBar = metrics
   }
 
   func toggleSidePanel() {

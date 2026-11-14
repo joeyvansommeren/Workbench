@@ -80,13 +80,26 @@ struct WorkbenchShellModelTests {
     model.setFullScreen(false)
     #expect(!model.isFullScreen)
 
-    #expect(ShellLayout.toolbarLeading(sidebarVisible: true, isFullScreen: false) == 0)
-    #expect(ShellLayout.toolbarLeading(sidebarVisible: true, isFullScreen: true) == 0)
-    #expect(ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: false) == ShellLayout.collapsedToolbarLeading)
-    #expect(
-      ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: true)
-        == ShellLayout.fullScreenCollapsedToolbarLeading)
-    #expect(ShellLayout.fullScreenCollapsedToolbarLeading < ShellLayout.collapsedToolbarLeading)
+    let bar = ShellTitleBarMetrics.standard
+    #expect(ShellLayout.toolbarLeading(sidebarVisible: true, isFullScreen: false, titleBar: bar) == 0)
+    #expect(ShellLayout.toolbarLeading(sidebarVisible: true, isFullScreen: true, titleBar: bar) == 0)
+    // Lights end at 69, toggle 12 pt later (81–109), row 14 pt after it.
+    #expect(ShellLayout.sidebarToggleLeading(isFullScreen: false, titleBar: bar) == 81)
+    #expect(ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: false, titleBar: bar) == 123)
+    #expect(ShellLayout.sidebarToggleLeading(isFullScreen: true, titleBar: bar) == 8)
+    #expect(ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: true, titleBar: bar) == 50)
+  }
+
+  @Test("The title band follows the measured title bar; the content starts 8 pt below it")
+  func titleBarMetrics() {
+    let model = WorkbenchShellModel()
+    #expect(model.titleBar == .standard)
+    #expect(ShellLayout.contentTop(titleBar: model.titleBar) == 40)
+    let older = ShellTitleBarMetrics(bandHeight: 28, trafficLightsTrailing: 68)
+    model.setTitleBar(older)
+    #expect(model.titleBar == older)
+    #expect(ShellLayout.contentTop(titleBar: older) == 36)
+    #expect(ShellLayout.sidebarToggleLeading(isFullScreen: false, titleBar: older) == 80)
   }
 
   @Test("Title-bar double-click follows the system preference")
