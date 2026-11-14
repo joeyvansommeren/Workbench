@@ -30,13 +30,15 @@ struct LinearViewModelTests {
     #expect(viewModel.beginStartingSession(for: "issue-1"))
   }
 
-  private func loadedViewModel(_ service: MockLinearService) async -> LinearViewModel {
+  private func loadedViewModel(
+    _ service: MockLinearService, hasAPIKey: @escaping () -> Bool = { true }
+  ) async -> LinearViewModel {
     let suiteName = "LinearViewModelTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defaults.removePersistentDomain(forName: suiteName)
     defaults.set("everyone", forKey: AgentHubDefaults.linearAssigneeFilter)
-    let viewModel = LinearViewModel(service: service, userDefaults: defaults, hasAPIKey: { true })
-    await viewModel.load()
+    let viewModel = LinearViewModel(service: service, userDefaults: defaults, hasAPIKey: hasAPIKey)
+    await viewModel.load(keepsBoardOnFailure: true)
     return viewModel
   }
 
@@ -61,23 +63,82 @@ struct LinearViewModelTests {
     let viewModel = await loadedViewModel(service)
 
     await service.setError(LinearAPIError.network("The Internet connection appears to be offline."))
-    await viewModel.load()
+    await viewModel.load(keepsBoardOnFailure: true)
     #expect(viewModel.loadState == .loaded)
     #expect(viewModel.issues.count == 3)
     #expect(
       viewModel.refreshError == "Could not refresh Linear: The Internet connection appears to be offline.")
 
     await service.setError(LinearAPIError.rateLimited)
-    await viewModel.load()
+    await viewModel.load(keepsBoardOnFailure: true)
     #expect(viewModel.refreshError == LinearViewModel.rateLimitedMessage)
 
     await service.setError(nil)
-    await viewModel.load()
+    await viewModel.load(keepsBoardOnFailure: true)
     #expect(viewModel.refreshError == nil)
 
+    await service.setError(LinearAPIError.network("offline"))
+    await viewModel.load(keepsBoardOnFailure: true)
+    #expect(viewModel.refreshError != nil)
     await service.setError(LinearAPIError.unauthorized)
-    await viewModel.load()
+    await viewModel.load(keepsBoardOnFailure: true)
     #expect(viewModel.loadState == .unauthorized)
+    // The connect state replaces the board, so the old notice goes.
+    #expect(viewModel.refreshError == nil)
+  }
+
+  @Test("The legacy board (keep-board off) shows its failure state on a failed refresh")
+  func legacyRefreshFailure() async {
+    let service = MockLinearService()
+    let viewModel = await loadedViewModel(service)
+
+    await service.setError(LinearAPIError.network("offline"))
+    await viewModel.load()
+    #expect(viewModel.loadState == .failed("offline"))
+    #expect(viewModel.refreshError == nil)
+  }
+
+  @Test("A team switch or a removed key clears a stale refresh notice")
+  func refreshErrorClears() async {
+    let service = MockLinearService()
+    var hasKey = true
+    let viewModel = await loadedViewModel(service, hasAPIKey: { hasKey })
+
+    await service.setError(LinearAPIError.network("offline"))
+    await viewModel.load(keepsBoardOnFailure: true)
+    #expect(viewModel.refreshError != nil)
+    await service.setError(nil)
+    await viewModel.selectTeam("t2")
+    #expect(viewModel.loadState == .loaded)
+    #expect(viewModel.refreshError == nil)
+
+    await service.setError(LinearAPIError.network("offline"))
+    await viewModel.load(keepsBoardOnFailure: true)
+    #expect(viewModel.refreshError != nil)
+    hasKey = false
+    await viewModel.load(keepsBoardOnFailure: true)
+    #expect(viewModel.loadState == .noKey)
+    #expect(viewModel.refreshError == nil)
+  }
+
+  @Test("Two loads at once call Linear once; a later load runs again")
+  func loadIsNotReentrant() async {
+    let service = MockLinearService()
+    let viewModel = await loadedViewModel(service)
+    #expect(await service.workflowStateCalls == 1)
+    await service.holdWorkflowStates()
+
+    let first = Task { await viewModel.load() }
+    while await service.workflowStateCalls < 2 { await Task.yield() }
+    await viewModel.load()
+    #expect(await service.workflowStateCalls == 2)
+
+    await service.releaseWorkflowStates()
+    await first.value
+    #expect(viewModel.loadState == .loaded)
+
+    await viewModel.load()
+    #expect(await service.workflowStateCalls == 3)
   }
 
   @Test("Without a key the board asks to connect and never calls Linear")
@@ -112,7 +173,21 @@ private actor MockLinearService: LinearIssueReading, LinearIssueTransitioning {
     return LinearCycle(id: "c1", number: 12, name: nil, startsAt: Date(), endsAt: Date().addingTimeInterval(86_400))
   }
 
+  private(set) var workflowStateCalls = 0
+  private var holdsWorkflowStates = false
+  private var workflowStatesHold: CheckedContinuation<Void, Never>?
+
+  func holdWorkflowStates() { holdsWorkflowStates = true }
+
+  func releaseWorkflowStates() {
+    holdsWorkflowStates = false
+    workflowStatesHold?.resume()
+    workflowStatesHold = nil
+  }
+
   func workflowStates(teamID: String) async throws -> [LinearWorkflowState] {
+    workflowStateCalls += 1
+    if holdsWorkflowStates { await withCheckedContinuation { workflowStatesHold = $0 } }
     if let error { throw error }
     return [Self.todo, Self.doing]
   }

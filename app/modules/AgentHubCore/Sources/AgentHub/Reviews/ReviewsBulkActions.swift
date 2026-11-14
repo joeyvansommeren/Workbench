@@ -52,6 +52,10 @@ struct ReviewsBulkActions {
 /// another; the bar shows this with a Stop button until the last one starts.
 struct ReviewsBulkLaunchProgress: Equatable {
   let total: Int
+  /// Pull requests handled so far: launched or skipped.
+  private(set) var processed = 0
+  /// Launches that began, including one still in flight. Skipped pull
+  /// requests (a review already starting) do not count.
   private(set) var started = 0
 
   init(total: Int) {
@@ -59,14 +63,86 @@ struct ReviewsBulkLaunchProgress: Equatable {
   }
 
   /// The one that is starting now, counted from 1.
-  var current: Int { min(started + 1, total) }
-  var isFinished: Bool { started >= total }
+  var current: Int { min(processed + 1, total) }
+  var isFinished: Bool { processed >= total }
 
-  mutating func advance() {
+  /// A launch began for the next pull request.
+  mutating func begin() {
     started = min(started + 1, total)
   }
 
+  /// The next pull request is done: launched or skipped.
+  mutating func advance() {
+    processed = min(processed + 1, total)
+  }
+
   var text: String { "Starting \(current) of \(total)" }
+}
+
+/// Runs a bulk launch one pull request at a time, and Stop. Owned by the
+/// Reviews screen; a new run supersedes the old one, whose loop then ends
+/// without touching the new progress.
+@MainActor
+@Observable
+final class ReviewsBulkLaunchRunner {
+  private(set) var progress: ReviewsBulkLaunchProgress?
+  @ObservationIgnored private var task: Task<Void, Never>?
+  @ObservationIgnored private var runID: UUID?
+  /// The latest loop, kept after Stop so tests can wait for its launch in flight.
+  @ObservationIgnored private var lastTask: Task<Void, Never>?
+
+  var isRunning: Bool { progress != nil }
+
+  /// - Parameters:
+  ///   - begin: Claims the item for a launch; false skips it (for example a
+  ///     review of that pull request is already starting).
+  ///   - launch: Starts the claimed item. Runs to the end even after Stop,
+  ///     so it can release its claim.
+  func run<Item>(
+    _ items: [Item],
+    begin: @escaping (Item) -> Bool,
+    launch: @escaping (Item) async -> Void
+  ) {
+    task?.cancel()
+    let id = UUID()
+    runID = id
+    progress = ReviewsBulkLaunchProgress(total: items.count)
+    task = Task { [weak self] in
+      for item in items {
+        guard let self, self.runID == id, !Task.isCancelled else { return }
+        if begin(item) {
+          self.progress?.begin()
+          await launch(item)
+        }
+        guard self.runID == id else { return }
+        self.progress?.advance()
+      }
+      guard let self, self.runID == id else { return }
+      self.finish()
+    }
+    lastTask = task
+  }
+
+  /// Stops after the launch in flight. Returns how many launches began,
+  /// including that one; nil when nothing ran.
+  @discardableResult
+  func stop() -> Int? {
+    let started = progress?.started
+    task?.cancel()
+    finish()
+    return started
+  }
+
+  /// Waits for the latest loop, including a launch in flight at Stop; for tests.
+  func waitUntilDone() async {
+    await lastTask?.value
+  }
+
+  private func finish() {
+    task = nil
+    runID = nil
+    progress = nil
+  }
 }
 
 /// "Starting 3 of 40" and Stop, in the bar while a bulk launch runs. Takes

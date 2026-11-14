@@ -73,7 +73,7 @@ public struct SplitButton<Label: View, MenuContent: View>: View {
       .disabled(!isPrimaryEnabled)
       .keyboardShortcut(primaryShortcut)
       .help(primaryHelp ?? "")
-      .modifier(SplitPrimaryAccessibilityLabel(label: primaryAccessibilityLabel))
+      .optionalAccessibilityLabel(primaryAccessibilityLabel)
 
       // .borderlessButton lets AppKit draw the label: it ignores the token colour
       // (white chevron on Warm dark's near-white accent) and adds a second arrow.
@@ -121,20 +121,6 @@ extension SplitButton where Label == Text {
       label: { Text(title) },
       menu: menu
     )
-  }
-}
-
-/// Sets the left half's VoiceOver label only when the caller gives one, so a
-/// text label keeps reading as its own text.
-private struct SplitPrimaryAccessibilityLabel: ViewModifier {
-  let label: String?
-
-  func body(content: Content) -> some View {
-    if let label {
-      content.accessibilityLabel(label)
-    } else {
-      content
-    }
   }
 }
 

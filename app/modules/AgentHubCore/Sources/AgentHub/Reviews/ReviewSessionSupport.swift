@@ -39,9 +39,10 @@ struct ReviewSessionSupport {
 
   /// Everything the links for `pullRequests` depend on, as one hash: the pull
   /// requests, their launches, each provider's session inventory and the
-  /// known Jira projects. Not statuses or activity times: those change on
-  /// every agent update, and `ReviewsSessionLinkCache` applies statuses
-  /// separately. Reading these also keeps the caller observing them.
+  /// known Jira projects. Not statuses: those change on every agent update,
+  /// and `ReviewsSessionLinkCache` applies them separately. Activity times
+  /// count by the minute (`sessionKey`). Reading these also keeps the caller
+  /// observing them.
   func linkKey(for pullRequests: [GitHubProjectPullRequest]) -> Int {
     var hasher = Hasher()
     for pullRequest in pullRequests {
@@ -58,15 +59,7 @@ struct ReviewSessionSupport {
     for sessions in [claude, codex] {
       hasher.combine(sessions.providerKind)
       for session in sessions.allSessions {
-        hasher.combine(session.id)
-        hasher.combine(session.projectPath)
-        hasher.combine(session.branchName)
-        hasher.combine(session.slug)
-        hasher.combine(session.isActive)
-        // Lengths, not text: the prompts can be long, and they only change
-        // when the user sends a message.
-        hasher.combine(session.firstMessage?.utf8.count)
-        hasher.combine(session.lastMessage?.utf8.count)
+        Self.combineSessionKey(session, into: &hasher)
       }
       for pending in sessions.pendingHubSessions {
         hasher.combine(pending.id)
@@ -77,6 +70,27 @@ struct ReviewSessionSupport {
     }
     hasher.combine(agentHub.jiraSprintViewModel.knownProjectKeys)
     return hasher.finalize()
+  }
+
+  /// The parts of a session the links depend on.
+  static func combineSessionKey(_ session: CLISession, into hasher: inout Hasher) {
+    hasher.combine(session.id)
+    hasher.combine(session.projectPath)
+    hasher.combine(session.branchName)
+    hasher.combine(session.slug)
+    hasher.combine(session.isActive)
+    // Lengths, not text: the prompts can be long, and they only change
+    // when the user sends a message.
+    hasher.combine(session.firstMessage?.utf8.count)
+    hasher.combine(session.lastMessage?.utf8.count)
+    // The linker keeps the most recent session per provider and puts the
+    // most recent first, so activity must relink. By the minute, so a busy
+    // agent relinks at most once a minute, not on every update.
+    hasher.combine(activityMinute(session.lastActivityAt))
+  }
+
+  static func activityMinute(_ date: Date) -> Int {
+    Int((date.timeIntervalSince1970 / 60).rounded(.down))
   }
 
   /// Every session's current status, per provider.

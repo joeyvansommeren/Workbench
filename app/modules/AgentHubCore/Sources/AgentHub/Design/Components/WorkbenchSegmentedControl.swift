@@ -85,7 +85,7 @@ public struct WorkbenchSegmentedControl<T: Hashable>: View {
       in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
     )
     .accessibilityElement(children: .contain)
-    .modifier(OptionalAccessibilityLabel(label: accessibilityLabel))
+    .optionalAccessibilityLabel(accessibilityLabel)
     .optionalAccessibilityIdentifier(accessibilityIdentifier)
   }
 
@@ -195,19 +195,5 @@ private struct WBSegmentBody: View {
       .opacity(isEnabled ? 1 : DesignTokens.Opacity.disabled)
       .wbFocusRing(isFocused, cornerRadius: DesignTokens.Radius.segment)
       .onHover { isHovered = $0 }
-  }
-}
-
-/// Applies an accessibility label only when one is given, so an unlabelled
-/// container does not read as an empty string.
-private struct OptionalAccessibilityLabel: ViewModifier {
-  let label: String?
-
-  func body(content: Content) -> some View {
-    if let label {
-      content.accessibilityLabel(label)
-    } else {
-      content
-    }
   }
 }

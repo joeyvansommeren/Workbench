@@ -169,12 +169,15 @@ public final class LinearViewModel {
 
   // MARK: - Loading
 
-  /// A refresh that fails while issues are on screen keeps the board and sets
-  /// `refreshError`. A rejected or missing key still shows the connect state.
-  public func load() async {
+  /// - Parameter keepsBoardOnFailure: The new shell's board passes true: a
+  ///   refresh that fails while issues are on screen keeps the board and sets
+  ///   `refreshError`. A rejected or missing key still shows the connect
+  ///   state. The legacy board keeps its failure states.
+  public func load(keepsBoardOnFailure: Bool = false) async {
     // Fast clicks on Retry or Refresh must not start parallel loads.
     guard loadState != .loading else { return }
     guard hasAPIKey() else {
+      refreshError = nil
       loadState = .noKey
       return
     }
@@ -188,14 +191,17 @@ public final class LinearViewModel {
       refreshError = nil
     } catch {
       let failure = Self.mapError(error)
+      let keepsBoard = keepsBoardOnFailure && !issues.isEmpty
       switch failure {
-      case .failed(let message) where !issues.isEmpty:
+      case .failed(let message) where keepsBoard:
         loadState = .loaded
         refreshError = "Could not refresh Linear: \(SprintErrorText.summary(message))"
-      case .rateLimited where !issues.isEmpty:
+      case .rateLimited where keepsBoard:
         loadState = .loaded
         refreshError = Self.rateLimitedMessage
       default:
+        // The failure state replaces the board, so a refresh notice is stale.
+        refreshError = nil
         loadState = failure
       }
     }
@@ -220,7 +226,9 @@ public final class LinearViewModel {
     do {
       try await loadTeamData()
       loadState = .loaded
+      refreshError = nil
     } catch {
+      refreshError = nil
       loadState = Self.mapError(error)
     }
   }

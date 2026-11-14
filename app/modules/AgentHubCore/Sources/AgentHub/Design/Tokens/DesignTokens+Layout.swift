@@ -263,16 +263,21 @@ extension DesignTokens {
 extension View {
   /// The prototype's `:focus-visible` ring: 3 pt of `wbFocusRing`, 1 pt
   /// outside the control's edge. An overlay, so it never changes layout.
+  /// Drawn only while macOS keyboard navigation is on, like the system's own
+  /// focus rings (`KeyboardNavigationSetting`).
   @MainActor
   public func wbFocusRing(_ isFocused: Bool, cornerRadius: CGFloat) -> some View {
-    overlay {
-      if isFocused {
-        // A centred 3 pt stroke 2.5 pt outside the edge covers 1–4 pt outside.
-        RoundedRectangle(cornerRadius: cornerRadius + 2.5, style: .continuous)
-          .stroke(Color.wbFocusRing, lineWidth: 3)
-          .padding(-2.5)
-          .allowsHitTesting(false)
-      }
+    modifier(WBFocusRing(isFocused: isFocused, cornerRadius: cornerRadius))
+  }
+
+  /// Sets the accessibility label only when there is one, so an unlabelled
+  /// view keeps its own label instead of reading as an empty string.
+  @ViewBuilder
+  public func optionalAccessibilityLabel(_ label: String?) -> some View {
+    if let label {
+      accessibilityLabel(label)
+    } else {
+      self
     }
   }
 
@@ -284,6 +289,25 @@ extension View {
       accessibilityIdentifier(identifier)
     } else {
       self
+    }
+  }
+}
+
+private struct WBFocusRing: ViewModifier {
+  let isFocused: Bool
+  let cornerRadius: CGFloat
+
+  func body(content: Content) -> some View {
+    // Read here, in the body, so the view observes the setting.
+    let showsRing = isFocused && KeyboardNavigationSetting.shared.isEnabled
+    content.overlay {
+      if showsRing {
+        // A centred 3 pt stroke 2.5 pt outside the edge covers 1–4 pt outside.
+        RoundedRectangle(cornerRadius: cornerRadius + 2.5, style: .continuous)
+          .stroke(Color.wbFocusRing, lineWidth: 3)
+          .padding(-2.5)
+          .allowsHitTesting(false)
+      }
     }
   }
 }

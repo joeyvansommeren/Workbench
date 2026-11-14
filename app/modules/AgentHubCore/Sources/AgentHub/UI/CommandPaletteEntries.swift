@@ -164,20 +164,30 @@ enum CommandPaletteEntries {
     results(query: query, sessions: sessions, pullRequests: pullRequests).entries
   }
 
+  /// - Parameter activeEntryID: The highlighted row. It always stays in its
+  ///   group, even past a cap: a live status reorder must not push it out,
+  ///   or Return would run another row.
   static func results(
     query: String,
     sessions: [CommandPaletteSessionInput],
     pullRequests: [CommandPalettePullRequestInput],
+    activeEntryID: String? = nil,
     groupLimit: Int = typedGroupLimit
   ) -> CommandPaletteResults {
     let all = allEntries(sessions: sessions, pullRequests: pullRequests)
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
     guard !trimmed.isEmpty else {
+      func capped(_ group: CommandPaletteGroup, _ limit: Int) -> [CommandPaletteEntry] {
+        let members = all.filter { $0.group == group }
+        return members.enumerated()
+          .filter { $0.offset < limit || $0.element.id == activeEntryID }
+          .map(\.element)
+      }
       return CommandPaletteResults(
-        entries: Array(all.filter { $0.group == .sessions }.prefix(idleSessionLimit))
+        entries: capped(.sessions, idleSessionLimit)
           + all.filter { $0.group == .goTo }
-          + Array(all.filter { $0.group == .commands }.prefix(idleCommandLimit)),
+          + capped(.commands, idleCommandLimit),
         hiddenCounts: [:]
       )
     }
@@ -187,7 +197,7 @@ enum CommandPaletteEntries {
     var hiddenCounts: [CommandPaletteGroup: Int] = [:]
     for entry in all where firstMatch(of: trimmed, in: "\(entry.title) \(entry.meta)") != nil {
       let isCapped = entry.group == .sessions || entry.group == .pullRequests
-      if isCapped, shownCounts[entry.group, default: 0] >= groupLimit {
+      if isCapped, entry.id != activeEntryID, shownCounts[entry.group, default: 0] >= groupLimit {
         hiddenCounts[entry.group, default: 0] += 1
         continue
       }

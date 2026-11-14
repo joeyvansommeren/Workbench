@@ -35,7 +35,7 @@ struct LinearSprintDestination: View {
         if let refreshError = viewModel.refreshError {
           SprintNoticeView(
             text: refreshError, isError: true,
-            onRetry: { Task { await viewModel.load() } },
+            onRetry: { Task { await viewModel.load(keepsBoardOnFailure: true) } },
             onDismiss: viewModel.dismissRefreshError)
         }
         content
@@ -45,7 +45,7 @@ struct LinearSprintDestination: View {
     }
     .task {
       if viewModel.loadState == .idle || viewModel.loadState == .noKey {
-        await viewModel.load()
+        await viewModel.load(keepsBoardOnFailure: true)
       }
     }
     .onDisappear { viewModel.closeIssue() }
@@ -186,7 +186,7 @@ struct LinearSprintDestination: View {
 
   private var refreshButton: some View {
     SprintRefreshButton(isLoading: viewModel.loadState == .loading, accessibilityLabel: "Refresh issues") {
-      Task { await viewModel.load() }
+      Task { await viewModel.load(keepsBoardOnFailure: true) }
     }
   }
 
@@ -362,7 +362,7 @@ private struct LinearRetryState: View {
     ) {
       // A load swaps this screen for the spinner; the view model also ignores
       // a second load while one runs.
-      Button("Retry") { Task { await viewModel.load() } }
+      Button("Retry") { Task { await viewModel.load(keepsBoardOnFailure: true) } }
         .buttonStyle(.wbPrimary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)

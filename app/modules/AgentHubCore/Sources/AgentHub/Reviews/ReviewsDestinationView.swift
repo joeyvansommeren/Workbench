@@ -49,9 +49,7 @@ struct ReviewsDestinationView: View {
   @State private var detailWasClosed = false
   /// A running "Start for N" launch: its progress in the bar, and the task
   /// Stop cancels. The id tells a finished launch from a newer one.
-  @State private var bulkProgress: ReviewsBulkLaunchProgress?
-  @State private var bulkLaunchTask: Task<Void, Never>?
-  @State private var bulkLaunchID: UUID?
+  @State private var bulkLauncher = ReviewsBulkLaunchRunner()
   @State private var isFiltersOpen = false
   @State private var linkCache = ReviewsSessionLinkCache()
 
@@ -82,7 +80,7 @@ struct ReviewsDestinationView: View {
         feedback: bulkFeedback,
         onRetry: { await support.recoverAndRestoreSessions() }
       ) {
-        if let bulkProgress {
+        if let bulkProgress = bulkLauncher.progress {
           ReviewsBulkLaunchProgressView(progress: bulkProgress, onStop: stopBulkLaunch)
         } else if !bulkActions.isEmpty {
           ReviewsBulkActionsMenu(
@@ -368,36 +366,23 @@ struct ReviewsDestinationView: View {
   /// Stop button until the last one has started.
   private func runBulkLaunch(_ launch: GitHubReviewBulkLaunch) {
     pendingBulkLaunch = nil
-    bulkLaunchTask?.cancel()
-    let launchID = UUID()
-    bulkLaunchID = launchID
-    bulkProgress = ReviewsBulkLaunchProgress(total: launch.pullRequests.count)
-    bulkLaunchTask = Task {
-      for pullRequest in launch.pullRequests {
-        if Task.isCancelled { break }
-        if viewModel.beginStartingReview(for: pullRequest.id) {
-          await actions.startReview(pullRequest, provider: launch.provider, template: launch.template)
-          viewModel.endStartingReview(for: pullRequest.id)
-        }
-        guard bulkLaunchID == launchID else { return }
-        bulkProgress?.advance()
+    let viewModel = viewModel
+    let actions = actions
+    bulkLauncher.run(
+      launch.pullRequests,
+      begin: { viewModel.beginStartingReview(for: $0.id) },
+      launch: { pullRequest in
+        await actions.startReview(pullRequest, provider: launch.provider, template: launch.template)
+        viewModel.endStartingReview(for: pullRequest.id)
       }
-      guard bulkLaunchID == launchID else { return }
-      bulkProgress = nil
-      bulkLaunchTask = nil
-      bulkLaunchID = nil
-    }
+    )
   }
 
   private func stopBulkLaunch() {
     MainThreadStallMonitor.breadcrumb("reviews bulk: stop")
-    bulkLaunchTask?.cancel()
-    if let bulkProgress {
-      bulkFeedback = "Stopped after \(ReviewsCopy.count(bulkProgress.started, "session"))"
+    if let started = bulkLauncher.stop() {
+      bulkFeedback = "Stopped after \(ReviewsCopy.count(started, "session"))"
     }
-    bulkLaunchTask = nil
-    bulkProgress = nil
-    bulkLaunchID = nil
   }
 
   private func announce(_ text: String?) {

@@ -97,10 +97,15 @@ struct JiraSprintDestination: View {
       }
     } content: {
       VStack(spacing: 0) {
+        if let refreshError = viewModel.refreshError {
+          SprintNoticeView(
+            text: refreshError, isError: true,
+            onRetry: { Task { await viewModel.load(keepsBoardOnFailure: true) } },
+            onDismiss: viewModel.dismissRefreshError)
+        }
         if let notice = viewModel.statusNotice {
           SprintNoticeView(
-            text: notice.text, isError: notice.isError,
-            onRetry: notice.canRetry ? { Task { await viewModel.load() } } : nil,
+            text: notice.text, isError: notice.isError, onRetry: nil,
             onDismiss: viewModel.dismissStatusNotice)
         }
         content
@@ -112,7 +117,7 @@ struct JiraSprintDestination: View {
       JiraSyncPlanSheet(viewModel: viewModel)
     }
     .task {
-      if viewModel.state == .idle { await viewModel.load() }
+      if viewModel.state == .idle { await viewModel.load(keepsBoardOnFailure: true) }
     }
     .onDisappear { viewModel.closeTicket() }
   }
@@ -252,7 +257,7 @@ struct JiraSprintDestination: View {
 
   private var refreshButton: some View {
     SprintRefreshButton(isLoading: viewModel.state == .loading, accessibilityLabel: "Refresh sprint") {
-      Task { await viewModel.load() }
+      Task { await viewModel.load(keepsBoardOnFailure: true) }
     }
   }
 
@@ -516,7 +521,7 @@ private struct JiraSprintFailureView: View {
   private func retryButton(style: RetryStyle) -> some View {
     // A load swaps this screen for the spinner; the view model also ignores a
     // second load while one runs.
-    let button = Button("Retry") { Task { await viewModel.load() } }
+    let button = Button("Retry") { Task { await viewModel.load(keepsBoardOnFailure: true) } }
       .disabled(viewModel.isConnecting)
     switch style {
     case .primary: button.buttonStyle(.wbPrimary)

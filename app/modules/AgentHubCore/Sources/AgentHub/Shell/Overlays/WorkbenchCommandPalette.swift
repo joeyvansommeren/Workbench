@@ -21,7 +21,8 @@ struct WorkbenchCommandPalette: View {
   @FocusState private var isSearchFocused: Bool
 
   private var results: CommandPaletteResults {
-    CommandPaletteEntries.results(query: query, sessions: sessions, pullRequests: pullRequests)
+    CommandPaletteEntries.results(
+      query: query, sessions: sessions, pullRequests: pullRequests, activeEntryID: activeEntryID)
   }
 
   var body: some View {

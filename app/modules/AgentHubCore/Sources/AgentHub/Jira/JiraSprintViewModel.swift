@@ -86,6 +86,8 @@ public final class JiraSprintViewModel {
   public private(set) var loadingPullRequestKeys: Set<String> = []
   /// Result of the last pick-up's move to In Progress, shown in the detail panel.
   public private(set) var statusNotice: StatusNotice?
+  /// A refresh failed while tickets were on screen; the board stays.
+  public private(set) var refreshError: String?
   /// Ticket keys with a session launch in flight (prevents double starts).
   public private(set) var startingSessionKeys = Set<String>()
   private var loadedStatuses: [(name: String, category: String?)] = []
@@ -138,8 +140,6 @@ public final class JiraSprintViewModel {
     public let ticketKey: String
     public let text: String
     public let isError: Bool
-    /// A failed refresh: the notice offers Retry.
-    public var canRetry = false
   }
 
   public var searchText = ""
@@ -303,10 +303,12 @@ public final class JiraSprintViewModel {
   // MARK: - Loading
 
   /// Loads account, boards, the sprints of the selected board, and the selected sprint's tickets.
-  /// A refresh that fails while tickets are on screen keeps the board and
-  /// shows the error as a notice with Retry. Only an auth error or a missing
-  /// acli replaces it, because those need Connect or the install command.
-  public func load() async {
+  /// - Parameter keepsBoardOnFailure: The new shell's board passes true: a
+  ///   refresh that fails while tickets are on screen keeps the board and sets
+  ///   `refreshError`. Only an auth error or a missing acli replaces it,
+  ///   because those need Connect or the install command. The legacy view
+  ///   keeps its failure screen.
+  public func load(keepsBoardOnFailure: Bool = false) async {
     // Fast clicks on Retry or Refresh must not start parallel loads.
     guard state != .loading else { return }
     state = .loading
@@ -314,22 +316,22 @@ public final class JiraSprintViewModel {
       if account == nil { account = try await service.currentAccount() }
       if boards.isEmpty { boards = try await service.boards() }
       if selectedBoard == nil { selectedBoardID = boards.first?.id }
-      try await loadSprintsAndTickets()
+      try await loadSprintsAndTickets(isRefresh: !sprintTickets.isEmpty)
       state = .loaded
-      if statusNotice?.canRetry == true { statusNotice = nil }
+      refreshError = nil
     } catch {
       let kind = Self.failureKind(for: error)
-      if !sprintTickets.isEmpty, kind == .network || kind == .other {
+      if keepsBoardOnFailure, !sprintTickets.isEmpty, kind == .network || kind == .other {
         state = .loaded
-        statusNotice = StatusNotice(
-          ticketKey: "",
-          text: "Could not refresh Jira: \(SprintErrorText.summary(Self.message(for: error)))",
-          isError: true,
-          canRetry: true)
+        refreshError = "Could not refresh Jira: \(SprintErrorText.summary(Self.message(for: error)))"
       } else {
         fail(with: error)
       }
     }
+  }
+
+  public func dismissRefreshError() {
+    refreshError = nil
   }
 
   /// Loads once in the background, e.g. so sessions can show their ticket chip.
@@ -356,22 +358,33 @@ public final class JiraSprintViewModel {
     state = .loading
     closeTicket()
     do {
-      try await loadSprintsAndTickets()
+      // Another board or sprint: its tickets are not on screen yet.
+      try await loadSprintsAndTickets(isRefresh: false)
       state = .loaded
+      refreshError = nil
     } catch {
       fail(with: error)
     }
   }
 
-  private func loadSprintsAndTickets() async throws {
+  /// - Parameter isRefresh: The selected board's tickets are on screen. Then
+  ///   an `openSprints` error is rethrown and the current sprints stay.
+  private func loadSprintsAndTickets(isRefresh: Bool) async throws {
     guard let boardID = selectedBoardID else {
       sprints = []
       sprintTickets = []
       loadedStatuses = []
       return
     }
-    // Boards without sprint support (kanban/simple) error here; treat as "no sprints".
-    sprints = (try? await service.openSprints(boardID: boardID)) ?? []
+    do {
+      sprints = try await service.openSprints(boardID: boardID)
+    } catch {
+      // A refresh or an offline load reports the error and keeps what it has.
+      // Boards without sprint support (kanban/simple) also error here; on
+      // their first load that means "no sprints".
+      if isRefresh || Self.failureKind(for: error) == .network { throw error }
+      sprints = []
+    }
     if selectedSprint == nil {
       selectedSprintID = (sprints.first(where: \.isActive) ?? sprints.first)?.id
     }
@@ -677,6 +690,8 @@ public final class JiraSprintViewModel {
   public var isCLIMissing: Bool { failureKind == .cliMissing }
 
   private func fail(with error: Error) {
+    // The failure screen replaces the board, so a refresh notice is stale.
+    refreshError = nil
     failureKind = Self.failureKind(for: error)
     state = .failed(Self.message(for: error))
   }
