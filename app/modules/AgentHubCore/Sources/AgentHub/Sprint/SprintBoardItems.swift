@@ -29,6 +29,8 @@ struct SprintTicketItem: Identifiable, Equatable {
   let assigneeName: String?
   let isDone: Bool
   let footer: SprintTicketFooter?
+  /// A session launch from the board is in flight.
+  var isStarting = false
 
   /// Hover "Start session" shows on open tickets without a session.
   var canStart: Bool {
@@ -120,6 +122,7 @@ enum SprintBoardItems {
     columns: [JiraSprintViewModel.BoardColumn],
     linkedSessions: [String: [JiraLinkedSession]],
     pullRequests: [String: [GitHubProjectPullRequest]],
+    startingKeys: Set<String> = [],
     status: (SessionProviderKind, String) -> SessionStatus?
   ) -> [SprintColumnItem] {
     columns.map { column in
@@ -139,7 +142,8 @@ enum SprintBoardItems {
               sessions: (linkedSessions[ticket.key] ?? []).map { summary($0) },
               pullRequests: pullRequests[ticket.key],
               status: status
-            )
+            ),
+            isStarting: startingKeys.contains(ticket.key)
           )
         }
       )
@@ -151,6 +155,7 @@ enum SprintBoardItems {
   static func linear(
     columns: [LinearViewModel.BoardColumn],
     linkedSessions: [String: [LinearLinkedSession]],
+    startingIDs: Set<String> = [],
     status: (SessionProviderKind, String) -> SessionStatus?
   ) -> [SprintColumnItem] {
     columns.map { column in
@@ -170,7 +175,8 @@ enum SprintBoardItems {
               sessions: (linkedSessions[issue.identifier] ?? []).map { summary($0) },
               pullRequests: nil,
               status: status
-            )
+            ),
+            isStarting: startingIDs.contains(issue.id)
           )
         }
       )

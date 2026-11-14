@@ -5,7 +5,7 @@
 //  The session side panel (`.side-panel` in the prototype): Diff | Plan plus
 //  the extras that apply (`SidePanelSegments`), the diffstat, the panel body
 //  (`SidePanelContentView`, shared with the legacy panel) and
-//  "Commit N files…".
+//  "Commit N files".
 //
 
 import AgentHubGitDiff
@@ -68,7 +68,8 @@ struct DiffStat: View {
   var body: some View {
     HStack(spacing: DesignTokens.Spacing.xsPlus) {
       Text("+\(additions)").foregroundStyle(Color.wbDiffAddedText)
-      Text("-\(deletions)").foregroundStyle(Color.wbDiffRemovedText)
+      // U+2212, as in the pull request detail: same width as "+".
+      Text("−\(deletions)").foregroundStyle(Color.wbDiffRemovedText)
     }
     .wbText(.codeSmall)
     .monospacedDigit()

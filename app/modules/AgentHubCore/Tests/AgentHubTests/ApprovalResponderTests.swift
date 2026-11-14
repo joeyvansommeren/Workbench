@@ -305,23 +305,19 @@ struct ApprovalResponderTests {
 
   // MARK: Refusal fallbacks
 
-  @Test("The tree pill opens the session only when the app could not answer")
-  func sidebarOpensSessionOnRefusalOnly() {
-    let node = SessionNode(
-      id: "s1", session: CLISession(id: "s1", projectPath: "/tmp/Repo"), providerKind: .claude,
-      isPending: false, status: .awaitingApproval(tool: "Bash"), pendingToolName: "Bash")
-    var opened: [String] = []
-    var outcome = ApprovalResponseOutcome.sent
-    let approve = SidebarApproval.respond(
-      answer: { _ in outcome }, openSession: { opened.append($0.id) })
-
-    approve(node)
-    #expect(opened.isEmpty)
-    outcome = .answerInTerminal(.menuNotVisible)
-    approve(node)
-    outcome = .answerInTerminal(.alreadyAnswered)
-    approve(node)
-    #expect(opened == ["s1", "s1"])
+  @Test("The tree pill's tooltip and label name the command it opens to approve")
+  func sidebarPillNamesTheCommand() {
+    let presentation = ApprovalRequestPresentation(toolName: "Bash", input: "make test && rm -rf build")
+    #expect(
+      SidebarApprovePillText.help(nil, presentation: presentation)
+        == "Open the session to approve:\nmake test && rm -rf build")
+    #expect(
+      SidebarApprovePillText.accessibilityLabel(toolName: "Bash", presentation: presentation)
+        == "Review approval: make test && rm -rf build")
+    #expect(SidebarApprovePillText.help(nil, presentation: nil) == "Open the session to approve")
+    #expect(SidebarApprovePillText.accessibilityLabel(toolName: "Bash", presentation: nil) == "Review approval: Bash")
+    #expect(
+      SidebarApprovePillText.help(.checkTerminal, presentation: presentation) == "Sent once. Check the terminal.")
   }
 
   @Test("The chat Approve switches to the terminal only when the app could not answer")

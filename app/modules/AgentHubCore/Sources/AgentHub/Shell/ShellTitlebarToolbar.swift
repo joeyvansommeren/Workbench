@@ -65,7 +65,7 @@ struct ShellSidebarToggle: View {
     ) {
       shellModel.toggleSidebar()
     }
-    .help(shellModel.sidebarVisible ? "Hide sidebar  ⌃⌘S" : "Show sidebar  ⌃⌘S")
+    .help("\(shellModel.sidebarVisible ? "Hide" : "Show") sidebar  \(ShellShortcut.toggleSidebar.keyCaps.joined())")
     .fixedSize()
   }
 }

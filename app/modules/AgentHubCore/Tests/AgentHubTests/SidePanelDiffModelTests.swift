@@ -238,6 +238,37 @@ struct SidePanelDiffModelTests {
     #expect(rendered.hunks.map(\.lines.count) == [3, 2])
     #expect(rendered.totalLineCount == 12)
     #expect(rendered.isTruncated)
+    #expect(!rendered.hasShortenedLines)
+  }
+
+  @Test("Very long lines keep their start and a flag; short lines are untouched")
+  func longLinesAreShortened() {
+    var lastLine = SidePanelDiffLine(kind: .added, oldLineNumber: nil, newLineNumber: 2, text: String(repeating: "x", count: 50))
+    lastLine.hasNoNewlineAtEnd = true
+    let hunk = SidePanelDiffHunk(
+      header: "@@", oldStart: 1, oldCount: 0, newStart: 1, newCount: 2,
+      lines: [
+        SidePanelDiffLine(kind: .added, oldLineNumber: nil, newLineNumber: 1, text: "short"),
+        lastLine,
+      ])
+    let rendered = SidePanelDiffModel.rendered(path: "x", hunks: [hunk], lineLimit: 10)
+    let lines = rendered.hunks[0].lines
+    #expect(lines[0].text == "short")
+    #expect(lines[1].text == String(repeating: "x", count: 10) + "…")
+    #expect(lines[1].hasNoNewlineAtEnd)
+    #expect(lines[1].newLineNumber == 2)
+    #expect(rendered.hasShortenedLines)
+  }
+
+  @Test("The file list shows eight rows until expanded or the selection passes them")
+  func fileListWindow() {
+    #expect(SidePanelFileListWindow.visibleCount(total: 5, selectedIndex: 0, isExpanded: false) == 5)
+    // One hidden row would cost a "Show all" row anyway.
+    #expect(SidePanelFileListWindow.visibleCount(total: 9, selectedIndex: 0, isExpanded: false) == 9)
+    #expect(SidePanelFileListWindow.visibleCount(total: 300, selectedIndex: 0, isExpanded: false) == 8)
+    #expect(SidePanelFileListWindow.visibleCount(total: 300, selectedIndex: nil, isExpanded: false) == 8)
+    #expect(SidePanelFileListWindow.visibleCount(total: 300, selectedIndex: 8, isExpanded: false) == 300)
+    #expect(SidePanelFileListWindow.visibleCount(total: 300, selectedIndex: 0, isExpanded: true) == 300)
   }
 
   @Test("Staging moves the automatic list from Unstaged to Staged; an explicit Unstaged empties")

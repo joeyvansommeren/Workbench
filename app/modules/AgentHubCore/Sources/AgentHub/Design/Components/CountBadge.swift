@@ -18,6 +18,8 @@ public struct CountBadge: View {
     case neutral
     /// Accent background, on-accent text. Used for active filter counts.
     case accent
+    /// Attention tint and text. Used for "needs attention" counts.
+    case attention
   }
 
   public init(_ count: Int, style: Style = .neutral) {
@@ -27,7 +29,8 @@ public struct CountBadge: View {
 
   public var body: some View {
     Text("\(count)")
-      .font(.system(size: 11, weight: .semibold))
+      // Prototype `.count-badge`: Inter 600 11px, tabular figures.
+      .font(WorkbenchTypography.uiFont(size: 11, weight: .semibold))
       .monospacedDigit()
       .foregroundStyle(foreground)
       .padding(.horizontal, DesignTokens.Spacing.xs)
@@ -40,6 +43,7 @@ public struct CountBadge: View {
     switch style {
     case .neutral: return .wbTextSecondary
     case .accent:  return .wbTextOnAccent
+    case .attention: return .wbStatusAttentionText
     }
   }
 
@@ -47,6 +51,7 @@ public struct CountBadge: View {
     switch style {
     case .neutral: return .wbSurfaceKeycap
     case .accent:  return .wbAccent
+    case .attention: return .wbStatusAttentionTint
     }
   }
 }

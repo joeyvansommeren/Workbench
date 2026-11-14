@@ -131,35 +131,44 @@ extension DesignTokens {
   }
 }
 
-/// Applies the workbench elevation treatment: a 0.5 pt ring plus an
-/// optional blur layer (light), or a 0.5 pt ring plus an inner top
-/// highlight (dark). All in one modifier so the shadow definition is
-/// a single source of truth.
+/// Applies the workbench elevation treatment: a 0.5 pt ring plus one or two
+/// blur layers, and in dark mode an inner top highlight. All in one modifier
+/// so the shadow definition is a single source of truth.
+///
+/// Every shape is `.continuous`, like the fills it sits on, so the ring never
+/// drifts off the fill edge at the corners.
 public struct WorkbenchElevationModifier: ViewModifier {
   let level: DesignTokens.Shadow
   let overrideCornerRadius: CGFloat?
   @Environment(\.colorScheme) private var colorScheme
 
   public func body(content: Content) -> some View {
+    let isDark = colorScheme == .dark
+    let near = nearBlur(isDark: isDark)
+    let far = farBlur(isDark: isDark)
     content
       .overlay {
-        RoundedRectangle(cornerRadius: cornerRadius)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
           .strokeBorder(ringColor, lineWidth: 0.5)
-      }
-      .shadow(color: blurColor, radius: blurRadius, x: 0, y: blurY)
-      .overlay(alignment: .top) {
-        if colorScheme == .dark, level != .control {
-          // Inner top highlight for dark mode depth.
-          UnevenRoundedRectangle(
-            topLeadingRadius: cornerRadius,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: 0,
-            topTrailingRadius: cornerRadius
-          )
-          .strokeBorder(Color.white.opacity(highlightOpacity), lineWidth: 0.5)
           .allowsHitTesting(false)
+      }
+      .overlay {
+        // Prototype `inset 0 0.5px 0`: a highlight on the top edge only. The
+        // stroke follows the rounded corners; the mask fades it out down the
+        // corner curve, so it never draws on the sides or the bottom. `.panel`
+        // already has a white inner ring in dark mode, so it gets none.
+        if isDark, level != .panel {
+          RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .strokeBorder(Color.white.opacity(highlightOpacity), lineWidth: 0.5)
+            .mask(alignment: .top) {
+              LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: max(cornerRadius, 1))
+            }
+            .allowsHitTesting(false)
         }
       }
+      .shadow(color: near.color, radius: near.radius, x: 0, y: near.y)
+      .shadow(color: far.color, radius: far.radius, x: 0, y: far.y)
   }
 
   private var cornerRadius: CGFloat {
@@ -186,42 +195,42 @@ public struct WorkbenchElevationModifier: ViewModifier {
     }
   }
 
-  private var blurColor: Color {
-    switch (level, colorScheme) {
-    case (.raised, .light):  return .black.opacity(0.06)
-    case (.panel, .light):   return .black.opacity(0.04)
-    case (.overlay, .light): return .black.opacity(0.12)
-    case (.control, .light): return .black.opacity(0.07)
-    case (.raised, .dark):   return .black.opacity(0.35)
-    case (.panel, .dark):    return .black.opacity(0.30)
-    case (.overlay, .dark):  return .black.opacity(0.45)
-    case (.control, .dark):  return .black.opacity(0.30)
-    default:                 return .clear
+  /// One blur layer. A SwiftUI shadow radius is about half the CSS blur.
+  private struct Blur {
+    let color: Color
+    let radius: CGFloat
+    let y: CGFloat
+    static let none = Blur(color: .clear, radius: 0, y: 0)
+  }
+
+  /// The tight layer of the prototype's `--shadow-*` token.
+  private func nearBlur(isDark: Bool) -> Blur {
+    switch (level, isDark) {
+    case (.raised, false):  return Blur(color: .black.opacity(0.06), radius: 1, y: 1)
+    case (.raised, true):   return Blur(color: .black.opacity(0.35), radius: 1.5, y: 1)
+    case (.panel, false):   return Blur(color: .black.opacity(0.04), radius: 1.5, y: 1)
+    case (.panel, true):    return Blur(color: .black.opacity(0.30), radius: 1.5, y: 1)
+    case (.overlay, false): return Blur(color: .black.opacity(0.12), radius: 15, y: 10)
+    case (.overlay, true):  return Blur(color: .black.opacity(0.45), radius: 16, y: 12)
+    case (.control, false): return Blur(color: .black.opacity(0.07), radius: 0.75, y: 0.75)
+    case (.control, true):  return Blur(color: .black.opacity(0.30), radius: 0.75, y: 0.75)
     }
   }
 
-  private var blurRadius: CGFloat {
-    switch level {
-    case .raised:  return 3
-    case .panel:   return 1.5
-    case .overlay: return 15
-    case .control: return 0.75
-    }
-  }
-
-  private var blurY: CGFloat {
-    switch level {
-    case .raised:  return 2
-    case .panel:   return 1
-    case .overlay: return 10
-    case .control: return 0.75
+  /// The wide second layer. Only raised (light) and overlay have one.
+  private func farBlur(isDark: Bool) -> Blur {
+    switch (level, isDark) {
+    case (.raised, false):  return Blur(color: .black.opacity(0.04), radius: 3, y: 2)
+    case (.overlay, false): return Blur(color: .black.opacity(0.10), radius: 35, y: 30)
+    case (.overlay, true):  return Blur(color: .black.opacity(0.40), radius: 40, y: 30)
+    default:                return .none
     }
   }
 
   private var highlightOpacity: Double {
     switch level {
     case .raised:  return 0.07
-    case .panel:   return 0.06
+    case .panel:   return 0
     case .overlay: return 0.08
     case .control: return 0.08
     }
@@ -237,5 +246,68 @@ extension View {
   /// Apply the workbench elevation shadow with an explicit corner radius.
   public func wbElevation(_ level: DesignTokens.Shadow, cornerRadius: CGFloat) -> some View {
     modifier(WorkbenchElevationModifier(level: level, overrideCornerRadius: cornerRadius))
+  }
+}
+
+// MARK: - Opacity
+
+extension DesignTokens {
+  public enum Opacity {
+    /// A disabled control. One value for every component.
+    public static let disabled: Double = 0.45
+  }
+}
+
+// MARK: - Focus ring and accessibility helpers
+
+extension View {
+  /// The prototype's `:focus-visible` ring: 3 pt of `wbFocusRing`, 1 pt
+  /// outside the control's edge. An overlay, so it never changes layout.
+  /// Drawn only while macOS keyboard navigation is on, like the system's own
+  /// focus rings (`KeyboardNavigationSetting`).
+  @MainActor
+  public func wbFocusRing(_ isFocused: Bool, cornerRadius: CGFloat) -> some View {
+    modifier(WBFocusRing(isFocused: isFocused, cornerRadius: cornerRadius))
+  }
+
+  /// Sets the accessibility label only when there is one, so an unlabelled
+  /// view keeps its own label instead of reading as an empty string.
+  @ViewBuilder
+  public func optionalAccessibilityLabel(_ label: String?) -> some View {
+    if let label {
+      accessibilityLabel(label)
+    } else {
+      self
+    }
+  }
+
+  /// Sets the accessibility identifier only when there is one. An empty
+  /// identifier on every unnamed instance is noise for UI automation.
+  @ViewBuilder
+  public func optionalAccessibilityIdentifier(_ identifier: String?) -> some View {
+    if let identifier {
+      accessibilityIdentifier(identifier)
+    } else {
+      self
+    }
+  }
+}
+
+private struct WBFocusRing: ViewModifier {
+  let isFocused: Bool
+  let cornerRadius: CGFloat
+
+  func body(content: Content) -> some View {
+    // Read here, in the body, so the view observes the setting.
+    let showsRing = isFocused && KeyboardNavigationSetting.shared.isEnabled
+    content.overlay {
+      if showsRing {
+        // A centred 3 pt stroke 2.5 pt outside the edge covers 1–4 pt outside.
+        RoundedRectangle(cornerRadius: cornerRadius + 2.5, style: .continuous)
+          .stroke(Color.wbFocusRing, lineWidth: 3)
+          .padding(-2.5)
+          .allowsHitTesting(false)
+      }
+    }
   }
 }

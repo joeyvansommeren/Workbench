@@ -38,11 +38,9 @@ struct BranchRow: View, Equatable {
     .padding(.leading, DesignTokens.Spacing.smPlus)
     .padding(.trailing, DesignTokens.Spacing.xs)
     .frame(height: DesignTokens.Size.row)
+    // No hover fill: the row itself does nothing on click. Hover brightens
+    // the name and shows "+", the row's one action.
     .contentShape(Rectangle())
-    .background(
-      RoundedRectangle(cornerRadius: DesignTokens.Radius.row, style: .continuous)
-        .fill(isHovered ? Color.wbSurfaceHover : Color.clear)
-    )
     .onHover { isHovered = $0 }
     .contextMenu {
       BranchRowMenu(model: model, sessions: sessions, actions: actions)

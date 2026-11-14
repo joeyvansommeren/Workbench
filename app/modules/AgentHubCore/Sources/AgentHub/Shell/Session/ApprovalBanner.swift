@@ -93,6 +93,10 @@ private struct ApprovalBannerHost: View {
     .padding(DesignTokens.Spacing.lg)
     .onAppear {
       MainThreadStallMonitor.breadcrumb("approval: shown \(pending.toolName)")
+      // `.id(request)` gives each request a fresh host, so this speaks once per request.
+      AccessibilityNotification.Announcement(
+        "Claude needs approval: \(ApprovalRequestPresentation(pending: pending).title)"
+      ).post()
       updateShortcut()
     }
     .onChange(of: isRevealingTerminal) { _, _ in updateShortcut() }
@@ -134,14 +138,27 @@ struct ApprovalBanner: View {
   let onApproveAlways: () -> Void
   let onShowInTerminal: () -> Void
 
+  /// The text column's ideal width in the one-row layout. Below it the
+  /// buttons move under the text, so the command keeps a readable width.
+  static let rowTextIdealWidth: CGFloat = 220
+
+  @State private var isShowingFullDetail = false
+
   var body: some View {
-    HStack(spacing: DesignTokens.Spacing.md) {
-      StatusGlyph(status: .awaitingApproval(tool: "approval"), size: 16)
-        .frame(width: 16, height: 16)
-        .fixedSize()
-      text
-        .frame(maxWidth: .infinity, alignment: .leading)
-      trailing
+    // Layout only, no size → state: each option is measured, one is drawn.
+    // The text columns carry an explicit ideal width, so a long command
+    // never decides the layout by its unwrapped length.
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: DesignTokens.Spacing.md) {
+        glyph
+        text
+          .frame(minWidth: 0, idealWidth: Self.rowTextIdealWidth, maxWidth: .infinity, alignment: .leading)
+        trailing(isCompact: false)
+      }
+      stacked(isCompact: false)
+      // Narrowest (260 pt session content): no key caps, and "Show in
+      // terminal" moves into the chevron menu.
+      stacked(isCompact: true)
     }
     .padding(.vertical, DesignTokens.Spacing.md)
     .padding(.leading, DesignTokens.Spacing.lg)
@@ -155,20 +172,33 @@ struct ApprovalBanner: View {
     .accessibilityLabel("Approval needed")
   }
 
+  private var glyph: some View {
+    StatusGlyph(status: .awaitingApproval(tool: "approval"), size: 16)
+      .frame(width: 16, height: 16)
+      .fixedSize()
+  }
+
+  /// Text on top, buttons trailing below it.
+  private func stacked(isCompact: Bool) -> some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+      HStack(alignment: .top, spacing: DesignTokens.Spacing.md) {
+        glyph
+          .padding(.top, 1)
+        text
+          .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
+      }
+      trailing(isCompact: isCompact)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+  }
+
   private var text: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
       Text(presentation.title)
         .wbText(.headline)
         .foregroundStyle(Color.wbTextPrimary)
-      if let detail = presentation.detail {
-        Text(detail)
-          .wbText(.code)
-          .foregroundStyle(Color.wbTextPrimary)
-          .lineLimit(1)
-          // Paths keep the file name visible; commands keep their start.
-          .truncationMode(presentation.kind == .fileEdit || presentation.kind == .fileWrite ? .middle : .tail)
-          .help(detail)
-          .textSelection(.enabled)
+      if let detail = presentation.fullDetail {
+        ApprovalDetailText(detail: detail, isShowingAll: $isShowingFullDetail)
       }
       if let hint {
         Text(hint.text)
@@ -195,15 +225,15 @@ struct ApprovalBanner: View {
   /// out, a second one could land in a running turn.
   /// A 120 ms crossfade between phases confirms the click was taken. Scoped
   /// to the trailing slot; the slot's children keep `.fixedSize()`.
-  private var trailing: some View {
+  private func trailing(isCompact: Bool) -> some View {
     ZStack(alignment: .trailing) {
-      trailingContent
+      trailingContent(isCompact: isCompact)
     }
     .animation(.wbAnimation(DesignTokens.Motion.fast), value: phase)
   }
 
   @ViewBuilder
-  private var trailingContent: some View {
+  private func trailingContent(isCompact: Bool) -> some View {
     switch phase {
     case .sending(let decision):
       ApprovalStatusLabel(decision: decision, isSettled: false)
@@ -215,7 +245,7 @@ struct ApprovalBanner: View {
       showInTerminalButton
         .transition(.opacity)
     case .answerInTerminal, nil:
-      actions
+      actions(isCompact: isCompact)
         .transition(.opacity)
     }
   }
@@ -233,95 +263,133 @@ struct ApprovalBanner: View {
     .accessibilityLabel("Show in terminal")
   }
 
-  private var actions: some View {
+  private func actions(isCompact: Bool) -> some View {
     HStack(spacing: DesignTokens.Spacing.sm) {
-      showInTerminalButton
+      if !isCompact {
+        showInTerminalButton
+      }
       Button("Deny", action: onDeny)
         .buttonStyle(.wbSecondary)
         .help("Deny: Claude asks what to do instead")
-      ApprovalSplitButton(onApprove: onApprove, onApproveAlways: onApproveAlways)
+      approveButton(isCompact: isCompact)
+    }
+    .fixedSize()
+  }
+
+  /// Approve ⌘↩ plus a chevron menu with "Always allow". In the narrowest
+  /// layout the menu also holds "Show in terminal" and the key caps go.
+  private func approveButton(isCompact: Bool) -> some View {
+    SplitButton(
+      menuAccessibilityLabel: "More approval options",
+      primaryAccessibilityLabel: "Approve once",
+      primaryHelp: "Allow once",
+      primaryShortcut: KeyboardShortcut(.return, modifiers: .command),
+      trailingPadding: DesignTokens.Spacing.sm,
+      action: onApprove
+    ) {
+      HStack(spacing: DesignTokens.Spacing.xs) {
+        Text("Approve")
+        if !isCompact {
+          KeyCaps(["⌘", "↩"], style: .onAccent)
+            .accessibilityHidden(true)
+        }
+      }
+    } menu: {
+      Button("Always allow", action: onApproveAlways)
+      if isCompact {
+        Divider()
+        Button("Show in terminal", action: onShowInTerminal)
+      }
     }
     .fixedSize()
   }
 }
 
-// MARK: - Approve split button
+// MARK: - Detail
 
-/// Approve ⌘↩ plus a chevron menu with "Always allow". Mirrors the P2
-/// `SplitButton`, which only takes a text title.
-private struct ApprovalSplitButton: View {
-  let onApprove: () -> Void
-  let onApproveAlways: () -> Void
+/// The command, path or URL in mono. Short text shows whole. Longer text
+/// shows four lines and "Show all", which opens the whole text in a scroll
+/// area capped at `expandedMaxHeight`. The banner floats over the terminal,
+/// so growing it never resizes the PTY.
+private struct ApprovalDetailText: View {
+  let detail: String
+  @Binding var isShowingAll: Bool
 
-  @State private var isChevronHovered = false
+  static let collapsedLineLimit = 4
+  /// About five code lines: text up to that shows whole, longer text gets
+  /// four lines plus the "Show all" row. Generous on purpose, so it holds
+  /// whichever line height the code style resolves to.
+  static let collapsedMaxHeight: CGFloat = 110
+  static let expandedMaxHeight: CGFloat = 160
 
   var body: some View {
-    HStack(spacing: 1) {
-      Button(action: onApprove) {
-        HStack(spacing: DesignTokens.Spacing.xs) {
-          Text("Approve")
-            .wbText(.bodyEmphasis)
-          HStack(spacing: DesignTokens.Spacing.xxs) {
-            OnAccentKeyCap("⌘")
-            OnAccentKeyCap("↩")
+    if isShowingAll {
+      VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+        // Whole text when it fits in 160 pt, else a scroll area that tall.
+        HuggingMaxHeight(maxHeight: Self.expandedMaxHeight) {
+          ViewThatFits(in: .vertical) {
+            code
+            ScrollView(.vertical) {
+              code.frame(maxWidth: .infinity, alignment: .leading)
+            }
           }
         }
-        .contentShape(Rectangle())
+        toggle(title: "Show less")
       }
-      .buttonStyle(ApprovalSplitLeftStyle())
-      .keyboardShortcut(.return, modifiers: .command)
-      .help("Allow once")
-      .accessibilityLabel("Approve once")
-
-      Menu {
-        Button("Always allow", action: onApproveAlways)
-      } label: {
-        Image(systemName: "chevron.down")
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(Color.wbTextOnAccent)
-          .frame(width: 28, height: DesignTokens.Size.control)
-          .contentShape(Rectangle())
+    } else {
+      HuggingMaxHeight(maxHeight: Self.collapsedMaxHeight) {
+        ViewThatFits(in: .vertical) {
+          code
+          VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+            code.lineLimit(Self.collapsedLineLimit)
+            toggle(title: "Show all")
+          }
+          // Never squeezed below its four lines by the height cap.
+          .fixedSize(horizontal: false, vertical: true)
+        }
       }
-      .menuStyle(.button)
-      .buttonStyle(.plain)
-      .menuIndicator(.hidden)
-      .frame(width: 28, height: DesignTokens.Size.control)
-      .background(WBSplitChevronFill(isHovered: isChevronHovered))
-      .onHover { isChevronHovered = $0 }
-      .clipShape(
-        UnevenRoundedRectangle(
-          topLeadingRadius: 0, bottomLeadingRadius: 0,
-          bottomTrailingRadius: DesignTokens.Radius.item, topTrailingRadius: DesignTokens.Radius.item)
-      )
-      .accessibilityLabel("More approval options")
     }
-    .fixedSize()
+  }
+
+  private var code: some View {
+    Text(detail)
+      .wbText(.code)
+      .foregroundStyle(Color.wbTextPrimary)
+      .textSelection(.enabled)
+  }
+
+  private func toggle(title: String) -> some View {
+    Button {
+      isShowingAll.toggle()
+    } label: {
+      Text(title)
+        .wbText(.subheadline)
+        .fontWeight(.semibold)
+        .foregroundStyle(Color.wbAccentText)
+        .frame(height: 20)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(isShowingAll ? "Show less of the command" : "Show the whole command")
   }
 }
 
-private struct ApprovalSplitLeftStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    // Colour-only hover and press, shared with the P2 `SplitButton`.
-    WBSplitLeftBody(
-      configuration: configuration,
-      leadingPadding: DesignTokens.Spacing.md,
-      trailingPadding: DesignTokens.Spacing.sm
-    )
+/// Offers its content at most `maxHeight` and takes the content's own
+/// height. `.frame(maxHeight:)` would instead grow to the cap whenever the
+/// parent offers more, leaving a gap under a short command. Layout only.
+private struct HuggingMaxHeight: Layout {
+  let maxHeight: CGFloat
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    guard let content = subviews.first else { return .zero }
+    let height = proposal.height.map { min($0, maxHeight) } ?? maxHeight
+    return content.sizeThatFits(ProposedViewSize(width: proposal.width, height: height))
   }
-}
 
-/// `.button-primary .keycap`: a darker cap with on-accent text.
-private struct OnAccentKeyCap: View {
-  let text: String
-  init(_ text: String) { self.text = text }
-
-  var body: some View {
-    Text(text)
-      .font(.system(size: 11, weight: .medium))
-      .foregroundStyle(Color.wbTextOnAccent)
-      .frame(minWidth: 18, minHeight: 18)
-      .background(.black.opacity(0.22), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.small))
-      .accessibilityHidden(true)
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    subviews.first?.place(
+      at: bounds.origin, anchor: .topLeading,
+      proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
   }
 }
 

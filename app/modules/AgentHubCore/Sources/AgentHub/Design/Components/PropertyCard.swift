@@ -21,7 +21,10 @@ public struct PropertyCard<Content: View>: View {
     }
     .padding(.horizontal, DesignTokens.Spacing.lg)
     .padding(.vertical, DesignTokens.Spacing.xs)
-    .background(Color.wbSurfaceRaised, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.container))
+    .background(
+      Color.wbSurfaceRaised,
+      in: RoundedRectangle(cornerRadius: DesignTokens.Radius.container, style: .continuous)
+    )
     .wbElevation(.raised, cornerRadius: DesignTokens.Radius.container)
   }
 }
@@ -49,9 +52,11 @@ public struct PropertyRow<ValueContent: View>: View {
     HStack(spacing: DesignTokens.Spacing.smPlus) {
       HStack(spacing: DesignTokens.Spacing.sm) {
         if let systemImage {
+          // A fixed icon column, so every label starts at the same x.
           Image(systemName: systemImage)
             .font(.system(size: 12))
             .foregroundStyle(Color.wbTextSecondary)
+            .frame(width: DesignTokens.Size.icon, alignment: .center)
         }
         Text(label)
           .foregroundStyle(Color.wbTextSecondary)

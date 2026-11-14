@@ -20,17 +20,24 @@ struct WorkbenchCommandPalette: View {
   @State private var activeEntryID: String?
   @FocusState private var isSearchFocused: Bool
 
-  private var entries: [CommandPaletteEntry] {
-    CommandPaletteEntries.build(query: query, sessions: sessions, pullRequests: pullRequests)
+  private var results: CommandPaletteResults {
+    CommandPaletteEntries.results(
+      query: query, sessions: sessions, pullRequests: pullRequests, activeEntryID: activeEntryID)
   }
 
   var body: some View {
-    let entries = entries
+    let results = results
+    let entries = results.entries
     let activeIndex = CommandPaletteEntries.activeIndex(for: activeEntryID, in: entries)
     VStack(spacing: 0) {
       searchRow
       Rectangle().fill(Color.wbBorderHairline).frame(height: 1)
-      CommandPaletteList(entries: entries, activeIndex: activeIndex, query: query) { index in
+      CommandPaletteList(
+        results: results,
+        activeIndex: activeIndex,
+        query: query,
+        onHover: { activeEntryID = entries[$0].id }
+      ) { index in
         run(entries, at: index)
       }
     }
@@ -94,10 +101,13 @@ struct WorkbenchCommandPalette: View {
 // MARK: - List
 
 private struct CommandPaletteList: View {
-  let entries: [CommandPaletteEntry]
+  let results: CommandPaletteResults
   let activeIndex: Int
   let query: String
+  let onHover: (Int) -> Void
   let onRun: (Int) -> Void
+
+  private var entries: [CommandPaletteEntry] { results.entries }
 
   var body: some View {
     if entries.isEmpty {
@@ -109,13 +119,29 @@ private struct CommandPaletteList: View {
     } else {
       ScrollViewReader { proxy in
         ScrollView {
+          // A plain VStack is fine: typed results are capped per group
+          // (`CommandPaletteEntries.typedGroupLimit`), so the list stays short.
           VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
               if index == 0 || entries[index - 1].group != entry.group {
                 OverlayMenuLabel(entry.group.rawValue)
               }
               CommandPaletteRow(entry: entry, isActive: index == activeIndex) { onRun(index) }
+                .onContinuousHover { phase in
+                  // Fires only when the pointer moves, so arrow keys under a
+                  // still pointer keep their highlight.
+                  if case .active = phase, index != activeIndex { onHover(index) }
+                }
                 .id(entry.id)
+              if index == entries.count - 1 || entries[index + 1].group != entry.group,
+                let more = results.moreText(for: entry.group)
+              {
+                Text(more)
+                  .wbText(.callout)
+                  .foregroundStyle(Color.wbTextTertiary)
+                  .padding(.horizontal, DesignTokens.Spacing.smPlus)
+                  .frame(height: 28)
+              }
             }
           }
           .padding(DesignTokens.Inset.container)
@@ -140,14 +166,16 @@ private struct CommandPaletteRow: View {
     Button(action: action) {
       HStack(spacing: DesignTokens.Spacing.smPlus) {
         CommandPaletteLeadView(lead: entry.lead)
-          .frame(width: DesignTokens.Size.icon, height: DesignTokens.Size.icon)
-        Text(highlighted(entry.title, entry.titleHighlight, font: WorkbenchTextStyle.headline.font()))
+          // 18 pt, like the sidebar's lead column: the letter tile is 18 pt.
+          .frame(width: DesignTokens.Size.tile, height: DesignTokens.Size.tile)
+        // No weight change on the match, so the title does not widen per keystroke.
+        Text(highlighted(entry.title, entry.titleHighlight))
           .wbText(.body)
           .foregroundStyle(Color.wbTextPrimary)
           .lineLimit(1)
           .layoutPriority(1)
         if !entry.meta.isEmpty {
-          Text(highlighted(entry.meta, entry.metaHighlight, font: nil))
+          Text(highlighted(entry.meta, entry.metaHighlight))
             .wbText(.codeSmall)
             .foregroundStyle(Color.wbTextSecondary)
             .lineLimit(1)
@@ -185,15 +213,10 @@ private struct CommandPaletteRow: View {
     [entry.title, entry.meta, entry.trailingText ?? ""].filter { !$0.isEmpty }.joined(separator: ", ")
   }
 
-  /// The prototype's `<mark>`: heavier, primary ink, accent underline.
-  private func highlighted(
-    _ text: String,
-    _ range: Range<String.Index>?,
-    font: Font?
-  ) -> AttributedString {
+  /// The prototype's `<mark>`: primary ink and an accent underline.
+  private func highlighted(_ text: String, _ range: Range<String.Index>?) -> AttributedString {
     var attributed = AttributedString(text)
     guard let range, let marked = Range(range, in: attributed) else { return attributed }
-    if let font { attributed[marked].swiftUI.font = font }
     attributed[marked].swiftUI.foregroundColor = Color.wbTextPrimary
     attributed[marked].swiftUI.underlineStyle = Text.LineStyle(pattern: .solid, color: Color.wbAccent)
     return attributed

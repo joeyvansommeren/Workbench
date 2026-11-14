@@ -170,6 +170,9 @@ struct ReviewsTableTests {
     #expect(presentation.checks == .fail)
     #expect(presentation.sessionName == "Review device checks")
     #expect(presentation.extraSessionCount == 1)
+    #expect(
+      presentation.accessibilityValue
+        == "In review, Urgent priority, by lvermeulen, updated 2 hours ago, Checks failed")
   }
 
   @Test("Missing values: unknown author, no status, no priority, no session")

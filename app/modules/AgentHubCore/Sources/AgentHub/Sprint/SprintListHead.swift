@@ -16,20 +16,36 @@ struct SprintListHead<Trailing: View>: View {
   @ViewBuilder let trailing: Trailing
 
   var body: some View {
-    HStack(spacing: DesignTokens.Spacing.md) {
-      if let title {
-        SprintTitleView(title: title)
-      }
-      WorkbenchSegmentedControl(selection: $scope, accessibilityIdentifier: "sprint.assignee")
-        .fixedSize()
-      Spacer(minLength: 0)
-      HStack(spacing: DesignTokens.Spacing.xs) {
-        trailing
-      }
+    // A narrow board (a ticket open in a small window) drops the days-left
+    // chip, then the title, then All | Mine, so the head never overflows.
+    // Layout-only choice, no size → state.
+    ViewThatFits(in: .horizontal) {
+      row(title: title, showsScope: true)
+      row(title: title?.withoutDaysLeft, showsScope: true)
+      row(title: nil, showsScope: true)
+      row(title: nil, showsScope: false)
     }
     .padding(.leading, DesignTokens.Spacing.lg)
     .padding(.trailing, DesignTokens.Spacing.md)
     .frame(height: 56)
+  }
+
+  private func row(title: SprintTitle?, showsScope: Bool) -> some View {
+    HStack(spacing: DesignTokens.Spacing.md) {
+      if let title {
+        SprintTitleView(title: title)
+      }
+      if showsScope {
+        WorkbenchSegmentedControl(
+          selection: $scope, accessibilityLabel: "Assignee", accessibilityIdentifier: "sprint.assignee")
+          .fixedSize()
+      }
+      Spacer(minLength: 0)
+      HStack(spacing: DesignTokens.Spacing.xs) {
+        trailing
+      }
+      .fixedSize()
+    }
   }
 }
 

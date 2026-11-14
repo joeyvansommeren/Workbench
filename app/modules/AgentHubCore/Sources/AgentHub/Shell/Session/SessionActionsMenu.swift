@@ -24,25 +24,47 @@ struct SessionActionsMenu: View {
   let onFork: () -> Void
   let onCreatePullRequest: () -> Void
 
+  /// The row ↑/↓ moved to; Return runs it. Nil until an arrow key is used.
+  @State private var highlightedIndex: Int?
+  @FocusState private var isFocused: Bool
+
+  private struct Item {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+  }
+
+  /// The action rows in order. The resource links below them are their own
+  /// controls and stay out of the arrow-key list.
+  private var items: [Item] {
+    var items: [Item] = []
+    if !isPending {
+      items.append(Item(title: "Copy Session ID", systemImage: "doc.on.doc") { viewModel.copySessionId(session) })
+      items.append(Item(title: "View Transcript", systemImage: "doc.text", action: onViewTranscript))
+      if providerKind == .claude {
+        items.append(Item(title: "Open in Terminal", systemImage: "rectangle.portrait.and.arrow.right") {
+          _ = viewModel.connectToSession(session)
+        })
+      }
+      items.append(Item(title: "Refresh Terminal", systemImage: "arrow.clockwise") {
+        viewModel.refreshTerminal(forKey: session.id, sessionId: session.id, projectPath: session.projectPath)
+      })
+      items.append(Item(title: "Name Session…", systemImage: "pencil", action: onRename))
+      items.append(Item(title: "Fork…", systemImage: "arrow.triangle.branch", action: onFork))
+    }
+    items.append(Item(title: "Add Files…", systemImage: "plus.rectangle.on.folder", action: onAddFiles))
+    return items
+  }
+
   var body: some View {
+    let items = items
     MenuSurface(width: DesignTokens.Width.popover + 60) {
       VStack(alignment: .leading, spacing: 0) {
-        if !isPending {
-          row("Copy Session ID", systemImage: "doc.on.doc") { viewModel.copySessionId(session) }
-          row("View Transcript", systemImage: "doc.text", action: onViewTranscript)
-          if providerKind == .claude {
-            row("Open in Terminal", systemImage: "rectangle.portrait.and.arrow.right") {
-              _ = viewModel.connectToSession(session)
-            }
-          }
-          row("Refresh Terminal", systemImage: "arrow.clockwise") {
-            viewModel.refreshTerminal(forKey: session.id, sessionId: session.id, projectPath: session.projectPath)
-          }
-          row("Name Session…", systemImage: "pencil", action: onRename)
-          row("Fork…", systemImage: "arrow.triangle.branch", action: onFork)
-          divider
+        ForEach(items.indices, id: \.self) { index in
+          // "Add Files…" is last and also the only row while pending.
+          if index == items.count - 1, items.count > 1 { divider }
+          row(items[index], isHighlighted: index == highlightedIndex)
         }
-        row("Add Files…", systemImage: "plus.rectangle.on.folder", action: onAddFiles)
         if !isPending {
           ResourceLinksPanel(
             links: state?.detectedResourceLinks ?? [],
@@ -60,7 +82,27 @@ struct SessionActionsMenu: View {
           .padding(.top, DesignTokens.Spacing.xs)
         }
       }
+      // Arrow keys and Return work, like a native menu. Escape
+      // closes the popover on its own.
+      .focusable()
+      .focused($isFocused)
+      .focusEffectDisabled()
+      .onKeyPress(.downArrow) { move(1, count: items.count) }
+      .onKeyPress(.upArrow) { move(-1, count: items.count) }
+      .onKeyPress(.return) {
+        guard let highlightedIndex, items.indices.contains(highlightedIndex) else { return .ignored }
+        run(items[highlightedIndex].action)
+        return .handled
+      }
+      .onAppear { DispatchQueue.main.async { isFocused = true } }
     }
+  }
+
+  private func move(_ delta: Int, count: Int) -> KeyPress.Result {
+    guard count > 0 else { return .ignored }
+    let start = highlightedIndex ?? (delta > 0 ? -1 : count)
+    highlightedIndex = min(max(start + delta, 0), count - 1)
+    return .handled
   }
 
   private var state: SessionMonitorState? { viewModel.monitorStates[session.id] }
@@ -72,18 +114,23 @@ struct SessionActionsMenu: View {
       .padding(.vertical, DesignTokens.Spacing.xs)
   }
 
-  /// A menu row. Closes the popover first; sheets open after it is gone.
-  private func row(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-    MenuRow(title: title, systemImage: systemImage) {
-      onDismiss()
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: action)
+  private func row(_ item: Item, isHighlighted: Bool) -> some View {
+    MenuRow(title: item.title, systemImage: item.systemImage, isHighlighted: isHighlighted) {
+      run(item.action)
     }
+  }
+
+  /// Closes the popover first; sheets open after it is gone.
+  private func run(_ action: @escaping () -> Void) {
+    onDismiss()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: action)
   }
 }
 
 private struct MenuRow: View {
   let title: String
   let systemImage: String
+  var isHighlighted = false
   let action: () -> Void
 
   @State private var isHovered = false
@@ -106,7 +153,7 @@ private struct MenuRow: View {
     }
     .buttonStyle(.plain)
     .background(
-      isHovered ? Color.wbSurfaceHover : Color.clear,
+      isHovered || isHighlighted ? Color.wbSurfaceHover : Color.clear,
       in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
     )
     .onHover { isHovered = $0 }
