@@ -66,7 +66,7 @@ struct LinearSprintDestination: View {
       LinearRetryState(viewModel: viewModel, message: SprintErrorText.summary(message))
     case .idle, .loading, .loaded:
       if viewModel.loadState != .loaded && viewModel.issues.isEmpty {
-        SprintLoadingView()
+        WBLoadingState("Loading sprint")
       } else if viewModel.issues.isEmpty {
         WBEmptyState(
           systemImage: "tray",

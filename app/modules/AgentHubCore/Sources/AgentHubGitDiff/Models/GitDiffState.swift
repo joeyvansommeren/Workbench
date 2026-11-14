@@ -162,9 +162,13 @@ public struct GitDiffFileEntry: Identifiable, Equatable, Sendable {
     URL(fileURLWithPath: filePath).lastPathComponent
   }
 
-  /// Directory path relative to repo root (without file name)
+  /// Directory path relative to repo root (without file name, no trailing
+  /// slash); empty for a file at the root. Split as a string:
+  /// `URL(fileURLWithPath:)` resolves a relative path against the current
+  /// directory, which made this absolute.
   public var directoryPath: String {
-    URL(fileURLWithPath: relativePath).deletingLastPathComponent().path
+    guard let slash = relativePath.lastIndex(of: "/") else { return "" }
+    return String(relativePath[..<slash])
   }
 
   /// File extensions that WKWebView can render standalone (no build step needed)

@@ -323,6 +323,10 @@ public struct ComponentGallery: View {
 
       ErrorBanner("Something went wrong. Please try again.")
         .frame(width: 500)
+      ErrorBanner("Couldn't refresh the sprint.", action: .init("Retry") {}, onDismiss: {})
+        .frame(width: 500)
+      WBLoadingState("Loading", showsTitle: true)
+        .frame(width: 300, height: 120)
     }
   }
 

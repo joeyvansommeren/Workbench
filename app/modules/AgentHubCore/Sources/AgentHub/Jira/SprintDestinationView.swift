@@ -136,7 +136,7 @@ struct JiraSprintDestination: View {
       JiraSprintFailureView(message: message, viewModel: viewModel)
     case .idle, .loading, .loaded:
       if viewModel.sprintTickets.isEmpty && viewModel.state != .loaded {
-        SprintLoadingView()
+        WBLoadingState("Loading sprint")
       } else if viewModel.selectedSprint == nil {
         WBEmptyState(
           systemImage: "calendar",

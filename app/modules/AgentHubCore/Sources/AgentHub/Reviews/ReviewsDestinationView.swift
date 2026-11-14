@@ -635,7 +635,7 @@ private struct ReviewsQueueContent<Table: View>: View {
     if let issue = viewModel.recoveryIssue, viewModel.pullRequests.isEmpty {
       recoveryState(issue)
     } else if viewModel.isLoadingProjects, viewModel.projects.isEmpty {
-      ReviewsLoadingView()
+      WBLoadingState("Loading pull requests")
     } else if viewModel.selectedProject == nil {
       state(
         "rectangle.3.group", title: "No GitHub Projects",
@@ -645,7 +645,7 @@ private struct ReviewsQueueContent<Table: View>: View {
         Button("Open Filters", action: onOpenFilters).buttonStyle(.wbSecondary)
       }
     } else if viewModel.isLoadingPullRequests, viewModel.pullRequests.isEmpty {
-      ReviewsLoadingView()
+      WBLoadingState("Loading pull requests")
     } else if isEmpty {
       if isSearching {
         state("magnifyingglass", title: "No matches") {
@@ -795,16 +795,5 @@ private struct ReviewsRecoveryBanner: View {
       .buttonStyle(.wbSecondary)
       .fixedSize()
       .disabled(isActionDisabled)
-  }
-}
-
-/// A centred spinner while the queue loads, as `SprintLoadingView` does for
-/// the boards.
-private struct ReviewsLoadingView: View {
-  var body: some View {
-    ProgressView()
-      .controlSize(.small)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .accessibilityLabel("Loading pull requests")
   }
 }

@@ -63,37 +63,20 @@ struct SprintDestinationLayout<ListHead: View, Content: View, Detail: View>: Vie
   }
 }
 
-/// A loading placeholder that does not animate (no layout passes while hidden).
-struct SprintLoadingView: View {
-  var body: some View {
-    ProgressView()
-      .controlSize(.small)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .accessibilityLabel("Loading sprint")
-  }
-}
-
 /// Result of a status move, a sync or a failed refresh. Errors use
 /// `ErrorBanner` and stay until dismissed, so a rolled-back move is never
 /// missed; confirmations are a quiet line that dismisses itself.
 struct SprintNoticeView: View {
   let text: String
   let isError: Bool
-  /// Shown as a Retry button next to the error (a failed refresh).
+  /// Shown as a Retry button in the error banner (a failed refresh).
   var onRetry: (() -> Void)?
   let onDismiss: () -> Void
 
   var body: some View {
     Group {
       if isError {
-        HStack(spacing: DesignTokens.Spacing.sm) {
-          ErrorBanner(text, onDismiss: onDismiss)
-          if let onRetry {
-            Button("Retry", action: onRetry)
-              .buttonStyle(.wbSecondary)
-              .fixedSize()
-          }
-        }
+        ErrorBanner(text, action: onRetry.map { ErrorBanner.Action("Retry", perform: $0) }, onDismiss: onDismiss)
       } else {
         HStack(spacing: DesignTokens.Spacing.xsPlus) {
           Image(systemName: "checkmark")
