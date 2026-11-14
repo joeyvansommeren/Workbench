@@ -1,13 +1,13 @@
 # AgentHub
 
-<img width="1440" height="900" alt="Sessions: the repo, branch and session tree, a running Claude session and the Diff side panel (Standard, light)" src="docs/screenshots/sessions-standard-light.png" />
+<img width="1440" height="900" alt="Sessions: destination tabs, the repo, branch and session tree, and a Claude session waiting for approval (Standard, light)" src="docs/screenshots/sessions-light.png" />
 
 ## Features
 
-<img width="1440" height="900" alt="Sessions in dark mode (Standard palette)" src="docs/screenshots/sessions-standard-dark.png" />
+<img width="1440" height="900" alt="Sessions in dark mode (Standard palette)" src="docs/screenshots/sessions-dark.png" />
 <img width="1440" height="900" alt="Sessions with the Warm palette (light)" src="docs/screenshots/sessions-warm-light.png" />
-<img width="1440" height="900" alt="Reviews: pull requests that need your review, with the detail panel" src="docs/screenshots/reviews-standard-light.png" />
-<img width="1440" height="900" alt="Sprint: the Jira board (Standard, dark)" src="docs/screenshots/sprint-standard-dark.png" />
+<img width="1440" height="900" alt="Reviews: the pull request table with the detail panel (dark)" src="docs/screenshots/reviews-dark.png" />
+<img width="1440" height="900" alt="Jira: the sprint board (Standard, dark)" src="docs/screenshots/jira-dark.png" />
 
 - **Multi-provider support** — Monitor and launch Claude Code and Codex sessions side by side
 - **Real-time session monitoring** — Watch all sessions update live via file-system watchers (no polling)
