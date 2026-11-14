@@ -19,6 +19,16 @@ enum ShellLayout {
   /// which AppKit places at x 100–128 (`ShellTitlebarToolbar`); 14 pt after
   /// the toggle, as in the prototype.
   static let collapsedToolbarLeading: CGFloat = 142
+  /// The same in full screen, where the traffic lights hide and AppKit moves
+  /// the toggle to the leading edge (assumed x 8–36; not measured, because a
+  /// full-screen test takes over the display).
+  static let fullScreenCollapsedToolbarLeading: CGFloat = 50
+
+  /// Leading padding of the title row.
+  static func toolbarLeading(sidebarVisible: Bool, isFullScreen: Bool) -> CGFloat {
+    guard !sidebarVisible else { return 0 }
+    return isFullScreen ? fullScreenCollapsedToolbarLeading : collapsedToolbarLeading
+  }
   /// Child minimums must fit the window minimum (CLAUDE.md, layout-loop
   /// crash). No split view is hosted in the shell any more: Reviews (P8) and
   /// the Sessions detail (P6, `SessionDetailLayout`) both fit 288 + 8 + their
@@ -36,14 +46,19 @@ struct ShellToolbar: View {
     HStack(spacing: DesignTokens.Spacing.sm) {
       ShellDestinationTabs()
       Spacer(minLength: 0)
+        .layoutPriority(-1)
       HStack(spacing: DesignTokens.Spacing.sm) {
         ShellSearchButton()
         ShellPaletteSwitch()
         ShellAppearanceButton()
       }
       .fixedSize()
+      .layoutPriority(1)
     }
-    .padding(.leading, shellModel.sidebarVisible ? 0 : ShellLayout.collapsedToolbarLeading)
+    .padding(
+      .leading,
+      ShellLayout.toolbarLeading(sidebarVisible: shellModel.sidebarVisible, isFullScreen: shellModel.isFullScreen)
+    )
     .padding(.trailing, DesignTokens.Spacing.md)
     .frame(height: DesignTokens.Size.titlebar)
     .background(TitleBarDragArea())

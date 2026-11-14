@@ -24,6 +24,9 @@ final class WorkbenchShellModel {
   private(set) var sidebarVisible = true
   /// Only toggled by ⌥⌘0 for now. P6 binds the session side panel to it.
   private(set) var sidePanelVisible = true
+  /// From the window's full-screen notifications (`ShellWindowChrome`). The
+  /// traffic lights hide in full screen, so the title row needs less room.
+  private(set) var isFullScreen = false
 
   init() {}
 
@@ -41,6 +44,11 @@ final class WorkbenchShellModel {
   func toggleSidebar() {
     sidebarVisible.toggle()
     MainThreadStallMonitor.breadcrumb("sidebar: \(sidebarVisible ? "shown" : "hidden")")
+  }
+
+  func setFullScreen(_ isFullScreen: Bool) {
+    guard isFullScreen != self.isFullScreen else { return }
+    self.isFullScreen = isFullScreen
   }
 
   func toggleSidePanel() {

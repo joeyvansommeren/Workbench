@@ -95,6 +95,61 @@ struct SessionDetailStateModelTests {
     #expect(model.selectionUpkeep(primarySessionId: "claude-new", availableIDs: ["claude-b"]) == .none)
   }
 
+  @Test("A shown launch that resolved before the navigation model caught up shows its real session")
+  func upkeepFollowsResolvedLaunch() {
+    let model = SessionDetailStateModel()
+    let pendingID = UUID()
+    let pendingKey = SidebarSessionItemID.pending(provider: .claude, pendingId: pendingID)
+    _ = model.selectionUpkeep(primarySessionId: pendingKey, availableIDs: ["claude-a", pendingKey])
+
+    // The pending row went away and the real one appeared; primary is still pending.
+    let histories: [(SessionProviderKind, [UUID: String])] = [(.claude, [pendingID: "real"]), (.codex, [:])]
+    #expect(
+      model.selectionUpkeep(
+        primarySessionId: pendingKey, availableIDs: ["claude-a", "claude-real"], resolvedHistories: histories)
+        == .select("claude-real"))
+    // Resolved but the real session has not loaded yet: keep waiting.
+    #expect(
+      model.selectionUpkeep(primarySessionId: pendingKey, availableIDs: ["claude-a"], resolvedHistories: histories)
+        == .none)
+    // The other provider's history never matches.
+    #expect(
+      model.selectionUpkeep(
+        primarySessionId: pendingKey, availableIDs: ["claude-a"],
+        resolvedHistories: [(.codex, [pendingID: "real"])])
+        == .selectFirstAvailable)
+  }
+
+  @Test("Once a session was shown, the launch-time restored session is no longer preferred")
+  func restoredClearedAfterShow() {
+    let model = SessionDetailStateModel()
+    model.restore(["claude-b"], provider: .claude)
+    model.show("claude-a")
+    #expect(model.restoredIDs.isEmpty)
+    #expect(model.selectionUpkeep(primarySessionId: nil, availableIDs: ["claude-a", "claude-b"]) == .selectFirstAvailable)
+
+    // A provider whose saved state is read later adds nothing either.
+    model.restore(["codex-x"], provider: .codex)
+    #expect(model.restoredIDs.isEmpty)
+  }
+
+  @Test("Per-session state of gone sessions is pruned; launching sessions keep theirs")
+  func pruneGoneSessionState() {
+    let model = SessionDetailStateModel()
+    let pendingKey = SidebarSessionItemID.pending(provider: .claude, pendingId: UUID())
+    model.setContentMode(.chat, for: "claude-a", defaultProjectPath: "/p")
+    model.setContentMode(.chat, for: "claude-gone", defaultProjectPath: "/p")
+    model.setContentMode(.chat, for: pendingKey, defaultProjectPath: "/p")
+    model.setSidePanelSegment(.plan, for: "claude-gone")
+
+    model.prune(availableIDs: ["claude-a"])
+
+    #expect(model.contentMode(for: "claude-a") == .chat)
+    #expect(model.contentMode(for: pendingKey) == .chat)
+    #expect(model.editorStates["claude-gone"] == nil)
+    #expect(model.sidePanelSegments["claude-gone"] == nil)
+  }
+
   // MARK: - Persistence
 
   @Test("Each new shown session is reported once; pending launches are not")
@@ -110,18 +165,24 @@ struct SessionDetailStateModelTests {
     #expect(reported == ["claude-a", "codex-b"])
   }
 
-  @Test("Restore runs once per provider and reports the shown session again")
+  @Test("Restore runs once per provider, without pending launches")
   func restoreOncePerProvider() {
     let model = SessionDetailStateModel()
-    var reported: [String] = []
-    model.onShownChanged = { reported.append($0) }
-    model.show("claude-early")
-    reported.removeAll()
     model.restore(["claude-a", "pending-claude-x"], provider: .claude)
     model.restore(["claude-z"], provider: .claude)
     #expect(model.restoredIDs == ["claude-a"])
     #expect(model.hasRestored(.claude))
     #expect(!model.hasRestored(.codex))
+  }
+
+  @Test("A session shown before the read is reported again after it")
+  func restoreReportsShownSession() {
+    let model = SessionDetailStateModel()
+    var reported: [String] = []
+    model.onShownChanged = { reported.append($0) }
+    model.show("claude-early")
+    reported.removeAll()
+    model.restore(["claude-a"], provider: .claude)
     #expect(reported == ["claude-early"])
   }
 

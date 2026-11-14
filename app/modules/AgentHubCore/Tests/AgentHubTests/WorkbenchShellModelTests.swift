@@ -71,6 +71,24 @@ struct WorkbenchShellModelTests {
     #expect(model.sidePanelVisible)
   }
 
+  @Test("Full screen is a flag; the title row clears less in full screen")
+  func fullScreenLeading() {
+    let model = WorkbenchShellModel()
+    #expect(!model.isFullScreen)
+    model.setFullScreen(true)
+    #expect(model.isFullScreen)
+    model.setFullScreen(false)
+    #expect(!model.isFullScreen)
+
+    #expect(ShellLayout.toolbarLeading(sidebarVisible: true, isFullScreen: false) == 0)
+    #expect(ShellLayout.toolbarLeading(sidebarVisible: true, isFullScreen: true) == 0)
+    #expect(ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: false) == ShellLayout.collapsedToolbarLeading)
+    #expect(
+      ShellLayout.toolbarLeading(sidebarVisible: false, isFullScreen: true)
+        == ShellLayout.fullScreenCollapsedToolbarLeading)
+    #expect(ShellLayout.fullScreenCollapsedToolbarLeading < ShellLayout.collapsedToolbarLeading)
+  }
+
   @Test("Title-bar double-click follows the system preference")
   func titleBarDoubleClickPreference() {
     #expect(TitleBarDoubleClickAction.from(preference: nil) == .zoom)

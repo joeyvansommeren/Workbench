@@ -94,6 +94,7 @@ struct SessionDetailView: View {
       // Sessions load after the view appears; pick what to show once they do.
       runSelectionUpkeep()
       stateModel.autoOpen.prune(activeSessionIDs: Set(items.map(\.session.id)))
+      stateModel.prune(availableIDs: Set(itemIDs))
     }
     .onChange(of: claudeViewModel.pendingFileOpen?.filePath) { _, _ in
       consumePendingFileOpen(from: claudeViewModel, providerKind: .claude)
@@ -142,14 +143,23 @@ struct SessionDetailView: View {
 
   /// While nothing is shown (launch, sessions still loading): show the session
   /// shown at the last run, else the newest one. When the shown session goes
-  /// away: the newest one. Decision: `SessionDetailStateModel`.
+  /// away: the newest one; when it was a launch that resolved: its real
+  /// session. Decision: `SessionDetailStateModel`.
   private func runSelectionUpkeep() {
     guard let navigationModel,
       navigationModel.selectedWorkspaceID == nil,
       navigationModel.selectedModuleLandingPath == nil,
       agentHub?.globalSessionSelectionRouter.selectionRequest == nil
     else { return }
-    switch stateModel.selectionUpkeep(primarySessionId: navigationModel.primarySessionId, availableIDs: itemIDs) {
+    let decision = stateModel.selectionUpkeep(
+      primarySessionId: navigationModel.primarySessionId,
+      availableIDs: itemIDs,
+      resolvedHistories: [
+        (.claude, claudeViewModel.resolvedPendingSessionHistory),
+        (.codex, codexViewModel.resolvedPendingSessionHistory),
+      ]
+    )
+    switch decision {
     case .none:
       break
     case .select(let id):

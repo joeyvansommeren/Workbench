@@ -36,8 +36,10 @@ final class SessionDetailStateModel {
   @ObservationIgnored var autoOpen = SidePanelAutoOpenTracker()
 
   /// Sessions shown at the last run, in saved order. Preferred by the
-  /// selection upkeep once they load.
+  /// selection upkeep once they load; cleared once any session was shown, so
+  /// a later empty selection never jumps back to the launch-time session.
   @ObservationIgnored private(set) var restoredIDs: [String] = []
+  @ObservationIgnored private var hasShownSession = false
   @ObservationIgnored private var restoredProviders: Set<SessionProviderKind> = []
   @ObservationIgnored private var lastReportedID: String?
   /// Ids that resolved to a session at least once. A shown id that is not
@@ -102,11 +104,26 @@ final class SessionDetailStateModel {
     }
   }
 
+  /// Drops per-session state of sessions that are gone (archived, stopped).
+  /// Launching sessions keep theirs: it moves to the real id on resolution.
+  func prune(availableIDs: Set<String>) {
+    let isKept: (String) -> Bool = { availableIDs.contains($0) || Self.isPending($0) }
+    if editorStates.keys.contains(where: { !isKept($0) }) {
+      editorStates = editorStates.filter { isKept($0.key) }
+    }
+    if sidePanelSegments.keys.contains(where: { !isKept($0) }) {
+      sidePanelSegments = sidePanelSegments.filter { isKept($0.key) }
+    }
+  }
+
   // MARK: - Shown session
 
   /// Follows the window's shown session and reports it for saving.
   func show(_ id: String?) {
-    guard let id, !Self.isPending(id), id != lastReportedID else { return }
+    guard let id else { return }
+    hasShownSession = true
+    restoredIDs = []
+    guard !Self.isPending(id), id != lastReportedID else { return }
     lastReportedID = id
     onShownChanged?(id)
   }
@@ -114,18 +131,44 @@ final class SessionDetailStateModel {
   /// What to show next. Acts while nothing is shown (launch, sessions still
   /// loading) and when the shown session went away (archived, stopped,
   /// cancelled launch).
-  func selectionUpkeep(primarySessionId: String?, availableIDs: [String]) -> SelectionUpkeep {
+  ///
+  /// - Parameter resolvedHistories: each provider's pending → session id
+  ///   history. A shown launch that just resolved is not gone: its real
+  ///   session is shown, even when this runs before
+  ///   `SessionNavigationModel.handleResolvedSessions`.
+  func selectionUpkeep(
+    primarySessionId: String?,
+    availableIDs: [String],
+    resolvedHistories: [(SessionProviderKind, [UUID: String])] = []
+  ) -> SelectionUpkeep {
     let available = Set(availableIDs)
     everAvailableIDs.formUnion(available)
     guard !availableIDs.isEmpty else { return .none }
     if let primarySessionId {
-      let isGone = !available.contains(primarySessionId) && everAvailableIDs.contains(primarySessionId)
-      return isGone ? .selectFirstAvailable : .none
+      guard !available.contains(primarySessionId) else { return .none }
+      if let resolvedID = Self.resolvedID(forPending: primarySessionId, in: resolvedHistories) {
+        return available.contains(resolvedID) ? .select(resolvedID) : .none
+      }
+      return everAvailableIDs.contains(primarySessionId) ? .selectFirstAvailable : .none
     }
     if let restored = restoredIDs.first(where: available.contains) {
       return .select(restored)
     }
     return .selectFirstAvailable
+  }
+
+  /// The real session id of a resolved launch, or nil.
+  static func resolvedID(
+    forPending id: String,
+    in histories: [(SessionProviderKind, [UUID: String])]
+  ) -> String? {
+    for (provider, history) in histories {
+      for (pendingID, sessionID) in history
+      where SidebarSessionItemID.pending(provider: provider, pendingId: pendingID) == id {
+        return SidebarSessionItemID.monitored(provider: provider, sessionId: sessionID)
+      }
+    }
+    return nil
   }
 
   // MARK: - Persistence
@@ -134,7 +177,9 @@ final class SessionDetailStateModel {
   func restore(_ persistedIDs: [String], provider: SessionProviderKind) {
     guard !restoredProviders.contains(provider) else { return }
     restoredProviders.insert(provider)
-    restoredIDs.append(contentsOf: persistedIDs.filter { !restoredIDs.contains($0) && !Self.isPending($0) })
+    if !hasShownSession {
+      restoredIDs.append(contentsOf: persistedIDs.filter { !restoredIDs.contains($0) && !Self.isPending($0) })
+    }
     // Report again: the read replaced whatever was reported before it.
     if let lastReportedID { onShownChanged?(lastReportedID) }
   }

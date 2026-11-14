@@ -10,8 +10,10 @@
 //
 //  Layout-loop safety: tabs hug their content and never measure anything.
 //  When the full titles do not fit (900 pt window), `ViewThatFits` shows the
-//  tabs as icon and count only. It picks from the proposed width alone, so
-//  nothing feeds back into the layout.
+//  tabs as icon and count, then icon only. It picks from the proposed width
+//  alone, so nothing feeds back into the layout. The row reports no minimum
+//  width (`minWidth: 0`) and gives way to the trailing controls, so it can
+//  never push a minimum size into the hosting view.
 //
 
 import SwiftUI
@@ -23,19 +25,22 @@ struct ShellDestinationTabs: View {
   var body: some View {
     let counts = destinationCounts
     ViewThatFits(in: .horizontal) {
-      tabs(counts: counts, showsTitles: true)
-      tabs(counts: counts, showsTitles: false)
+      tabs(counts: counts, showsTitles: true, showsCounts: true)
+      tabs(counts: counts, showsTitles: false, showsCounts: true)
+      tabs(counts: counts, showsTitles: false, showsCounts: false)
     }
+    .frame(minWidth: 0, alignment: .leading)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Destinations")
   }
 
-  private func tabs(counts: ShellDestinationCounts, showsTitles: Bool) -> some View {
+  private func tabs(counts: ShellDestinationCounts, showsTitles: Bool, showsCounts: Bool) -> some View {
     HStack(spacing: DesignTokens.Spacing.xs) {
       ForEach(ShellDestination.allCases, id: \.self) { destination in
         ShellDestinationTab(
           destination: destination,
-          count: counts.count(for: destination),
+          count: showsCounts ? counts.count(for: destination) : nil,
+          accessibilityCount: counts.count(for: destination),
           showsTitle: showsTitles,
           isSelected: shellModel.destination == destination,
           onSelect: { shellModel.select(destination) }
@@ -59,6 +64,8 @@ struct ShellDestinationTabs: View {
 struct ShellDestinationTab: View {
   let destination: ShellDestination
   let count: Int?
+  /// Spoken even when the count is not drawn (icon-only row).
+  var accessibilityCount: Int?
   /// False in a short title row: icon and count only (title in the tooltip).
   var showsTitle = true
   let isSelected: Bool
@@ -110,7 +117,7 @@ struct ShellDestinationTab: View {
   }
 
   private var accessibilityLabel: String {
-    guard let count else { return destination.title }
+    guard let count = accessibilityCount ?? count else { return destination.title }
     return "\(destination.title), \(count)"
   }
 }
