@@ -69,7 +69,7 @@ and match the prototype's CSS one to one (`Fixtures/workbench-apple-tokens.css` 
 
 - **Palette:** Standard (neutral grey, blue accent) or Warm (warm paper, ink accent). Default Standard.
 - **Appearance:** System, Light or Dark. Each palette has a light and a dark set.
-- The user switches both live in Settings › Appearance or in the title row.
+- The user switches both live in Settings › Appearance; the palette's "Switch appearance" flips light and dark.
 - The window root applies `.wbRedrawsOnPaletteChange()`, or views stay stale after a switch.
 - WCAG ≥ 4.5 for primary, secondary and tertiary text on content and sidebar, and for each status text on its tint (`WorkbenchPaletteTests`).
 

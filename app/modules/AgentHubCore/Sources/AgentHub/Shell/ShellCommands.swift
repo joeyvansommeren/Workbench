@@ -46,8 +46,8 @@ public struct ShellCommands: Commands {
       .disabled(shell == nil)
     }
 
-    // The toolbar holds only the sidebar toggle and must never be hidden or
-    // customized: that would change the title bar height at runtime.
+    // The window has no toolbar (Shell/README.md, "Title row clicks"), so
+    // View shows no Show/Hide Toolbar item.
     CommandGroup(replacing: .toolbar) {}
 
     // ⌘N starts a session, as it did in the legacy Sessions view.

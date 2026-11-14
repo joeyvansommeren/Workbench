@@ -163,11 +163,14 @@ struct ShellOverlayHost: ViewModifier {
     case .toggleSidebar: shellModel.toggleSidebar()
     case .openSettings: openSettings()
     case .switchAppearance:
-      WorkbenchAppearanceController.selectAppearance(
-        WorkbenchAppearanceController.toggledAppearance(
-          currentlyDark: WorkbenchAppearanceController.isShowingDark
-        )
+      let next = WorkbenchAppearanceController.toggledAppearance(
+        currentlyDark: WorkbenchAppearanceController.isShowingDark
       )
+      MainThreadStallMonitor.breadcrumb("appearance: \(next.rawValue)")
+      // One window crossfade instead of a brightness cut (motion plan item 13).
+      ThemeCrossfade.perform(in: NSApp.keyWindow) {
+        WorkbenchAppearanceController.selectAppearance(next)
+      }
     }
   }
 }

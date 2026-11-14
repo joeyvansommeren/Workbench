@@ -4,25 +4,34 @@
 //
 //  TOOLBAR SLOT of the new shell: the 52 pt title row above the content panel
 //  (`.titlebar` in the prototype). Destination tabs at the content column, a
-//  flexible spacer, then Search, Standard | Warm and the light/dark button.
-//  The row's structure never changes with the destination; only the selected
-//  tab does. See Shell/README.md, "P12", for how the real traffic lights are
-//  centred in this row.
+//  flexible spacer, then Search. The row's structure never changes with the
+//  destination; only the selected tab does. Appearance and palette live in
+//  Settings › Appearance and the palette's "Switch appearance". The sidebar
+//  toggle is `ShellWindowControls`. See Shell/README.md, "P12" and "Title row
+//  clicks".
 //
 
 import SwiftUI
 
 /// Fixed positions from the prototype's window chrome.
 enum ShellLayout {
+  /// Leading edge of the sidebar toggle (`ShellWindowControls`): 15 pt
+  /// right of the traffic lights, which AppKit puts at x 9–69 in a window
+  /// without a toolbar (measured, `ShellTitleBarHitTests`).
+  static let sidebarToggleLeading: CGFloat = 84
+  /// The same in full screen, where the traffic lights hide.
+  static let fullScreenSidebarToggleLeading: CGFloat = 8
+
+  static func sidebarToggleLeading(isFullScreen: Bool) -> CGFloat {
+    isFullScreen ? fullScreenSidebarToggleLeading : sidebarToggleLeading
+  }
+
   /// Leading padding of the title row while the sidebar is hidden, so its
-  /// content clears the traffic lights (x 19–79) and the sidebar toggle,
-  /// which AppKit places at x 100–128 (`ShellTitlebarToolbar`); 14 pt after
-  /// the toggle, as in the prototype.
-  static let collapsedToolbarLeading: CGFloat = 142
-  /// The same in full screen, where the traffic lights hide and AppKit moves
-  /// the toggle to the leading edge (assumed x 8–36; not measured, because a
-  /// full-screen test takes over the display).
-  static let fullScreenCollapsedToolbarLeading: CGFloat = 50
+  /// content clears the traffic lights and the 28 pt sidebar toggle: 14 pt
+  /// after the toggle, as in the prototype.
+  static let collapsedToolbarLeading: CGFloat = sidebarToggleLeading + DesignTokens.Size.control + 14
+  /// The same in full screen.
+  static let fullScreenCollapsedToolbarLeading: CGFloat = fullScreenSidebarToggleLeading + DesignTokens.Size.control + 14
 
   /// Leading padding of the title row.
   static func toolbarLeading(sidebarVisible: Bool, isFullScreen: Bool) -> CGFloat {
@@ -33,8 +42,8 @@ enum ShellLayout {
   /// crash). No split view is hosted in the shell any more: Reviews (P8) and
   /// the Sessions detail (P6, `SessionDetailLayout`) both fit 288 + 8 + their
   /// content minimum. `ReviewsLayoutTests` and `SessionDetailStateModelTests`
-  /// check it. In the title row the trailing controls keep their size and
-  /// the tabs truncate their titles when the row is short.
+  /// check it. In the title row Search keeps its size and the tabs truncate
+  /// their titles when the row is short.
   static let windowMinWidth: CGFloat = 900
   static let windowMinHeight: CGFloat = 600
 }
@@ -47,13 +56,9 @@ struct ShellToolbar: View {
       ShellDestinationTabs()
       Spacer(minLength: 0)
         .layoutPriority(-1)
-      HStack(spacing: DesignTokens.Spacing.sm) {
-        ShellSearchButton()
-        ShellPaletteSwitch()
-        ShellAppearanceButton()
-      }
-      .fixedSize()
-      .layoutPriority(1)
+      ShellSearchButton()
+        .fixedSize()
+        .layoutPriority(1)
     }
     .padding(
       .leading,

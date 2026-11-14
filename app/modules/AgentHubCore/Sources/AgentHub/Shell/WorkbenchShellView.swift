@@ -7,7 +7,7 @@
 //
 //  Three slots, each its own view so later phases replace only their slot:
 //  - sidebar: `ShellSidebarContainer` (P5)
-//  - toolbar: `ShellToolbar` (P12: destination tabs, search, appearance)
+//  - toolbar: `ShellToolbar` (P12: destination tabs, search)
 //  - detail:  `ShellDetailSlot` (P6 Sessions, P8 Reviews, P9 Jira and Linear)
 //
 //  Layout-loop rules (implementation plan, section 4): no split views, no
@@ -67,10 +67,6 @@ private struct ShellRoot: View {
       .environment(\.sessionNavigationModel, sessionNavigationModel)
       .environment(\.sessionsActionCoordinator, sessionsActionCoordinator)
       .environment(sessionDetailState)
-      // The sidebar toggle as the window's one toolbar item: a 52 pt unified
-      // title bar, so the real traffic lights centre in the title row.
-      // Applied once, never toggled.
-      .modifier(ShellTitlebarToolbar(shellModel: shellModel))
       .modifier(
         SessionsPresentationModifier(
           coordinator: sessionsActionCoordinator,
@@ -208,11 +204,11 @@ where Sidebar == ShellSidebarContainer, Toolbar == ShellToolbar, Detail == Shell
 /// and the main column (title row over the content panel). Generic over its
 /// three slots so each phase swaps one slot and previews/tests can stub them.
 ///
-/// The frame ignores the top safe area. With `ShellTitlebarToolbar` AppKit
-/// reports a 52 pt inset (without it, under `.hiddenTitleBar`, 0). The frame
-/// draws its own 52 pt title row in that band either way, so it lays out from
-/// the window's top edge and never reads the inset: a change of inset (full
-/// screen, toolbar) cannot feed back into the layout.
+/// The frame ignores the top safe area: it draws its own 52 pt title row from
+/// the window's top edge and never reads the inset, so a change of inset
+/// (full screen) cannot feed back into the layout. The window has no
+/// `NSToolbar` (Shell/README.md, "Title row clicks"); the sidebar toggle is
+/// the `ShellWindowControls` overlay.
 struct ShellFrame<Sidebar: View, Toolbar: View, Detail: View>: View {
   @Environment(WorkbenchShellModel.self) private var shellModel
   @ViewBuilder let sidebar: Sidebar
@@ -235,8 +231,12 @@ struct ShellFrame<Sidebar: View, Toolbar: View, Detail: View>: View {
         }
       }
     }
+    .overlay(alignment: .topLeading) {
+      ShellWindowControls()
+    }
     .animation(.wbAnimation(DesignTokens.Motion.medium), value: shellModel.sidebarVisible)
     .ignoresSafeArea(.container, edges: .top)
     .background(Color.wbSurfaceWindow.ignoresSafeArea())
+    .background(ShellWindowChrome { shellModel.setFullScreen($0) })
   }
 }

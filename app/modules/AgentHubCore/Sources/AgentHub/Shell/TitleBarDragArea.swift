@@ -35,6 +35,10 @@ struct TitleBarDragArea: NSViewRepresentable {
 final class TitleBarDragView: NSView {
   override var mouseDownCanMoveWindow: Bool { true }
 
+  // Like a real title bar: the first click on an inactive window already
+  // drags it, and a double-click zooms it.
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
   override func mouseDown(with event: NSEvent) {
     guard let window else { return }
     guard event.clickCount == 2 else {
