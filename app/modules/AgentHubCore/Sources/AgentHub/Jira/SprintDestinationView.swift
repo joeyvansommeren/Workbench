@@ -269,7 +269,9 @@ struct JiraSprintDestination: View {
 
   private var scope: Binding<SprintAssigneeScope> {
     SprintAssigneeScope.binding(
-      isMine: { viewModel.assigneeFilter == .me },
+      // The same normalised selection as the avatars: a stored person
+      // filter on your own account is Mine too.
+      isMine: { SprintPeopleFilter.isMine(viewModel.assigneeFilter, myAccountID: myAccountID) },
       setMine: { viewModel.assigneeFilter = $0 ? .me : .everyone }
     )
   }

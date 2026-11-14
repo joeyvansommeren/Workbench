@@ -102,6 +102,11 @@ extension SprintPeopleFilter {
     }
   }
 
+  /// Whether All | Mine shows Mine: the same rule as the avatars.
+  static func isMine(_ filter: JiraSprintViewModel.AssigneeFilter, myAccountID: String?) -> Bool {
+    selectedKind(filter, myAccountID: myAccountID) == .me
+  }
+
   /// One click selects the person; clicking the selected person shows everyone.
   static func toggled(
     _ kind: SprintPerson.Kind,

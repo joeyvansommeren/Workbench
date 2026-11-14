@@ -71,6 +71,13 @@ struct SprintPeopleFilterTests {
     #expect(SprintPeopleFilter.selectedKind(.person(accountId: "joey"), myAccountID: "joey") == .me)
     #expect(SprintPeopleFilter.selectedKind(.person(accountId: "anna"), myAccountID: "joey") == .person(accountId: "anna"))
     #expect(SprintPeopleFilter.selectedKind(.unassigned, myAccountID: nil) == .unassigned)
+
+    // All | Mine reads the same rule, so a restored person filter on your
+    // own account shows Mine there too, never All beside your selected avatar.
+    #expect(SprintPeopleFilter.isMine(.me, myAccountID: "joey"))
+    #expect(SprintPeopleFilter.isMine(.person(accountId: "joey"), myAccountID: "joey"))
+    #expect(!SprintPeopleFilter.isMine(.person(accountId: "anna"), myAccountID: "joey"))
+    #expect(!SprintPeopleFilter.isMine(.everyone, myAccountID: "joey"))
   }
 
   @Test("One click selects, a second click shows everyone")

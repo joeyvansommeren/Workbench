@@ -34,8 +34,9 @@ struct SprintListHead<People: View, Trailing: View>: View {
     // A narrow board (a ticket open in a small window) first shows fewer
     // avatars, then drops the days-left chip, the title, then All | Mine, so
     // the head never overflows. The people filter outlives All | Mine: it is
-    // the only way to pick a person. Fixed avatar counts, picked by
-    // `ViewThatFits`; layout-only, no size → state.
+    // the only way to pick a person, so with a people filter the last
+    // fallback (used even when nothing fits) still has its menu. Fixed avatar
+    // counts, picked by `ViewThatFits`; layout-only, no size → state.
     ViewThatFits(in: .horizontal) {
       if people != nil {
         row(title: title, showsScope: true, peopleLimit: SprintPeopleFilter.wideLimit)
@@ -43,21 +44,23 @@ struct SprintListHead<People: View, Trailing: View>: View {
         row(title: title?.withoutDaysLeft, showsScope: true, peopleLimit: SprintPeopleFilter.narrowLimit)
         row(title: nil, showsScope: true, peopleLimit: SprintPeopleFilter.narrowLimit)
         row(title: nil, showsScope: true, peopleLimit: SprintPeopleFilter.menuOnlyLimit)
-        row(title: nil, showsScope: false, peopleLimit: SprintPeopleFilter.menuOnlyLimit)
+        // Tighter gaps: at 900 pt with a ticket open and a search active the
+        // other rows are a few points too wide (Codex review).
+        row(title: nil, showsScope: false, peopleLimit: SprintPeopleFilter.menuOnlyLimit, compact: true)
       } else {
         row(title: title, showsScope: true, peopleLimit: nil)
         row(title: title?.withoutDaysLeft, showsScope: true, peopleLimit: nil)
         row(title: nil, showsScope: true, peopleLimit: nil)
+        row(title: nil, showsScope: false, peopleLimit: nil)
       }
-      row(title: nil, showsScope: false, peopleLimit: nil)
     }
     .padding(.leading, DesignTokens.Spacing.lg)
     .padding(.trailing, DesignTokens.Spacing.md)
     .frame(height: 56)
   }
 
-  private func row(title: SprintTitle?, showsScope: Bool, peopleLimit: Int?) -> some View {
-    HStack(spacing: DesignTokens.Spacing.md) {
+  private func row(title: SprintTitle?, showsScope: Bool, peopleLimit: Int?, compact: Bool = false) -> some View {
+    HStack(spacing: compact ? DesignTokens.Spacing.sm : DesignTokens.Spacing.md) {
       if let title {
         SprintTitleView(title: title)
       }
