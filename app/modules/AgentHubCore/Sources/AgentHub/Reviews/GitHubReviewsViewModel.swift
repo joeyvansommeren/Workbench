@@ -103,10 +103,27 @@ public final class GitHubReviewsViewModel {
 
   /// The Requested / Mine / All switch of the new shell's Reviews list.
   public private(set) var reviewScope: ReviewScope = .requested
-  /// CI state per pull request ID, kept from loaded details. The queue itself
-  /// (`gh search prs`) carries no checks, so a row shows its checks icon once
-  /// its detail has loaded in this run.
+  /// CI state per pull request ID. The queue itself (`gh search prs`) carries no
+  /// checks, so a batched rollup fetch fills this after each queue refresh;
+  /// loaded details update their own entry too.
   public private(set) var checksByPullRequestID: [String: CIStatus] = [:]
+  /// The rollup fetch for the latest queue. A new refresh cancels the previous one.
+  @ObservationIgnored private(set) var checksTask: Task<Void, Never>?
+
+  /// Fetches the CI rollup for the queue in the background. Runs once per queue
+  /// refresh (no polling); failures are logged by the service and leave icons empty.
+  private func refreshChecks(for pullRequestIDs: [String]) {
+    checksTask?.cancel()
+    guard !pullRequestIDs.isEmpty else {
+      checksTask = nil
+      return
+    }
+    checksTask = Task { [service] in
+      let states = await service.checkRollups(forPullRequestIDs: pullRequestIDs)
+      guard !Task.isCancelled, !states.isEmpty else { return }
+      self.checksByPullRequestID.merge(states) { _, new in new }
+    }
+  }
 
   /// The user picked a scope: show it and save it as their default.
   public func setReviewScope(_ scope: ReviewScope) {
@@ -362,6 +379,7 @@ public final class GitHubReviewsViewModel {
       )
       persistCache()
       isLoadingPullRequests = false
+      refreshChecks(for: pullRequests.map(\.id))
     } catch {
       guard generation == refreshGeneration else { return }
       isLoadingPullRequests = false

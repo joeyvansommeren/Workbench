@@ -175,4 +175,51 @@ struct GitHubProjectReviewServiceTests {
     #expect(values["pr-1"]?.status == "Code Review 🔎")
     #expect(values["pr-1"]?.priority == "Urgent ‼️")
   }
+
+  @Test("Queue checks decode success, failure, pending, no checks, and skip missing PRs")
+  func decodesCheckRollups() throws {
+    func node(_ id: String, _ rollup: String) -> String {
+      #"{"id":"\#(id)","commits":{"nodes":[{"commit":{"statusCheckRollup":\#(rollup)}}]}}"#
+    }
+    let json = #"{"data":{"nodes":["#
+      + [
+        node("pass", #"{"state":"SUCCESS"}"#),
+        node("fail", #"{"state":"FAILURE"}"#),
+        node("error", #"{"state":"ERROR"}"#),
+        node("pending", #"{"state":"PENDING"}"#),
+        node("expected", #"{"state":"EXPECTED"}"#),
+        node("no-checks", "null"),
+        #"{"id":"no-commits","commits":{"nodes":[]}}"#,
+        "null",
+      ].joined(separator: ",")
+      + "]}}"
+
+    let states = try GitHubProjectReviewService.decodeCheckRollups(json)
+
+    #expect(states["pass"] == .success)
+    #expect(states["fail"] == .failure)
+    #expect(states["error"] == .failure)
+    #expect(states["pending"] == .pending)
+    #expect(states["expected"] == .pending)
+    #expect(states["no-checks"] == CIStatus.none)
+    #expect(states["no-commits"] == CIStatus.none)
+    #expect(states.count == 7)
+  }
+
+  @Test("A malformed checks response is an error, not an empty result")
+  func rejectsMalformedCheckRollups() {
+    #expect(throws: GitHubCLIError.self) {
+      try GitHubProjectReviewService.decodeCheckRollups(#"{"errors":[{"message":"rate limited"}]}"#)
+    }
+  }
+
+  @Test("Queue checks are fetched 50 pull requests per call, in order")
+  func batchesCheckRollupIDs() {
+    let ids = (1...120).map { "pr-\($0)" }
+    let batches = GitHubProjectReviewService.batches(ids, size: GitHubProjectReviewService.checkRollupBatchSize)
+    #expect(batches.map(\.count) == [50, 50, 20])
+    #expect(batches.flatMap { $0 } == ids)
+    #expect(GitHubProjectReviewService.batches([], size: 50).isEmpty)
+    #expect(GitHubProjectReviewService.batches(Array(ids.prefix(50)), size: 50).count == 1)
+  }
 }

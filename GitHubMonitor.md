@@ -89,6 +89,7 @@ Performance rules:
 - Session row subscriptions can opt out of immediate fetches with `refreshOnSubscribe: false`; activity timestamps decide whether observation should start.
 - Initial sidebar refresh is delayed until after launch and limited to a small batch so GitHub state does not block app startup.
 - Repository remote resolution is a cached local `git remote -v` read; it does not add a GitHub network request.
+- The Reviews queue's Checks column does not use this service. After each successful queue refresh, `GitHubReviewsViewModel` calls `GitHubProjectReviewService.checkRollups(forPullRequestIDs:)` once: one `gh api graphql` `nodes(ids:)` query per 50 pull requests for the last commit's `statusCheckRollup { state }`, run one after another, 30 s timeout, stopping at the first failure (logged, no retry). There is no polling loop; a new queue refresh cancels the previous fetch. Loaded PR details still update their own row.
 
 ## UI Integration
 
