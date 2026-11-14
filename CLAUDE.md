@@ -215,7 +215,7 @@ struct MonitoringCardView: View {
 
 The new interface (`Shell/`, see `Shell/README.md`) is the default. `AgentHubApp` reads `AppleShellLaunchFlag` once at launch: unset or YES gives the shell; an explicit NO (Settings › General › New interface, or `-com.agenthub.features.appleShell NO`) gives the legacy `AgentHubOperationsView`. The legacy shell stays behind the flag until P11b deletes it. Design rules: `DESIGN.md`.
 
-- `ShellFrame` has three slots: sidebar (288 pt), a title band as high as the system title bar (measured from the traffic lights, 32 pt on macOS 27, so lights and controls share one line), and the detail in an inset content panel 8 pt below it. No `NavigationSplitView`.
+- `ShellFrame` has three slots: sidebar (288 pt), a 52 pt title band (the prototype's; `ShellTrafficLights` moves the traffic lights into it, and the band is measured from them, so lights and controls share one line), and the detail in an inset content panel 8 pt below it. No `NavigationSplitView`.
 - Title row: destination tabs Sessions, Reviews, Jira, Linear (⌘1–⌘4, with counts), then Search. Appearance and palette are in Settings › Appearance (and the palette's "Switch appearance"), not in the title row.
 - Sidebar: one repo → branch → session tree (`Shell/Sidebar/`). Workflows are folded into the branch rows; there is no Workflows screen.
 - Per-window state (`WorkbenchShellModel`, `SessionNavigationModel`, `SessionsActionCoordinator`) lives in `ShellRoot`, never in provider singletons.

@@ -43,11 +43,11 @@ final class ShellLayoutStressUITests: XCTestCase {
       "The new shell did not load"
     )
 
-    // Double-click the empty part of the title band 14×: the band is as high as
-    // the system title bar (ShellTitleBarMetrics), so y 16 is its centre line.
+    // Double-click the empty part of the title band 14×: the band is the
+    // prototype's 52 pt (ShellTrafficLights), so y 26 is its centre line.
     // Each double-click zooms or un-zooms.
     let titleBand = window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0))
-      .withOffset(CGVector(dx: 0, dy: 16))
+      .withOffset(CGVector(dx: 0, dy: 26))
     for _ in 0..<14 {
       titleBand.doubleClick()
     }

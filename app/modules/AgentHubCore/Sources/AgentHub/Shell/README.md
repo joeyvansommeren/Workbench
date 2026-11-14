@@ -244,10 +244,9 @@ GeometryReader.
   full screen), centred in the title band; it stays put when the sidebar
   hides. Its background is a `TitleBarDragArea` over the sidebar column, so
   the whole band drags the window. Band height and positions: "Title band".
-- **Rejected:** moving `standardWindowButton`s by hand. AppKit lays them out
-  again on resize, zoom, full screen and appearance changes, and the 32 pt
-  titlebar container would clip them, so they would need moving from layout
-  callbacks: a layout-loop risk.
+- **Rejected at P12, adopted later:** moving `standardWindowButton`s by hand.
+  P12 feared layout callbacks; "Title band" now does it from AppKit frame and
+  window notifications instead, with a test that it settles.
 - **View menu.** `ShellCommands` replaces the `.toolbar` command group, so
   View has no Show/Hide Toolbar item.
 - **Full screen.** `ShellWindowChrome` sets `WorkbenchShellModel.isFullScreen`
@@ -326,31 +325,36 @@ GeometryReader.
 
 - **One line.** Traffic lights, sidebar toggle, tabs and Search share one
   centre line, as in the prototype (Joey's complaint was that they did not).
-  The lights cannot move safely (see "Rejected" in P12), so the band follows
-  them.
-- **Measured, not assumed.** `ShellWindowChrome` reads the real close and
-  zoom buttons at window hookup (next run-loop turn) and again on window
-  notifications: leaving full screen (a window that opened in full screen
-  keeps the default until then), a screen or backing-scale change, and
-  becoming key. Never from layout; the model ignores equal metrics.
-  `ShellRoot` applies it (`.shellWindowChrome(_:)`) outside the
-  `.wbRedrawsOnPaletteChange()` subtree, so a palette switch keeps it; it
-  removes its observers when dismantled. The result goes to
-  `WorkbenchShellModel.titleBar` (`ShellTitleBarMetrics`): band height = 2 ×
-  the close button's centre below the top edge; toggle leading = the zoom
-  button's right edge + 12. The buttons' place does not depend on our
-  content, so nothing feeds back. Implausible values (lights hidden in full
-  screen, band outside 20–60) are ignored. The default, `.standard`, is the
-  macOS 27 measurement: band 32 pt (lights centred 16 pt from the top),
-  zoom button ending at x 69. Only macOS 27 was available to measure; older
-  systems may differ (a 28 pt title bar), which is why it is measured.
+- **52 pt, as in the prototype (2026-11-14, round 4).** AppKit's title bar
+  for a hidden title bar is 32 pt, which left the tabs touching the window's
+  top edge (Joey: "missing some padding at the top"). `ShellTrafficLights`
+  makes the titlebar container 52 pt and moves the three buttons: centred
+  26 pt from the top, the close button's centre 26 pt from the leading edge,
+  AppKit's spacing kept. AppKit lays the titlebar out again on resize, key
+  changes, full screen and appearance changes, so `ShellWindowChromeView`
+  places them again from window notifications (resize, exit full screen,
+  screen, backing, key, resign key) and from the frame-change notifications
+  of the container and the close button. Never from SwiftUI layout. A
+  placement writes a frame only when it differs, and a re-entry guard skips
+  the notifications its own writes post, so it ends. Full screen is left to
+  AppKit. `lightPlacementSettles` checks that one resize gives a few
+  placements (4 on macOS 27) and then none.
+- **Measured, not assumed.** After placing, the listener measures the real
+  close and zoom buttons (`ShellTitleBarMetrics`): band height = 2 × the
+  close button's centre below the top edge (52); toggle leading = the zoom
+  button's right edge + 12. If AppKit ever refuses the move, the band still
+  follows the lights wherever they are. Implausible values (lights hidden in
+  full screen, band outside 20–60) are ignored. The default, `.standard`, is
+  the placed macOS 27 result: band 52, zoom button ending at x 79. The
+  listener is applied by `ShellRoot` (`.shellWindowChrome(_:)`) outside the
+  `.wbRedrawsOnPaletteChange()` subtree and removes its observers when
+  dismantled.
 - **Below the band.** The content panel starts 8 pt below it
-  (`DesignTokens.Inset.panel`, 40 pt on macOS 27), and the sidebar tree
-  starts at the same y (`ShellLayout.contentTop`).
-- **Controls.** The destination tabs are 28 pt (`Size.control`, not the
-  32 pt `Size.tab`), so the pill clears the window's top edge in a 32 pt
-  band. Search and the toggle are 28 pt too. All are centred in the band.
-  The old 52 pt `Size.titlebar` token is gone.
+  (`DesignTokens.Inset.panel`, 60 pt), and the sidebar tree starts at the
+  same y (`ShellLayout.contentTop`).
+- **Controls.** The destination tabs are the prototype's 32 pt
+  (`Size.tab`): 10 pt above and below. Search and the toggle are 28 pt.
+  All are centred in the band.
 - **Guard.** `ShellTitleBarHitTests` sweeps each control top to bottom and
   checks that its centre line is the close button's (±1 pt) at 1440 and 900
   pt, and that the toggle sits 12 pt after the zoom button. It also checks
