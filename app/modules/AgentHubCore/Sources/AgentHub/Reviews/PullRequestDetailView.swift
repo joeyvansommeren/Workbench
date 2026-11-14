@@ -4,8 +4,8 @@
 //
 //  The pull request detail of the new shell's Reviews view: a fixed-width
 //  trailing panel next to the table (`.pr-detail` in the prototype). A header
-//  bar (refresh, open on GitHub, close), then the title, byline and state
-//  chips, "Review with <agent>", the property card (Checks, Changes,
+//  bar (refresh, close), then the title, byline and state chips, "Review
+//  with <agent>" and "Open on GitHub", the property card (Changes,
 //  Reviewers, Ticket, Sessions), the checks list, the description and the
 //  conversation. The panel body scrolls.
 //
@@ -28,6 +28,12 @@ struct PullRequestReviewControl {
   /// The prompt the primary button runs: the built-in independent review.
   var primaryTemplate: GitHubPromptTemplate? {
     templates.first { $0.builtInKind == .independentReview } ?? templates.first
+  }
+
+  /// Whether "Review with <agent>" can run: the agent is installed, nothing
+  /// is starting, and there is a prompt to run.
+  var isPrimaryEnabled: Bool {
+    isAgentAvailable(agent) && !isStarting && primaryTemplate != nil
   }
 
   static func displayName(_ agent: SessionProviderKind) -> String {
@@ -143,10 +149,6 @@ struct PullRequestDetailView: View {
         .help("Refresh status and comments")
       }
       IconButton(
-        systemImage: "arrow.up.right.square", isSmall: true,
-        accessibilityLabel: "Open on GitHub", action: openOnGitHub)
-      .help("Open on GitHub")
-      IconButton(
         systemImage: "xmark", isSmall: true,
         accessibilityLabel: "Close pull request details",
         accessibilityIdentifier: "reviews.detail.close", action: onClose)
@@ -154,7 +156,8 @@ struct PullRequestDetailView: View {
     }
     .padding(.leading, DesignTokens.Spacing.xl)
     .padding(.trailing, DesignTokens.Spacing.md)
-    .frame(height: 44)
+    // The table header's height, so the two hairlines line up.
+    .frame(height: ReviewsTableLayout.headerHeight)
   }
 
   // MARK: - Header
@@ -182,7 +185,7 @@ struct PullRequestDetailView: View {
           .lineLimit(1)
           .truncationMode(.middle)
         Text("·").wbText(.callout)
-        Text(pullRequest.authorLogin ?? "unknown")
+        Text(pullRequest.authorLogin ?? "Unknown author")
           .wbText(.callout)
           .lineLimit(1)
       }
@@ -211,19 +214,26 @@ struct PullRequestDetailView: View {
   // MARK: - Actions
 
   private var actions: some View {
-    HStack(spacing: DesignTokens.Spacing.sm) {
-      reviewButton
-      Button(action: openOnGitHub) {
-        HStack(spacing: DesignTokens.Spacing.xsPlus) {
-          Text("Open on GitHub")
-          Image(systemName: "arrow.up.right")
-            .font(.system(size: 10, weight: .semibold))
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+      HStack(spacing: DesignTokens.Spacing.sm) {
+        reviewButton
+        Button(action: openOnGitHub) {
+          HStack(spacing: DesignTokens.Spacing.xsPlus) {
+            Text("Open on GitHub")
+            Image(systemName: "arrow.up.right")
+              .font(.system(size: 10, weight: .semibold))
+          }
+          .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
+        .buttonStyle(.wbPlain)
+        .fixedSize()
+        .accessibilityIdentifier("reviews.openOnGitHub")
       }
-      .buttonStyle(.wbPlain)
-      .fixedSize()
-      .accessibilityIdentifier("reviews.openOnGitHub")
+      if !review.isAgentAvailable(review.agent) {
+        Text("Install \(PullRequestReviewControl.displayName(review.agent)) to review")
+          .wbText(.callout)
+          .foregroundStyle(Color.wbTextSecondary)
+      }
     }
   }
 
@@ -237,15 +247,17 @@ struct PullRequestDetailView: View {
     let isAvailable = review.isAgentAvailable(agent)
     let title =
       review.isStarting ? "Starting…" : "Review with \(PullRequestReviewControl.displayName(agent))"
-    return SplitButton(title, accessibilityIdentifier: "reviews.startReview") {
-      guard isAvailable, !review.isStarting, let template = review.primaryTemplate else { return }
+    return ReviewSplitButton(
+      title: title,
+      isPrimaryEnabled: review.isPrimaryEnabled,
+      isMenuEnabled: !review.isStarting
+    ) {
+      guard review.isPrimaryEnabled, let template = review.primaryTemplate else { return }
       review.onReview(agent, template)
     } menu: {
       PullRequestReviewMenuItems(review: review)
     }
     .fixedSize()
-    .disabled(review.isStarting)
-    .opacity(isAvailable && !review.isStarting ? 1 : 0.55)
     .help(isAvailable ? "Start an independent review session" : agent.notInstalledHelp)
   }
 
@@ -253,7 +265,6 @@ struct PullRequestDetailView: View {
 
   private var properties: some View {
     PropertyCard {
-      PropertyRow("Checks", systemImage: "checkmark.circle") { checksValue }
       PropertyRow("Changes", systemImage: "plusminus") { changesValue }
       PropertyRow("Reviewers", systemImage: "person") { reviewersValue }
       if let ticketKey {
@@ -272,33 +283,13 @@ struct PullRequestDetailView: View {
   }
 
   @ViewBuilder
-  private var checksValue: some View {
-    if let detail {
-      let summary = PullRequestChecksSummary(checks: detail.pullRequest.statusCheckRollup)
-      Text(summary.text)
-        .fontWeight(summary.state == nil ? .regular : .medium)
-        .foregroundStyle(checksColor(summary.state))
-    } else {
-      placeholderValue
-    }
-  }
-
-  private func checksColor(_ state: PullRequestChecksState?) -> Color {
-    switch state {
-    case .pass: return .wbStatusReadyText
-    case .fail: return .wbStatusErrorText
-    case .pending, nil: return .wbTextSecondary
-    }
-  }
-
-  @ViewBuilder
   private var changesValue: some View {
     if let detail {
       HStack(spacing: DesignTokens.Spacing.xsPlus) {
         Text(verbatim: "+\(detail.pullRequest.additions)").foregroundStyle(Color.wbDiffAddedText)
         Text(verbatim: "−\(detail.pullRequest.deletions)").foregroundStyle(Color.wbDiffRemovedText)
         let files = detail.pullRequest.changedFiles
-        Text("· \(files) \(files == 1 ? "file" : "files")")
+        Text(verbatim: "· \(ReviewsCopy.count(files, "file"))")
           .wbText(.body)
           .foregroundStyle(Color.wbTextSecondary)
       }
@@ -322,7 +313,8 @@ struct PullRequestDetailView: View {
               .lineLimit(1)
           }
           if logins.count > 2 {
-            Text("+\(logins.count - 2)")
+            Text(verbatim: "+\(logins.count - 2)")
+              .monospacedDigit()
               .foregroundStyle(Color.wbTextSecondary)
               .help(logins.dropFirst(2).joined(separator: ", "))
           }
@@ -370,10 +362,21 @@ struct PullRequestDetailView: View {
       if let body = detail?.pullRequest.body?.trimmingCharacters(in: .whitespacesAndNewlines),
         !body.isEmpty
       {
-        Markdown(body)
+        let shortened = PullRequestDetailPresentation.shortenedDescription(body)
+        Markdown(shortened.text)
           .markdownTheme(.pullRequestDescription)
           .textSelection(.enabled)
           .frame(maxWidth: .infinity, alignment: .leading)
+        if shortened.isShortened {
+          Button(action: openOnGitHub) {
+            Text("Read the full description on GitHub")
+              .wbText(.callout)
+              .foregroundStyle(Color.wbAccentText)
+              .frame(minHeight: DesignTokens.Size.controlSmall)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+        }
       } else {
         Text(detail == nil && isLoadingDetail ? "Loading…" : "No description.")
           .wbText(.body)
@@ -425,11 +428,12 @@ private struct PullRequestSessionLinkRow: View {
           .foregroundStyle(Color.wbAccentText)
           .lineLimit(1)
           .truncationMode(.tail)
+          .frame(minHeight: DesignTokens.Size.controlSmall)
           .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
-      .help("Open \(link.provider.rawValue) session \(link.displayName)")
-      .accessibilityLabel("Open \(link.provider.rawValue) session \(link.displayName)")
+      .help("Open \(providerName) session \(link.displayName)")
+      .accessibilityLabel("Open \(providerName) session \(link.displayName)")
       StatusChip(status: link.status, isPending: link.isPending)
         .fixedSize()
       if GitHubReviewSessionCommandPolicy.canSend(isPending: link.isPending) {
@@ -448,9 +452,72 @@ private struct PullRequestSessionLinkRow: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Send a follow-up command to this session")
-        .accessibilityLabel("Send command to \(link.provider.rawValue) session \(link.displayName)")
+        .accessibilityLabel("Send command to \(providerName) session \(link.displayName)")
       }
     }
+  }
+
+  private var providerName: String { PullRequestReviewControl.displayName(link.provider) }
+}
+
+/// "Review with <agent>" and its agent and prompt menu. Like `SplitButton`,
+/// but only the primary half disables (agent missing, review starting), so
+/// the menu stays open for picking another agent. Disabled looks like the
+/// button styles (0.45). Swap back to `SplitButton` once it can disable its
+/// primary half alone.
+private struct ReviewSplitButton<MenuContent: View>: View {
+  let title: String
+  let isPrimaryEnabled: Bool
+  let isMenuEnabled: Bool
+  let action: () -> Void
+  @ViewBuilder let menu: () -> MenuContent
+
+  @State private var isChevronHovered = false
+
+  var body: some View {
+    HStack(spacing: 1) {
+      Button(action: action) {
+        Text(title).wbText(.bodyEmphasis)
+      }
+      .buttonStyle(ReviewSplitLeftStyle())
+      .disabled(!isPrimaryEnabled)
+      .opacity(isPrimaryEnabled ? 1 : 0.45)
+
+      Menu(content: menu) {
+        Image(systemName: "chevron.down")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(Color.wbTextOnAccent)
+          .frame(width: 28, height: DesignTokens.Size.control)
+          .contentShape(Rectangle())
+      }
+      .menuStyle(.button)
+      .buttonStyle(.plain)
+      .menuIndicator(.hidden)
+      .frame(width: 28, height: DesignTokens.Size.control)
+      .background(WBSplitChevronFill(isHovered: isChevronHovered))
+      .onHover { isChevronHovered = $0 }
+      .clipShape(
+        UnevenRoundedRectangle(
+          topLeadingRadius: 0,
+          bottomLeadingRadius: 0,
+          bottomTrailingRadius: DesignTokens.Radius.item,
+          topTrailingRadius: DesignTokens.Radius.item
+        )
+      )
+      .disabled(!isMenuEnabled)
+      .opacity(isMenuEnabled ? 1 : 0.45)
+      .accessibilityLabel("Choose agent and prompt")
+    }
+    .accessibilityIdentifier("reviews.startReview")
+  }
+}
+
+private struct ReviewSplitLeftStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    WBSplitLeftBody(
+      configuration: configuration,
+      leadingPadding: DesignTokens.Spacing.md,
+      trailingPadding: DesignTokens.Spacing.md)
   }
 }
 

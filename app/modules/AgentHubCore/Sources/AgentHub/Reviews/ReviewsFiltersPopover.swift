@@ -3,15 +3,15 @@
 //  AgentHub
 //
 //  The Filters popover of the new shell's Reviews list: GitHub Project, saved
-//  view and search, plus reload. The project and view used to sit in the
-//  legacy Reviews sidebar.
+//  view and search, plus Stop while a refresh runs (Refresh is ⌘R in the
+//  bar). The project and view used to sit in the legacy Reviews sidebar.
 //
 
 import SwiftUI
 
 struct ReviewsFiltersPopover: View {
   @Bindable var viewModel: GitHubReviewsViewModel
-  let onReload: () -> Void
+  let onStop: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
@@ -50,9 +50,11 @@ struct ReviewsFiltersPopover: View {
 
   private var footer: some View {
     HStack(spacing: DesignTokens.Spacing.sm) {
-      Button(viewModel.isRefreshing ? "Stop" : "Reload", action: onReload)
-        .buttonStyle(.wbSecondary)
-        .fixedSize()
+      if viewModel.isRefreshing {
+        Button("Stop", action: onStop)
+          .buttonStyle(.wbSecondary)
+          .fixedSize()
+      }
       if viewModel.isShowingCachedPullRequests {
         Text("Saved locally")
           .wbText(.callout)
@@ -67,6 +69,8 @@ struct ReviewsFiltersPopover: View {
           }
           .wbText(.callout)
           .foregroundStyle(Color.wbAccentText)
+          .frame(minHeight: DesignTokens.Size.controlSmall)
+          .contentShape(Rectangle())
         }
       }
     }
