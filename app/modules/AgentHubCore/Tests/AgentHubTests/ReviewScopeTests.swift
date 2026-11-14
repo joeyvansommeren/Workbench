@@ -203,10 +203,13 @@ struct ReviewScopeTests {
 @MainActor
 @Suite("Reviews layout")
 struct ReviewsLayoutTests {
-  @Test("Reviews fits the shell's minimum window width")
+  @Test("Reviews, with the detail panel open, fits the shell's minimum window width")
   func fitsWindowMinimum() {
     let needed =
       DesignTokens.Width.sidebar + ReviewsLayout.minimumContentWidth + DesignTokens.Inset.panel
     #expect(needed <= ShellLayout.windowMinWidth)
+    #expect(
+      ReviewsLayout.minimumContentWidth
+        == ReviewsLayout.tableMinWidth + ReviewsLayout.hairlineWidth + ReviewsLayout.detailWidth)
   }
 }
