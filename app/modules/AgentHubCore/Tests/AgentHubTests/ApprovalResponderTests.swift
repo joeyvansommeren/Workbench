@@ -278,6 +278,31 @@ struct ApprovalResponderTests {
     #expect(surface.approvalShortcutHandler == nil)
   }
 
+  @Test("A banner leaving late does not clear the next request's ⌘↩ handler")
+  func shortcutHandlerOwnedByRequest() {
+    let (viewModel, _) = makeViewModel()
+    let surface = ApprovalSurface(screen: nil, canReadScreen: false)
+    viewModel.activeTerminals["s1"] = surface
+    let first = ApprovalRequestKey(toolUseId: "t1", timestamp: nil)
+    let second = ApprovalRequestKey(toolUseId: "t2", timestamp: nil)
+
+    viewModel.setApprovalShortcutHandler(forKey: "s1", request: first) {}
+    // The next request's banner registers before the old one finished leaving.
+    var fired = false
+    viewModel.setApprovalShortcutHandler(forKey: "s1", request: second) { fired = true }
+    viewModel.setApprovalShortcutHandler(forKey: "s1", request: first, nil)
+    #expect(surface.approvalShortcutHandler != nil)
+    surface.approvalShortcutHandler?()
+    #expect(fired)
+
+    // The owner itself clears it.
+    viewModel.setApprovalShortcutHandler(forKey: "s1", request: second, nil)
+    #expect(surface.approvalShortcutHandler == nil)
+    // A later re-register by the first works again.
+    viewModel.setApprovalShortcutHandler(forKey: "s1", request: first) {}
+    #expect(surface.approvalShortcutHandler != nil)
+  }
+
   // MARK: Refusal fallbacks
 
   @Test("The tree pill opens the session only when the app could not answer")

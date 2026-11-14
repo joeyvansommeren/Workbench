@@ -639,7 +639,11 @@ private struct SessionDetailContent: View {
         defaultWidth: DesignTokens.Width.sidePanel,
         userDefaultsKey: AgentHubDefaults.sidePanelWidth
       ) {
-        panel
+        // Contents only: the container takes its width at once.
+        panel.wbPanelEntrance(
+          animates: shellModel.sidePanelEntrance.isPending,
+          onAppearConsume: { shellModel.sidePanelEntrance.consume() }
+        )
       }
       .overlay(alignment: .leading) {
         Rectangle().fill(Color.wbBorderHairline).frame(width: 1).allowsHitTesting(false)

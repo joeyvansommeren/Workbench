@@ -26,6 +26,9 @@ final class SidebarTreeActions {
   /// `primarySessionId`; the tree keeps the row highlighted with it.
   var onWorkspaceOpen: (SidebarWorkspaceOpen) -> Void = { _ in }
 
+  /// Shared by every row: once one preview showed, the next one shows at once.
+  var hoverPreview = HoverPreviewTiming()
+
   init(
     agentHub: AgentHubProvider,
     shellModel: WorkbenchShellModel,
@@ -321,5 +324,38 @@ enum SidebarApproval {
         openSession(node)
       }
     }
+  }
+}
+
+// MARK: - Hover preview timing
+
+/// Tooltip timing for the session hover preview (motion plan item 12): the
+/// first preview waits, so a passing pointer opens nothing. While a preview is
+/// open, or shortly after one closed, the next row's preview shows at once,
+/// so scanning down a branch does not stutter. `NSPopover` keeps its own
+/// presentation animation; only the delay changes.
+struct HoverPreviewTiming: Equatable {
+  /// Rest time before the first preview.
+  static let firstDelay: Duration = .milliseconds(700)
+  /// How long after a preview closed the next one still shows at once.
+  static let warmWindow: TimeInterval = 1
+
+  private(set) var openCount = 0
+  private(set) var lastClosedAt: Date?
+
+  mutating func previewOpened() {
+    openCount += 1
+  }
+
+  mutating func previewClosed(at date: Date) {
+    openCount = max(0, openCount - 1)
+    lastClosedAt = date
+  }
+
+  /// The wait before a row that the pointer just entered shows its preview.
+  func delay(at now: Date) -> Duration {
+    if openCount > 0 { return .zero }
+    if let lastClosedAt, now.timeIntervalSince(lastClosedAt) < Self.warmWindow { return .zero }
+    return Self.firstDelay
   }
 }

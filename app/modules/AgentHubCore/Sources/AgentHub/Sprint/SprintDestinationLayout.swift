@@ -21,6 +21,10 @@ struct SprintDestinationLayout<ListHead: View, Content: View, Detail: View>: Vie
   @ViewBuilder let content: Content
   @ViewBuilder let detail: Detail
 
+  /// True once no ticket was open while this destination was on screen: only
+  /// then does the detail entrance run (not on ⌘3/⌘4 or at launch).
+  @State private var detailWasClosed = false
+
   var body: some View {
     HStack(spacing: 0) {
       VStack(spacing: 0) {
@@ -34,10 +38,13 @@ struct SprintDestinationLayout<ListHead: View, Content: View, Detail: View>: Vie
           .fill(Color.wbBorderHairline)
           .frame(width: 1)
         detail
+          // Contents only; the hairline and the width appear at once.
+          .wbPanelEntrance(animates: detailWasClosed)
           .frame(width: SprintLayout.detailWidth)
           .frame(maxHeight: .infinity)
       }
     }
+    .wbTracksPanelOpen(isOpen: isDetailVisible, wasClosed: $detailWasClosed)
   }
 }
 

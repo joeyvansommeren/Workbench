@@ -43,6 +43,9 @@ struct ReviewsDestinationView: View {
   @State private var pendingFollowUp: GitHubReviewBulkFollowUp?
   /// "Sent to 3 of 4 sessions" after a bulk follow-up, shown in the bar.
   @State private var bulkFeedback: String?
+  /// True once no pull request was open while Reviews was on screen: only
+  /// then does the detail panel's entrance run (not on ⌘2 or at launch).
+  @State private var detailWasClosed = false
 
   private var viewModel: GitHubReviewsViewModel { agentHub.gitHubReviewsViewModel }
   private var support: ReviewSessionSupport { ReviewSessionSupport(agentHub: agentHub) }
@@ -99,6 +102,9 @@ struct ReviewsDestinationView: View {
           Color.wbBorderHairline
             .frame(width: ReviewsLayout.hairlineWidth)
           detail(detailPullRequest, links: links[detailPullRequest.id] ?? [], tileColors: tileColors)
+            // Outside the detail's `.id`: the entrance runs when the panel
+            // opens, not on every row change (selection is instant).
+            .wbPanelEntrance(animates: detailWasClosed)
             .frame(width: ReviewsLayout.detailWidth)
             .frame(maxHeight: .infinity)
             .clipped()
@@ -106,6 +112,7 @@ struct ReviewsDestinationView: View {
       }
     }
     .onExitCommand { closeDetail() }
+    .wbTracksPanelOpen(isOpen: isDetailOpen, wasClosed: $detailWasClosed)
     .task {
       agentHub.claudeSessionsViewModel.refreshCLIAvailability()
       agentHub.codexSessionsViewModel.refreshCLIAvailability()

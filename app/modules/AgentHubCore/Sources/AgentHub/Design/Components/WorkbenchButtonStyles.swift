@@ -3,36 +3,109 @@
 //  AgentHub
 //
 //  Button styles for the new shell: primary, secondary, plain, destructive.
-//  No scale on press (Joey, 2026-11-14): pressed state is a colour change.
+//  Hover and press change colour only, instantly (Joey, 2026-11-14: no scale
+//  on hover or press, anywhere). Press = the hover fill plus a
+//  `wbSurfacePressed` layer, which darkens in light themes and lightens in
+//  dark themes, like a native AppKit button highlight.
 //
 
 import SwiftUI
+
+/// Which fill set a `WBButtonBody` draws.
+enum WBButtonKind {
+  case primary, secondary, plain, destructive
+
+  /// Opacity of every disabled button (button styles and `IconButton`).
+  static let disabledOpacity: Double = 0.45
+
+  /// Rest / hover fills from the prototype (`.button-*` and `:hover`).
+  @MainActor
+  func fill(isHovered: Bool) -> Color {
+    switch self {
+    case .primary: return isHovered ? .wbAccentHover : .wbAccent
+    case .secondary, .destructive: return isHovered ? .wbSurfaceControlHover : .wbSurfaceControl
+    case .plain: return isHovered ? .wbSurfaceHover : .clear
+    }
+  }
+
+  @MainActor
+  var foreground: Color {
+    switch self {
+    case .primary: return .wbTextOnAccent
+    case .secondary, .plain: return .wbTextPrimary
+    case .destructive: return .wbStatusErrorText
+    }
+  }
+}
+
+/// Shared body for the four button styles. A view (not the style) owns the
+/// hover state, so `@State` lives in a real view identity.
+struct WBButtonBody: View {
+  let configuration: ButtonStyleConfiguration
+  let kind: WBButtonKind
+
+  @Environment(\.isEnabled) private var isEnabled
+  @State private var isHovered = false
+
+  var body: some View {
+    let shape = RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
+    // A pressed button always shows the hover fill underneath: the pointer is
+    // on it. Disabled buttons show neither.
+    let isPressed = isEnabled && configuration.isPressed
+    let showsHoverFill = isEnabled && (isHovered || isPressed)
+
+    configuration.label
+      .wbText(.bodyEmphasis)
+      .foregroundStyle(kind.foreground)
+      .padding(.horizontal, DesignTokens.Spacing.md)
+      .frame(height: DesignTokens.Size.control)
+      .background {
+        ZStack {
+          kind.fill(isHovered: showsHoverFill)
+          if isPressed {
+            Color.wbSurfacePressed
+          }
+        }
+      }
+      .clipShape(shape)
+      .modifier(WBButtonChrome(kind: kind))
+      .opacity(isEnabled ? 1 : WBButtonKind.disabledOpacity)
+      .onHover { isHovered = $0 }
+      // No `.animation`: feedback lands on the first frame (plan item 1).
+  }
+}
+
+/// The per-kind border and elevation around the fill.
+private struct WBButtonChrome: ViewModifier {
+  let kind: WBButtonKind
+
+  func body(content: Content) -> some View {
+    switch kind {
+    case .primary:
+      content
+        .overlay {
+          RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
+            .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+            .allowsHitTesting(false)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 0.75, x: 0, y: 0.5)
+        .shadow(color: .black.opacity(0.12), radius: 0.75, x: 0, y: 0.5)
+    case .secondary, .destructive:
+      content.wbElevation(.control)
+    case .plain:
+      content
+    }
+  }
+}
 
 // MARK: - Primary
 
 /// Accent-filled button. Matches `.button-primary` in the prototype.
 public struct WBPrimaryButtonStyle: ButtonStyle {
-  @Environment(\.isEnabled) private var isEnabled
-
   public init() {}
 
   public func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .wbText(.bodyEmphasis)
-      .foregroundStyle(Color.wbTextOnAccent)
-      .padding(.horizontal, DesignTokens.Spacing.md)
-      .frame(height: DesignTokens.Size.control)
-      .background(configuration.isPressed ? Color.wbAccentHover : Color.wbAccent)
-      .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
-      .overlay {
-        RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
-          .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
-          .allowsHitTesting(false)
-      }
-      .shadow(color: .black.opacity(0.12), radius: 0.75, x: 0, y: 0.5)
-      .shadow(color: .black.opacity(0.12), radius: 0.75, x: 0, y: 0.5)
-      .opacity(isEnabled ? 1 : 0.45)
-      .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
+    WBButtonBody(configuration: configuration, kind: .primary)
   }
 }
 
@@ -40,23 +113,10 @@ public struct WBPrimaryButtonStyle: ButtonStyle {
 
 /// Surface-coloured button with a control shadow. Matches `.button-secondary`.
 public struct WBSecondaryButtonStyle: ButtonStyle {
-  @Environment(\.isEnabled) private var isEnabled
-  @State private var isHovered = false
-
   public init() {}
 
   public func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .wbText(.bodyEmphasis)
-      .foregroundStyle(Color.wbTextPrimary)
-      .padding(.horizontal, DesignTokens.Spacing.md)
-      .frame(height: DesignTokens.Size.control)
-      .background(isHovered ? Color.wbSurfaceControlHover : Color.wbSurfaceControl)
-      .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
-      .wbElevation(.control)
-      .opacity(isEnabled ? 1 : 0.45)
-      .onHover { isHovered = $0 }
-      .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
+    WBButtonBody(configuration: configuration, kind: .secondary)
   }
 }
 
@@ -64,22 +124,10 @@ public struct WBSecondaryButtonStyle: ButtonStyle {
 
 /// Transparent button that shows a hover background. Matches `.button-plain`.
 public struct WBPlainButtonStyle: ButtonStyle {
-  @Environment(\.isEnabled) private var isEnabled
-  @State private var isHovered = false
-
   public init() {}
 
   public func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .wbText(.bodyEmphasis)
-      .foregroundStyle(Color.wbTextPrimary)
-      .padding(.horizontal, DesignTokens.Spacing.md)
-      .frame(height: DesignTokens.Size.control)
-      .background(isHovered ? Color.wbSurfaceHover : .clear)
-      .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
-      .opacity(isEnabled ? 1 : 0.45)
-      .onHover { isHovered = $0 }
-      .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
+    WBButtonBody(configuration: configuration, kind: .plain)
   }
 }
 
@@ -87,23 +135,10 @@ public struct WBPlainButtonStyle: ButtonStyle {
 
 /// Surface-coloured button with error text. Matches `.button-destructive`.
 public struct WBDestructiveButtonStyle: ButtonStyle {
-  @Environment(\.isEnabled) private var isEnabled
-  @State private var isHovered = false
-
   public init() {}
 
   public func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .wbText(.bodyEmphasis)
-      .foregroundStyle(Color.wbStatusErrorText)
-      .padding(.horizontal, DesignTokens.Spacing.md)
-      .frame(height: DesignTokens.Size.control)
-      .background(isHovered ? Color.wbSurfaceControlHover : Color.wbSurfaceControl)
-      .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
-      .wbElevation(.control)
-      .opacity(isEnabled ? 1 : 0.45)
-      .onHover { isHovered = $0 }
-      .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
+    WBButtonBody(configuration: configuration, kind: .destructive)
   }
 }
 

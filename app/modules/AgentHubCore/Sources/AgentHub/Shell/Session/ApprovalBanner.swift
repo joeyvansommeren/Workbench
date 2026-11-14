@@ -22,20 +22,41 @@ struct SessionApprovalBannerOverlay: View {
 
   var body: some View {
     // Claude permission prompts only; input questions are answered in the terminal.
-    if let pending = viewModel.monitorStates[sessionId]?.pendingToolUse,
-      pending.isApprovablePermission(providerKind: viewModel.providerKind)
-    {
-      let request = ApprovalRequestKey(pending: pending)
-      ApprovalBannerHost(
-        sessionId: sessionId,
-        terminalKey: terminalKey,
-        pending: pending,
-        phase: viewModel.approvalTracker.phase(for: sessionId, request: request),
-        viewModel: viewModel
-      )
-      // Fresh "Show in terminal" state and ⌘↩ registration per request.
-      .id(request)
+    let pending = approvablePending
+    let request = pending.map(ApprovalRequestKey.init(pending:))
+    ZStack {
+      if let pending, let request {
+        ApprovalBannerHost(
+          sessionId: sessionId,
+          terminalKey: terminalKey,
+          pending: pending,
+          phase: viewModel.approvalTracker.phase(for: sessionId, request: request),
+          viewModel: viewModel
+        )
+        // Fresh "Show in terminal" state and ⌘↩ registration per request.
+        .id(request)
+        .transition(Self.bannerTransition)
+      }
     }
+    // Scoped to this overlay: only the banner's opacity and offset change.
+    // It floats over the terminal NSView, so no layout moves.
+    .animation(.wbAnimation(DesignTokens.Motion.medium), value: request)
+  }
+
+  private var approvablePending: PendingToolUse? {
+    guard let pending = viewModel.monitorStates[sessionId]?.pendingToolUse,
+      pending.isApprovablePermission(providerKind: viewModel.providerKind)
+    else { return nil }
+    return pending
+  }
+
+  /// Rises 8 pt from the bottom edge it sits on (medium, ease-out); leaves
+  /// with a shorter opacity-only fade (fast).
+  static var bannerTransition: AnyTransition {
+    .asymmetric(
+      insertion: .opacity.combined(with: .offset(y: 8)),
+      removal: .opacity.animation(.wbAnimation(DesignTokens.Motion.fast))
+    )
   }
 }
 
@@ -53,6 +74,7 @@ private struct ApprovalBannerHost: View {
       if isRevealingTerminal {
         ApprovalRevealedChip { isRevealingTerminal = false }
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+          .transition(.opacity)
       } else {
         ApprovalBanner(
           presentation: ApprovalRequestPresentation(pending: pending),
@@ -63,8 +85,11 @@ private struct ApprovalBannerHost: View {
           onShowInTerminal: { isRevealingTerminal = true }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .transition(.opacity)
       }
     }
+    // Banner ↔ chip crossfade: one control changing state, not a cut.
+    .animation(.wbAnimation(DesignTokens.Motion.fast), value: isRevealingTerminal)
     .padding(DesignTokens.Spacing.lg)
     .onAppear {
       MainThreadStallMonitor.breadcrumb("approval: shown \(pending.toolName)")
@@ -72,8 +97,12 @@ private struct ApprovalBannerHost: View {
     }
     .onChange(of: isRevealingTerminal) { _, _ in updateShortcut() }
     .onChange(of: phase) { _, _ in updateShortcut() }
-    .onDisappear { viewModel.setApprovalShortcutHandler(forKey: terminalKey, nil) }
+    // Keyed by request: this runs after the exit fade, when the next
+    // request's banner may already own ⌘↩.
+    .onDisappear { viewModel.setApprovalShortcutHandler(forKey: terminalKey, request: request, nil) }
   }
+
+  private var request: ApprovalRequestKey { ApprovalRequestKey(pending: pending) }
 
   private func respond(_ decision: ApprovalDecision) {
     viewModel.respondToApproval(sessionId: sessionId, decision: decision, terminalKey: terminalKey)
@@ -84,12 +113,12 @@ private struct ApprovalBannerHost: View {
   /// shortcut back. A second answer is refused by the view model regardless.
   private func updateShortcut() {
     guard !isRevealingTerminal, !(phase?.isAnswered ?? false) else {
-      viewModel.setApprovalShortcutHandler(forKey: terminalKey, nil)
+      viewModel.setApprovalShortcutHandler(forKey: terminalKey, request: request, nil)
       return
     }
     let sessionId = sessionId
     let terminalKey = terminalKey
-    viewModel.setApprovalShortcutHandler(forKey: terminalKey) { [weak viewModel] in
+    viewModel.setApprovalShortcutHandler(forKey: terminalKey, request: request) { [weak viewModel] in
       viewModel?.respondToApproval(sessionId: sessionId, decision: .approveOnce, terminalKey: terminalKey)
     }
   }
@@ -164,17 +193,30 @@ struct ApprovalBanner: View {
 
   /// Buttons only while nothing has been sent for this request: once a key went
   /// out, a second one could land in a running turn.
-  @ViewBuilder
+  /// A 120 ms crossfade between phases confirms the click was taken. Scoped
+  /// to the trailing slot; the slot's children keep `.fixedSize()`.
   private var trailing: some View {
+    ZStack(alignment: .trailing) {
+      trailingContent
+    }
+    .animation(.wbAnimation(DesignTokens.Motion.fast), value: phase)
+  }
+
+  @ViewBuilder
+  private var trailingContent: some View {
     switch phase {
     case .sending(let decision):
       ApprovalStatusLabel(decision: decision, isSettled: false)
+        .transition(.opacity)
     case .answered(let decision):
       ApprovalStatusLabel(decision: decision, isSettled: true)
+        .transition(.opacity)
     case .checkTerminal:
       showInTerminalButton
+        .transition(.opacity)
     case .answerInTerminal, nil:
       actions
+        .transition(.opacity)
     }
   }
 
@@ -211,6 +253,8 @@ private struct ApprovalSplitButton: View {
   let onApprove: () -> Void
   let onApproveAlways: () -> Void
 
+  @State private var isChevronHovered = false
+
   var body: some View {
     HStack(spacing: 1) {
       Button(action: onApprove) {
@@ -242,7 +286,8 @@ private struct ApprovalSplitButton: View {
       .buttonStyle(.plain)
       .menuIndicator(.hidden)
       .frame(width: 28, height: DesignTokens.Size.control)
-      .background(Color.wbAccent)
+      .background(WBSplitChevronFill(isHovered: isChevronHovered))
+      .onHover { isChevronHovered = $0 }
       .clipShape(
         UnevenRoundedRectangle(
           topLeadingRadius: 0, bottomLeadingRadius: 0,
@@ -256,21 +301,12 @@ private struct ApprovalSplitButton: View {
 
 private struct ApprovalSplitLeftStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
-    let shape = UnevenRoundedRectangle(
-      topLeadingRadius: DesignTokens.Radius.item, bottomLeadingRadius: DesignTokens.Radius.item,
-      bottomTrailingRadius: 0, topTrailingRadius: 0)
-    configuration.label
-      .foregroundStyle(Color.wbTextOnAccent)
-      .padding(.leading, DesignTokens.Spacing.md)
-      .padding(.trailing, DesignTokens.Spacing.sm)
-      .frame(height: DesignTokens.Size.control)
-      .background(configuration.isPressed ? Color.wbAccentHover : Color.wbAccent)
-      .clipShape(shape)
-      .overlay {
-        shape.strokeBorder(.white.opacity(0.18), lineWidth: 0.5).allowsHitTesting(false)
-      }
-      .scaleEffect(configuration.isPressed ? 0.97 : 1)
-      .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
+    // Colour-only hover and press, shared with the P2 `SplitButton`.
+    WBSplitLeftBody(
+      configuration: configuration,
+      leadingPadding: DesignTokens.Spacing.md,
+      trailingPadding: DesignTokens.Spacing.sm
+    )
   }
 }
 

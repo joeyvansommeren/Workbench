@@ -56,6 +56,8 @@ public final class CLISessionsViewModel {
     TerminalKeystrokeApprovalResponder()
   /// Progress after an approval click, shared by the banner and the tree pill.
   public let approvalTracker = ApprovalResponseTracker()
+  /// The request whose banner set each terminal's ⌘↩ handler.
+  @ObservationIgnored private var approvalShortcutOwners: [String: ApprovalRequestKey] = [:]
   @ObservationIgnored private var terminalWorkspaceSaveTasks: [String: Task<Void, Never>] = [:]
   @ObservationIgnored private var workspaceStatePersistTask: Task<Void, Never>?
   /// Guards `refresh()` so overlapping callers never run `refreshSessions`
@@ -947,11 +949,22 @@ public final class CLISessionsViewModel {
 
   /// Routes ⌘↩ in the session's terminal to `handler` while a banner shows;
   /// nil restores the newline/submit shortcut.
-  public func setApprovalShortcutHandler(forKey key: String, _ handler: (() -> Void)?) {
+  ///
+  /// `request` names the banner that owns the handler. A clear for a request
+  /// that no longer owns it is ignored: the old banner's exit transition ends
+  /// after the next request's banner registered, and must not remove its ⌘↩.
+  /// A clear without a request always clears.
+  public func setApprovalShortcutHandler(
+    forKey key: String, request: ApprovalRequestKey? = nil, _ handler: (() -> Void)?
+  ) {
+    if handler == nil, let request, let owner = approvalShortcutOwners[key], owner != request {
+      return
+    }
     // Through a local: a write via the dictionary subscript would count as a
     // change to `activeTerminals` and redraw every observer.
     guard let terminal = activeTerminals[key] else { return }
     terminal.approvalShortcutHandler = handler
+    approvalShortcutOwners[key] = handler == nil ? nil : request
   }
 
   /// Delivers an orchestration handoff to a running session, resuming its embedded terminal when needed.

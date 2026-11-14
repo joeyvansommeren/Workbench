@@ -39,10 +39,11 @@ struct JiraSprintView: View {
       if let notice = viewModel.statusNotice {
         JiraStatusNoticeView(notice: notice, onDismiss: viewModel.dismissStatusNotice)
           .padding(.top, DesignTokens.Spacing.sm)
-          .transition(.move(edge: .top).combined(with: .opacity))
+          // Enters down 8 pt from the edge it sits under, leaves in place.
+          .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: -8)), removal: .opacity))
       }
     }
-    .animation(.spring(response: 0.3, dampingFraction: 0.9), value: viewModel.statusNotice)
+    .animation(.wbAnimation(DesignTokens.Motion.standard), value: viewModel.statusNotice)
     .sheet(isPresented: isSyncPlanPresented) {
       JiraSyncPlanSheet(viewModel: viewModel)
     }

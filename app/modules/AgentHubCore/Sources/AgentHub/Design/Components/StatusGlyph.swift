@@ -23,19 +23,24 @@ public enum StatusGlyphPhase {
     return (phase / 0.9) * 360
   }
 
+  /// One full breath (out and back), as the prototype's `status-breathe 1.6s`.
+  public static let haloCycle: Double = 1.6
+  /// The largest halo scale; `BreathingDotGlyph` maps it to the frame edge.
+  public static let haloMaxScale: Double = 1.15
+
   /// Halo scale and opacity at the given date.
-  /// Ease-in-out over 1.6 seconds, auto-reversing, scale 0.75...1.15,
-  /// opacity 0.35...0.12.
+  /// Smoothstep ease-in-out, auto-reversing, one full cycle every
+  /// `haloCycle` (0.8 s out, 0.8 s back), scale 0.75...1.15, opacity 0.35...0.12.
   public static func halo(at date: Date) -> (scale: Double, opacity: Double) {
     let t = date.timeIntervalSinceReferenceDate
-    let period: Double = 1.6
-    // Triangle wave 0...1...0 over 2 * period (auto-reversing)
-    let phase = t.truncatingRemainder(dividingBy: period * 2)
+    let half = haloCycle / 2
+    // Triangle wave 0...1...0 over one cycle (auto-reversing)
+    let phase = t.truncatingRemainder(dividingBy: haloCycle)
     let linear: Double
-    if phase < period {
-      linear = phase / period
+    if phase < half {
+      linear = phase / half
     } else {
-      linear = 1 - (phase - period) / period
+      linear = 1 - (phase - half) / half
     }
     // Ease-in-out: smoothstep
     let eased = linear * linear * (3 - 2 * linear)
@@ -120,10 +125,9 @@ private struct BreathingDotGlyph: View {
         // Halo
         if shouldAnimate {
           let haloPhase = StatusGlyphPhase.halo(at: timeline.date)
-          // Clamp scale so halo stays within frame: max radius = halfWidth
-          let maxScale = halfWidth / halfWidth // = 1.0
-          let clampedScale = min(haloPhase.scale, maxScale)
-          let haloRadius = halfWidth * clampedScale
+          // Map the scale range into the fixed frame: the peak (1.15) touches
+          // the edge. No clamp, so the breath has no flat plateau at the top.
+          let haloRadius = halfWidth * (haloPhase.scale / StatusGlyphPhase.haloMaxScale)
           let haloRect = CGRect(
             x: center.x - haloRadius,
             y: center.y - haloRadius,

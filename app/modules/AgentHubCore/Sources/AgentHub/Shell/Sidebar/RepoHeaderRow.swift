@@ -36,7 +36,8 @@ struct RepoHeaderRow: View, Equatable {
         SidebarIcon(glyph: .chevronDown, size: DesignTokens.Size.iconSmall)
           .foregroundStyle(Color.wbTextSecondary)
           .rotationEffect(.degrees(model.isCollapsed ? -90 : 0))
-          .animation(.wbAnimation(DesignTokens.Motion.medium), value: model.isCollapsed)
+          // Fast, so the indicator does not lag the rows, which snap.
+          .animation(.wbAnimation(DesignTokens.Motion.fast), value: model.isCollapsed)
           .padding(.leading, -DesignTokens.Spacing.xsPlus)
         Spacer(minLength: 0)
         if model.isCollapsed, model.attentionCount > 0 {

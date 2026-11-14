@@ -996,7 +996,7 @@ struct GitHubReviewsView: View {
 
   private func showSessionCommandFeedback(_ message: String, isError: Bool) {
     sessionCommandFeedbackTask?.cancel()
-    withAnimation(.easeInOut(duration: 0.15)) {
+    withAnimation(.wbAnimation(DesignTokens.Motion.fast)) {
       sessionCommandFeedback = GitHubReviewSessionCommandFeedback(
         message: message,
         isError: isError
@@ -1005,7 +1005,7 @@ struct GitHubReviewsView: View {
     sessionCommandFeedbackTask = Task { @MainActor in
       try? await Task.sleep(for: .seconds(4))
       guard !Task.isCancelled else { return }
-      withAnimation(.easeInOut(duration: 0.15)) {
+      withAnimation(.wbAnimation(DesignTokens.Motion.fast)) {
         sessionCommandFeedback = nil
       }
     }

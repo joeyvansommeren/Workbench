@@ -66,7 +66,10 @@ struct ShellOverlayHost: ViewModifier {
               onClose: { overlays.closePalette() }
             )
             .padding(.top, 104)
-            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+            // Opacity only, no scale (Joey's rule). A 120 ms fade in and out
+            // softens the scrim without delaying typing: the field takes focus
+            // on the first frame. Instant under Reduce Motion.
+            .transition(.opacity)
           }
         }
         .animation(.wbAnimation(DesignTokens.Motion.fast), value: overlays.isPaletteOpen)
