@@ -122,8 +122,8 @@ head (`SprintListHead`) shows the sprint or cycle name with its days-left chip
 tracker-neutral `SprintColumnItem`s (`Sprint/SprintBoardItems.swift`), drawn by
 `SprintBoardView`: up to 4 equal columns, more scroll sideways with
 `containerRelativeFrame`; no GeometryReader. The ticket detail is a 380 pt
-trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
-`JiraTicketDetailView` / `LinearIssueDetailView`. Breadcrumbs:
+trailing panel in a plain HStack (not `.inspector`); since P16 it hosts
+`Sprint/TicketDetailView` (see "P16: ticket detail"). Breadcrumbs:
 `sprint filter: …`, `sprint ticket: open|close|start …`.
 
 ## P7: Approvals (Claude only)
@@ -313,3 +313,24 @@ Plan: `Workbench-ui-explorations/apple/MOTION-PLAN.md`.
   runs under Reduce Motion.
 - **Hover preview:** 700 ms for the first, then at once while one is open or
   for 1 s after (`HoverPreviewTiming` on `SidebarTreeActions`).
+
+## P16: ticket detail (Jira and Linear)
+
+`Sprint/TicketDetailView` replaces the legacy `JiraTicketDetailView` /
+`LinearIssueDetailView` in the shell (both stay for the flag-off path).
+`TicketDetailPresentation` (pure, `TicketDetailPresentationTests`) maps a Jira
+ticket or a Linear issue to one `SprintTicketDetail`. The panel: key and close
+(Esc), title, the status chip (Jira: a menu with the other columns, "Move To";
+Linear issues do not move in the shell), priority, type and label tags,
+"Start session" (`SplitButton`; the primary half uses
+`SprintStartProvider.preferred`, the menu names Claude Code or Codex; same
+start path and starting guard as the card) and "Open in Jira/Linear", a
+`PropertyCard` (Assignee, Sprint or Cycle, Project: the legacy repository
+picker), linked sessions (`StatusGlyph` and word, click opens), pull requests
+(Jira only, with refresh), and the description through the Reviews
+`pullRequestDescription` MarkdownUI theme, capped at 1200 characters with
+"Show all". Jira's plain-text description keeps its line breaks as hard
+breaks. The entrance stays in `SprintDestinationLayout`. Breadcrumbs:
+`sprint ticket: move <key>`, `sprint ticket: project`, `sprint ticket: open
+session`. Linear Filters now has an Assignee choice (Everyone / Mine), because
+the list head drops All | Mine at the narrowest widths.

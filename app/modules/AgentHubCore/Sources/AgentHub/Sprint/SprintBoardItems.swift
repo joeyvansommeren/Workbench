@@ -194,6 +194,8 @@ protocol SprintLinkedSession {
   var isMonitored: Bool { get }
   var lastActivityAt: Date { get }
   var session: CLISession? { get }
+  var title: String { get }
+  var branchName: String? { get }
 }
 
 extension JiraLinkedSession: SprintLinkedSession {}
