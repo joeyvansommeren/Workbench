@@ -117,14 +117,27 @@ enum ReviewsTableLayout {
 struct ReviewsTableSort: Equatable, Sendable {
   var column: ReviewsTableColumn
   var ascending: Bool
+  /// The checks states when the Checks sort was chosen. Selecting a row loads
+  /// its checks; sorting on the live map would move the row under the cursor,
+  /// so this order holds until the next header click.
+  var checksSnapshot: [String: CIStatus] = [:]
 
   /// The sort after a click on `column`'s header: the same column flips,
-  /// another column starts in its default direction.
-  static func next(after current: ReviewsTableSort?, clicking column: ReviewsTableColumn) -> ReviewsTableSort {
+  /// another column starts in its default direction. A Checks sort takes a
+  /// snapshot of `checks`.
+  static func next(
+    after current: ReviewsTableSort?,
+    clicking column: ReviewsTableColumn,
+    checks: [String: CIStatus] = [:]
+  ) -> ReviewsTableSort {
+    let ascending: Bool
     if let current, current.column == column {
-      return ReviewsTableSort(column: column, ascending: !current.ascending)
+      ascending = !current.ascending
+    } else {
+      ascending = column.defaultAscending
     }
-    return ReviewsTableSort(column: column, ascending: column.defaultAscending)
+    return ReviewsTableSort(
+      column: column, ascending: ascending, checksSnapshot: column == .checks ? checks : [:])
   }
 }
 
@@ -133,7 +146,6 @@ enum ReviewsTableRows {
   static func make(
     pullRequests: [GitHubProjectPullRequest],
     links: [String: [GitHubReviewSessionLink]],
-    checks: [String: CIStatus],
     sort: ReviewsTableSort?
   ) -> [GitHubReviewTableRow] {
     let rows = pullRequests.map {
@@ -147,7 +159,7 @@ enum ReviewsTableRows {
       let lhsEmpty = textValue(lhs, column: sort.column)?.isEmpty == true
       let rhsEmpty = textValue(rhs, column: sort.column)?.isEmpty == true
       if lhsEmpty != rhsEmpty { return rhsEmpty }
-      let order = compare(lhs, rhs, column: sort.column, checks: checks)
+      let order = compare(lhs, rhs, sort: sort)
       if order == .orderedSame {
         return lhs.updatedSortValue > rhs.updatedSortValue
       }
@@ -168,30 +180,24 @@ enum ReviewsTableRows {
   }
 
   private static func compare(
-    _ lhs: GitHubReviewTableRow,
-    _ rhs: GitHubReviewTableRow,
-    column: ReviewsTableColumn,
-    checks: [String: CIStatus]
+    _ lhs: GitHubReviewTableRow, _ rhs: GitHubReviewTableRow, sort: ReviewsTableSort
   ) -> ComparisonResult {
-    if let left = textValue(lhs, column: column), let right = textValue(rhs, column: column) {
+    if let left = textValue(lhs, column: sort.column),
+      let right = textValue(rhs, column: sort.column)
+    {
       return left.localizedStandardCompare(right)
     }
-    switch column {
+    switch sort.column {
     case .priority: return number(lhs.prioritySortValue, rhs.prioritySortValue)
     case .updated: return number(lhs.updatedSortValue, rhs.updatedSortValue)
-    case .checks: return number(checksRank(checks[lhs.id]), checksRank(checks[rhs.id]))
+    case .checks:
+      return number(checksRank(sort.checksSnapshot[lhs.id]), checksRank(sort.checksSnapshot[rhs.id]))
     default: return .orderedSame
     }
   }
 
-  /// Failing first, then pending, passed, and unknown last.
-  static func checksRank(_ status: CIStatus?) -> Int {
-    switch PullRequestChecksState(status) {
-    case .fail: return 0
-    case .pending: return 1
-    case .pass: return 2
-    case nil: return 3
-    }
+  private static func checksRank(_ status: CIStatus?) -> Int {
+    PullRequestChecksState.sortRank(PullRequestChecksState(status))
   }
 
   private static func number<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {

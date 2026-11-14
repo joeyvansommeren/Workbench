@@ -199,19 +199,12 @@ struct PullRequestDetailView: View {
   }
 
   private var tags: some View {
-    let stateTags = detail.map { PullRequestDetailPresentation.stateTags(for: $0.pullRequest) } ?? []
-    var all = stateTags
-    if let status = pullRequest.projectStatus, !status.isEmpty {
-      all.append(ReviewsTag(text: status, tone: .neutral))
-    }
-    if let priority = pullRequest.projectPriority, !priority.isEmpty {
-      let urgent = GitHubReviewRecommendation.isUrgent(priority)
-      all.append(ReviewsTag(text: priority, tone: urgent ? .attention : .neutral))
-    }
+    let all = PullRequestDetailPresentation.headerTags(
+      detail: detail?.pullRequest, pullRequest: pullRequest)
     // Not fixed-size: with many chips in the narrow panel they truncate
     // instead of widening the column.
     return HStack(spacing: DesignTokens.Spacing.xsPlus) {
-      ForEach(all, id: \.self) { ReviewsTagChip(tag: $0) }
+      ForEach(all) { ReviewsTagChip(tag: $0) }
     }
   }
 

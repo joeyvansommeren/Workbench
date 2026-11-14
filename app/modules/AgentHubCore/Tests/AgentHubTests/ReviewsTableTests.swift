@@ -72,7 +72,7 @@ struct ReviewsTableTests {
       pullRequest("urgent", priority: "Urgent", updated: 200),
       pullRequest("low-old", priority: "Low", updated: 100),
     ]
-    let rows = ReviewsTableRows.make(pullRequests: pullRequests, links: [:], checks: [:], sort: nil)
+    let rows = ReviewsTableRows.make(pullRequests: pullRequests, links: [:], sort: nil)
     #expect(rows.map(\.id) == ["urgent", "low-old", "low-new"])
   }
 
@@ -84,12 +84,12 @@ struct ReviewsTableTests {
       pullRequest("a", status: "In review"),
     ]
     let ascending = ReviewsTableRows.make(
-      pullRequests: pullRequests, links: [:], checks: [:],
+      pullRequests: pullRequests, links: [:],
       sort: ReviewsTableSort(column: .status, ascending: true))
     #expect(ascending.map(\.id) == ["a", "b", "none"])
 
     let descending = ReviewsTableRows.make(
-      pullRequests: pullRequests, links: [:], checks: [:],
+      pullRequests: pullRequests, links: [:],
       sort: ReviewsTableSort(column: .status, ascending: false))
     #expect(descending.map(\.id) == ["b", "a", "none"])
   }
@@ -106,10 +106,28 @@ struct ReviewsTableTests {
     let checks: [String: CIStatus] = [
       "pass": .success, "fail": .failure, "pending-old": .pending, "pending-new": .pending,
     ]
-    let rows = ReviewsTableRows.make(
-      pullRequests: pullRequests, links: [:], checks: checks,
-      sort: ReviewsTableSort(column: .checks, ascending: true))
+    let sort = ReviewsTableSort.next(after: nil, clicking: .checks, checks: checks)
+    let rows = ReviewsTableRows.make(pullRequests: pullRequests, links: [:], sort: sort)
     #expect(rows.map(\.id) == ["fail", "pending-new", "pending-old", "pass", "unknown"])
+  }
+
+  @Test("The Checks sort keeps its order when a selected row's checks load later")
+  func checksSortSnapshot() {
+    let pullRequests = [pullRequest("a", updated: 300), pullRequest("b", updated: 200)]
+    var live: [String: CIStatus] = ["a": .success]
+    let sort = ReviewsTableSort.next(after: nil, clicking: .checks, checks: live)
+    #expect(ReviewsTableRows.make(pullRequests: pullRequests, links: [:], sort: sort).map(\.id) == ["a", "b"])
+
+    // Selecting "b" loads its detail: it fails. The live map changes, the order does not.
+    live["b"] = .failure
+    #expect(ReviewsTableRows.make(pullRequests: pullRequests, links: [:], sort: sort).map(\.id) == ["a", "b"])
+
+    // The next header click takes a new snapshot.
+    let flipped = ReviewsTableSort.next(after: sort, clicking: .checks, checks: live)
+    #expect(flipped.ascending == false)
+    #expect(flipped.checksSnapshot == live)
+    // Another column drops the snapshot.
+    #expect(ReviewsTableSort.next(after: flipped, clicking: .title, checks: live).checksSnapshot.isEmpty)
   }
 
   @Test("Sorting by updated, newest first, and by session name")
@@ -120,13 +138,13 @@ struct ReviewsTableTests {
       pullRequest("mid", updated: 200),
     ]
     let byUpdated = ReviewsTableRows.make(
-      pullRequests: pullRequests, links: [:], checks: [:],
+      pullRequests: pullRequests, links: [:],
       sort: ReviewsTableSort(column: .updated, ascending: false))
     #expect(byUpdated.map(\.id) == ["new", "mid", "old"])
 
     let links = ["old": [link("Alpha review")], "mid": [link("Beta review")]]
     let bySession = ReviewsTableRows.make(
-      pullRequests: pullRequests, links: links, checks: [:],
+      pullRequests: pullRequests, links: links,
       sort: ReviewsTableSort(column: .session, ascending: true))
     #expect(bySession.map(\.id) == ["old", "mid", "new"])
   }

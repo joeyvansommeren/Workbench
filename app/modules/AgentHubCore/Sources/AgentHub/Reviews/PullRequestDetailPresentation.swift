@@ -20,9 +20,23 @@ enum ReviewsTagTone: Equatable, Sendable {
 }
 
 /// A small label chip: pull request state, review decision, project status.
-struct ReviewsTag: Equatable, Hashable, Sendable {
+struct ReviewsTag: Equatable, Hashable, Sendable, Identifiable {
+  /// What the tag says something about. Part of the id, so a project status
+  /// of "Draft" and the Draft state chip are two tags, not one.
+  enum Kind: String, Sendable {
+    case state
+    case draft
+    case reviewDecision
+    case reviewState
+    case projectStatus
+    case priority
+  }
+
   let text: String
   let tone: ReviewsTagTone
+  let kind: Kind
+
+  var id: String { "\(kind.rawValue)-\(text)" }
 }
 
 enum PullRequestDetailPresentation {
@@ -30,12 +44,12 @@ enum PullRequestDetailPresentation {
   static func stateTags(for pullRequest: GitHubPullRequest) -> [ReviewsTag] {
     var tags: [ReviewsTag] = []
     switch pullRequest.state.uppercased() {
-    case "MERGED": tags.append(ReviewsTag(text: "Merged", tone: .working))
-    case "CLOSED": tags.append(ReviewsTag(text: "Closed", tone: .error))
-    default: tags.append(ReviewsTag(text: "Open", tone: .ready))
+    case "MERGED": tags.append(ReviewsTag(text: "Merged", tone: .working, kind: .state))
+    case "CLOSED": tags.append(ReviewsTag(text: "Closed", tone: .error, kind: .state))
+    default: tags.append(ReviewsTag(text: "Open", tone: .ready, kind: .state))
     }
     if pullRequest.isDraft {
-      tags.append(ReviewsTag(text: "Draft", tone: .neutral))
+      tags.append(ReviewsTag(text: "Draft", tone: .neutral, kind: .draft))
     }
     if let decision = reviewDecisionTag(pullRequest.reviewDecision) {
       tags.append(decision)
@@ -43,24 +57,49 @@ enum PullRequestDetailPresentation {
     return tags
   }
 
+  /// State tags, then the project's status and priority, for the detail header.
+  static func headerTags(detail: GitHubPullRequest?, pullRequest: GitHubProjectPullRequest) -> [ReviewsTag] {
+    var tags = detail.map(stateTags(for:)) ?? []
+    if let status = nonEmpty(pullRequest.projectStatus) {
+      tags.append(ReviewsTag(text: status, tone: .neutral, kind: .projectStatus))
+    }
+    if let priority = nonEmpty(pullRequest.projectPriority) {
+      let urgent = GitHubReviewRecommendation.isUrgent(priority)
+      tags.append(ReviewsTag(text: priority, tone: urgent ? .attention : .neutral, kind: .priority))
+    }
+    return tags
+  }
+
+  private static func nonEmpty(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty
+    else { return nil }
+    return trimmed
+  }
+
   static func reviewDecisionTag(_ decision: String?) -> ReviewsTag? {
+    let text: String
+    let tone: ReviewsTagTone
     switch decision?.uppercased() {
-    case "APPROVED": return ReviewsTag(text: "Approved", tone: .ready)
-    case "CHANGES_REQUESTED": return ReviewsTag(text: "Changes requested", tone: .error)
-    case "REVIEW_REQUIRED": return ReviewsTag(text: "Review required", tone: .attention)
+    case "APPROVED": (text, tone) = ("Approved", .ready)
+    case "CHANGES_REQUESTED": (text, tone) = ("Changes requested", .error)
+    case "REVIEW_REQUIRED": (text, tone) = ("Review required", .attention)
     default: return nil
     }
+    return ReviewsTag(text: text, tone: tone, kind: .reviewDecision)
   }
 
   /// A submitted review's state as a chip.
   static func reviewStateTag(_ state: String) -> ReviewsTag {
+    let text: String
+    let tone: ReviewsTagTone
     switch state.uppercased() {
-    case "APPROVED": return ReviewsTag(text: "Approved", tone: .ready)
-    case "CHANGES_REQUESTED": return ReviewsTag(text: "Changes requested", tone: .error)
-    case "DISMISSED": return ReviewsTag(text: "Dismissed", tone: .neutral)
-    case "PENDING": return ReviewsTag(text: "Pending", tone: .attention)
-    default: return ReviewsTag(text: "Commented", tone: .neutral)
+    case "APPROVED": (text, tone) = ("Approved", .ready)
+    case "CHANGES_REQUESTED": (text, tone) = ("Changes requested", .error)
+    case "DISMISSED": (text, tone) = ("Dismissed", .neutral)
+    case "PENDING": (text, tone) = ("Pending", .attention)
+    default: (text, tone) = ("Commented", .neutral)
     }
+    return ReviewsTag(text: text, tone: tone, kind: .reviewState)
   }
 
   // MARK: - Checks
@@ -91,20 +130,11 @@ enum PullRequestDetailPresentation {
         )
       }
       .sorted { lhs, rhs in
-        let left = rank(lhs.state)
-        let right = rank(rhs.state)
+        let left = PullRequestChecksState.sortRank(lhs.state)
+        let right = PullRequestChecksState.sortRank(rhs.state)
         if left != right { return left < right }
         return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
       }
-  }
-
-  private static func rank(_ state: PullRequestChecksState?) -> Int {
-    switch state {
-    case .fail: return 0
-    case .pending: return 1
-    case .pass: return 2
-    case nil: return 3
-    }
   }
 
   // MARK: - Conversation

@@ -11,21 +11,39 @@ struct PullRequestDetailPresentationTests {
     let draft = try pullRequest(state: "OPEN", isDraft: true, decision: "CHANGES_REQUESTED")
     #expect(
       PullRequestDetailPresentation.stateTags(for: draft) == [
-        ReviewsTag(text: "Open", tone: .ready),
-        ReviewsTag(text: "Draft", tone: .neutral),
-        ReviewsTag(text: "Changes requested", tone: .error),
+        ReviewsTag(text: "Open", tone: .ready, kind: .state),
+        ReviewsTag(text: "Draft", tone: .neutral, kind: .draft),
+        ReviewsTag(text: "Changes requested", tone: .error, kind: .reviewDecision),
       ])
 
     let merged = try pullRequest(state: "MERGED", isDraft: false, decision: "APPROVED")
     #expect(
       PullRequestDetailPresentation.stateTags(for: merged) == [
-        ReviewsTag(text: "Merged", tone: .working),
-        ReviewsTag(text: "Approved", tone: .ready),
+        ReviewsTag(text: "Merged", tone: .working, kind: .state),
+        ReviewsTag(text: "Approved", tone: .ready, kind: .reviewDecision),
       ])
 
     let closed = try pullRequest(state: "CLOSED", isDraft: false, decision: nil)
-    #expect(PullRequestDetailPresentation.stateTags(for: closed) == [ReviewsTag(text: "Closed", tone: .error)])
+    #expect(PullRequestDetailPresentation.stateTags(for: closed) == [ReviewsTag(text: "Closed", tone: .error, kind: .state)])
     #expect(PullRequestDetailPresentation.reviewDecisionTag("REVIEW_REQUIRED")?.tone == .attention)
+  }
+
+  @Test("Header tags: a project status equal to a state chip still has its own id")
+  func headerTagsUniqueIDs() throws {
+    let draft = try pullRequest(state: "OPEN", isDraft: true, decision: nil)
+    let projectPullRequest = GitHubProjectPullRequest(
+      id: "pr", number: 1, title: "T", url: "u", repositoryName: "r", repositoryNameWithOwner: "o/r",
+      authorLogin: "a", updatedAt: nil, isDraft: true, state: "open", projectStatus: "Draft",
+      projectPriority: " Urgent ")
+    let tags = PullRequestDetailPresentation.headerTags(detail: draft, pullRequest: projectPullRequest)
+
+    #expect(tags.map(\.text) == ["Open", "Draft", "Draft", "Urgent"])
+    #expect(Set(tags.map(\.id)).count == tags.count)
+    #expect(tags.last == ReviewsTag(text: "Urgent", tone: .attention, kind: .priority))
+
+    // Before the detail loads: only the project fields.
+    let early = PullRequestDetailPresentation.headerTags(detail: nil, pullRequest: projectPullRequest)
+    #expect(early.map(\.kind) == [.projectStatus, .priority])
   }
 
   @Test("Checks list: failing first, then pending, passed and unknown; by name within a group")
@@ -82,8 +100,8 @@ struct PullRequestDetailPresentationTests {
     #expect(entries.map(\.id) == ["code-i1", "comment-c1", "review-r2", "review-r3"])
     #expect(entries[0].kind == .codeComment(location: "src/App.swift:12"))
     #expect(entries[1].kind == .comment)
-    #expect(entries[2].kind == .review(ReviewsTag(text: "Changes requested", tone: .error)))
-    #expect(entries[3].kind == .review(ReviewsTag(text: "Approved", tone: .ready)))
+    #expect(entries[2].kind == .review(ReviewsTag(text: "Changes requested", tone: .error, kind: .reviewState)))
+    #expect(entries[3].kind == .review(ReviewsTag(text: "Approved", tone: .ready, kind: .reviewState)))
     #expect(entries[3].author == "snoor")
   }
 

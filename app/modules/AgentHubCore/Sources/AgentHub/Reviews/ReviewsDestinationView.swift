@@ -39,6 +39,10 @@ struct ReviewsDestinationView: View {
   /// The pull request whose detail was closed while it stays selected. Any
   /// other selection (a click, a jump from a session) opens the detail.
   @State private var closedDetailID: String?
+  @State private var pendingBulkLaunch: GitHubReviewBulkLaunch?
+  @State private var pendingFollowUp: GitHubReviewBulkFollowUp?
+  /// "Sent to 3 of 4 sessions" after a bulk follow-up, shown in the bar.
+  @State private var bulkFeedback: String?
 
   private var viewModel: GitHubReviewsViewModel { agentHub.gitHubReviewsViewModel }
   private var support: ReviewSessionSupport { ReviewSessionSupport(agentHub: agentHub) }
@@ -52,13 +56,33 @@ struct ReviewsDestinationView: View {
       visible.map { ($0.id, support.links(for: $0, inventories: inventories)) },
       uniquingKeysWith: { first, _ in first }
     )
-    let rows = ReviewsTableRows.make(
-      pullRequests: visible, links: links, checks: viewModel.checksByPullRequestID,
-      sort: viewModel.tableSort)
+    let rows = ReviewsTableRows.make(pullRequests: visible, links: links, sort: viewModel.tableSort)
     let detailPullRequest = openDetailPullRequest(in: visible)
+    let bulkActions = ReviewsBulkActions(rows: rows, viewModel: viewModel)
 
     VStack(spacing: 0) {
-      ReviewsBar(viewModel: viewModel, onRetry: { await support.recoverAndRestoreSessions() })
+      ReviewsBar(
+        viewModel: viewModel,
+        feedback: bulkFeedback,
+        onRetry: { await support.recoverAndRestoreSessions() }
+      ) {
+        if !bulkActions.isEmpty {
+          ReviewsBulkActionsMenu(
+            actions: bulkActions,
+            templates: GitHubPromptLibrary.shared.templates,
+            isAgentAvailable: isAgentAvailable,
+            isStarting: !viewModel.startingReviewPRIDs.isEmpty,
+            onLaunch: { launch in
+              MainThreadStallMonitor.breadcrumb("reviews bulk: start \(launch.pullRequests.count)")
+              pendingBulkLaunch = launch
+            },
+            onFollowUp: { followUp in
+              MainThreadStallMonitor.breadcrumb("reviews bulk: follow-up \(followUp.targets.count)")
+              pendingFollowUp = followUp
+            }
+          )
+        }
+      }
       Color.wbBorderHairline.frame(height: 1)
       HStack(spacing: 0) {
         ReviewsQueueContent(
@@ -98,6 +122,38 @@ struct ReviewsDestinationView: View {
       try? await Task.sleep(for: .seconds(3))
       guard !Task.isCancelled else { return }
       sessionFeedback = nil
+    }
+    .task(id: bulkFeedback) {
+      guard bulkFeedback != nil else { return }
+      try? await Task.sleep(for: .seconds(4))
+      guard !Task.isCancelled else { return }
+      bulkFeedback = nil
+    }
+    .confirmationDialog(
+      pendingBulkLaunch?.title ?? "",
+      isPresented: Binding(
+        get: { pendingBulkLaunch != nil },
+        set: { if !$0 { pendingBulkLaunch = nil } }
+      ),
+      presenting: pendingBulkLaunch
+    ) { launch in
+      Button(launch.confirmTitle) { runBulkLaunch(launch) }
+      Button("Cancel", role: .cancel) { pendingBulkLaunch = nil }
+    } message: { launch in
+      Text(launch.message)
+    }
+    .confirmationDialog(
+      pendingFollowUp?.title ?? "",
+      isPresented: Binding(
+        get: { pendingFollowUp != nil },
+        set: { if !$0 { pendingFollowUp = nil } }
+      ),
+      presenting: pendingFollowUp
+    ) { followUp in
+      Button("Send to \(followUp.targets.count) sessions") { runFollowUp(followUp) }
+      Button("Cancel", role: .cancel) { pendingFollowUp = nil }
+    } message: { followUp in
+      Text(followUp.message)
     }
     .sheet(item: $customMessageContext) { context in
       GitHubReviewCustomMessageSheet(
@@ -169,7 +225,8 @@ struct ReviewsDestinationView: View {
   }
 
   private func sortBy(_ column: ReviewsTableColumn) {
-    viewModel.tableSort = ReviewsTableSort.next(after: viewModel.tableSort, clicking: column)
+    viewModel.tableSort = ReviewsTableSort.next(
+      after: viewModel.tableSort, clicking: column, checks: viewModel.checksByPullRequestID)
     MainThreadStallMonitor.breadcrumb("reviews sort: \(column.rawValue)")
   }
 
@@ -273,10 +330,45 @@ struct ReviewsDestinationView: View {
     sessionFeedback = didSend ? "Sent to \(link.provider.rawValue)" : "Could not send command"
   }
 
+  // MARK: - Bulk actions
+
+  /// Sequential, as in the legacy header: each launch registers its session
+  /// link before the next starts.
+  private func runBulkLaunch(_ launch: GitHubReviewBulkLaunch) {
+    pendingBulkLaunch = nil
+    Task {
+      for pullRequest in launch.pullRequests {
+        guard viewModel.beginStartingReview(for: pullRequest.id) else { continue }
+        defer { viewModel.endStartingReview(for: pullRequest.id) }
+        await actions.startReview(pullRequest, provider: launch.provider, template: launch.template)
+      }
+    }
+  }
+
+  private func runFollowUp(_ followUp: GitHubReviewBulkFollowUp) {
+    pendingFollowUp = nil
+    var sent = 0
+    for target in followUp.targets
+    where GitHubReviewSessionCommandPolicy.canSend(isPending: target.link.isPending) {
+      let sessions =
+        target.link.provider == .claude
+        ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
+      if sessions.sendAutomatedPrompt(to: target.link.session, prompt: followUp.prompt(for: target)) {
+        sent += 1
+      }
+    }
+    bulkFeedback = "Sent to \(sent) of \(followUp.targets.count) sessions"
+  }
+
   // MARK: - Review
 
   private var agent: SessionProviderKind {
     SessionProviderKind(rawValue: agentRaw) ?? .claude
+  }
+
+  private func isAgentAvailable(_ provider: SessionProviderKind) -> Bool {
+    (provider == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel)
+      .isCLIAvailable
   }
 
   private func reviewControl(for pullRequest: GitHubProjectPullRequest) -> PullRequestReviewControl {
@@ -284,10 +376,7 @@ struct ReviewsDestinationView: View {
       agent: agent,
       templates: GitHubPromptLibrary.shared.templates,
       isStarting: viewModel.startingReviewPRIDs.contains(pullRequest.id),
-      isAgentAvailable: { provider in
-        (provider == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel)
-          .isCLIAvailable
-      },
+      isAgentAvailable: isAgentAvailable,
       onSelectAgent: { provider in
         agentRaw = provider.rawValue
         MainThreadStallMonitor.breadcrumb("reviews agent: \(provider.rawValue)")
@@ -349,10 +438,13 @@ struct ReviewsDestinationView: View {
 
 // MARK: - Bar
 
-/// The scope (Requested / Mine / All) and the Filters popover, above the table.
-private struct ReviewsBar: View {
+/// The scope (Requested / Mine / All), the bulk actions and the Filters
+/// popover, above the table.
+private struct ReviewsBar<Actions: View>: View {
   @Bindable var viewModel: GitHubReviewsViewModel
+  let feedback: String?
   let onRetry: () async -> Void
+  @ViewBuilder let actions: () -> Actions
 
   @State private var isFiltersOpen = false
   @State private var reloadTask: Task<Void, Never>?
@@ -369,6 +461,13 @@ private struct ReviewsBar: View {
       )
       .fixedSize()
       Spacer(minLength: 0)
+      if let feedback {
+        Text(feedback)
+          .wbText(.callout)
+          .foregroundStyle(Color.wbTextSecondary)
+          .lineLimit(1)
+      }
+      actions()
       FiltersButton(
         activeCount: isSearching ? 1 : 0,
         accessibilityIdentifier: "reviews.filters",

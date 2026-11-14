@@ -46,13 +46,13 @@ struct ReviewsTableView: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      ReviewsTableHeader(sort: sort, onSort: onSort)
-        .padding(.horizontal, ReviewsTableLayout.outerInset)
-      Color.wbBorderHairline.frame(height: 1)
-      ScrollViewReader { proxy in
-        ScrollView {
-          LazyVStack(spacing: 0) {
+    ScrollViewReader { proxy in
+      ScrollView {
+        // The header is a pinned section header inside the scroll view, so
+        // it gets the same width as the rows even with legacy (always shown)
+        // scrollers, and both pick the same column set.
+        LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+          Section {
             ForEach(rows, id: \.id) { row in
               let rowContext = context(row.id)
               ReviewsTableRow(
@@ -66,16 +66,23 @@ struct ReviewsTableView: View {
                 },
                 onOpenSession: rowContext.onOpenSession
               )
+              .padding(.horizontal, ReviewsTableLayout.outerInset)
               .id(row.id)
             }
+          } header: {
+            ReviewsTableHeader(sort: sort, onSort: onSort)
+              .padding(.horizontal, ReviewsTableLayout.outerInset)
+              .background(Color.wbSurfaceContent)
+              .overlay(alignment: .bottom) {
+                Color.wbBorderHairline.frame(height: 1)
+              }
           }
-          .padding(.horizontal, ReviewsTableLayout.outerInset)
-          .padding(.vertical, DesignTokens.Spacing.xs)
         }
-        .onChange(of: selectedID) { _, id in
-          guard let id else { return }
-          proxy.scrollTo(id)
-        }
+        .padding(.bottom, DesignTokens.Spacing.xs)
+      }
+      .onChange(of: selectedID) { _, id in
+        guard let id else { return }
+        proxy.scrollTo(id)
       }
     }
     // Focusable only after the first click, so the table never becomes the
@@ -110,19 +117,9 @@ private struct ReviewsTableHeader: View {
   let onSort: (ReviewsTableColumn) -> Void
 
   var body: some View {
-    let sets = ReviewsTableLayout.columnSets
-    ViewThatFits(in: .horizontal) {
-      header(sets[0])
-      header(sets[1])
-      header(sets[2])
-      header(sets[3])
-      header(sets[4])
-      header(sets[5])
-      header(sets[6])
-      header(sets[7])
-    }
-    .padding(.horizontal, ReviewsTableLayout.rowPadding)
-    .frame(height: ReviewsTableLayout.headerHeight)
+    ReviewsColumnSetFit(content: header)
+      .padding(.horizontal, ReviewsTableLayout.rowPadding)
+      .frame(height: ReviewsTableLayout.headerHeight)
   }
 
   private func header(_ columns: [ReviewsTableColumn]) -> some View {
@@ -187,17 +184,7 @@ private struct ReviewsTableRow: View {
   @State private var isHovered = false
 
   var body: some View {
-    let sets = ReviewsTableLayout.columnSets
-    ViewThatFits(in: .horizontal) {
-      cells(sets[0])
-      cells(sets[1])
-      cells(sets[2])
-      cells(sets[3])
-      cells(sets[4])
-      cells(sets[5])
-      cells(sets[6])
-      cells(sets[7])
-    }
+    ReviewsColumnSetFit(content: cells)
     .padding(.horizontal, ReviewsTableLayout.rowPadding)
     .frame(height: ReviewsTableLayout.rowHeight)
     // Not a Button: the session and review cells hold their own controls.
@@ -243,13 +230,13 @@ private struct ReviewsTableRow: View {
       if let checks = presentation.checks { PullRequestChecksIcon(state: checks) }
     case .status:
       if let status = presentation.status {
-        ReviewsTagChip(tag: ReviewsTag(text: status, tone: .neutral))
+        ReviewsTagChip(tag: ReviewsTag(text: status, tone: .neutral, kind: .projectStatus))
       } else {
         emptyValue
       }
     case .priority:
       if let priority = presentation.priority {
-        ReviewsTagChip(tag: ReviewsTag(text: priority, tone: presentation.isUrgent ? .attention : .neutral))
+        ReviewsTagChip(tag: ReviewsTag(text: priority, tone: presentation.isUrgent ? .attention : .neutral, kind: .priority))
       } else {
         emptyValue
       }
@@ -358,15 +345,24 @@ private struct ReviewsRowReviewMenu: View {
       PullRequestReviewMenuItems(review: review)
     } label: {
       HStack(spacing: DesignTokens.Spacing.xs) {
-        Text(review.isStarting ? "Starting…" : "Review")
-          .wbText(.callout)
-          .fontWeight(.medium)
+        // While starting, a spinner in the label's place: the label width
+        // never changes, so it always fits its column slot.
+        if review.isStarting {
+          ProgressView()
+            .controlSize(.mini)
+            .frame(width: 12, height: 12)
+            .accessibilityLabel("Starting review")
+        } else {
+          Text("Review")
+            .wbText(.callout)
+            .fontWeight(.medium)
+            .lineLimit(1)
+        }
         Image(systemName: "chevron.down")
           .font(.system(size: 8, weight: .bold))
       }
       .foregroundStyle(Color.wbTextPrimary)
-      .padding(.horizontal, DesignTokens.Spacing.sm)
-      .frame(height: DesignTokens.Size.controlSmall)
+      .frame(width: ReviewsTableColumn.review.width, height: DesignTokens.Size.controlSmall)
       .background(
         isHovered ? Color.wbSurfaceControlHover : Color.wbSurfaceControl,
         in: RoundedRectangle(cornerRadius: DesignTokens.Radius.segment)
@@ -386,6 +382,22 @@ private struct ReviewsRowReviewMenu: View {
 }
 
 // MARK: - Shared pieces
+
+/// Offers every column set to `ViewThatFits`, widest first. Built from
+/// `ReviewsTableLayout.columnSets`, so the header and the rows always have
+/// the same candidates, however many sets there are.
+private struct ReviewsColumnSetFit<Content: View>: View {
+  let content: ([ReviewsTableColumn]) -> Content
+
+  var body: some View {
+    let sets = ReviewsTableLayout.columnSets
+    ViewThatFits(in: .horizontal) {
+      ForEach(sets.indices, id: \.self) { index in
+        content(sets[index])
+      }
+    }
+  }
+}
 
 /// A small tinted label: project status, priority, pull request state.
 struct ReviewsTagChip: View {
