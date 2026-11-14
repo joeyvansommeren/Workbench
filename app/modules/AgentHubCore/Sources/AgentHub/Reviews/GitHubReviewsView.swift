@@ -1140,8 +1140,11 @@ struct GitHubReviewBulkFollowUp: Identifiable {
 
   var title: String {
     switch kind {
-    case .reReview: return "Re-review \(targets.count) pull requests?"
-    case .resolveComments: return "Resolve comments on \(targets.count) of your pull requests?"
+    case .reReview: return "Re-review \(ReviewsCopy.count(targets.count, "pull request"))?"
+    case .resolveComments:
+      return targets.count == 1
+        ? "Resolve comments on your pull request?"
+        : "Resolve comments on \(targets.count) of your pull requests?"
     }
   }
 
@@ -1154,7 +1157,9 @@ struct GitHubReviewBulkFollowUp: Identifiable {
       text = "Each existing session that worked on the pull request picks up the requested changes."
     }
     if skippedWithoutSession > 0 {
-      text += " \(skippedWithoutSession) without a session are skipped."
+      text +=
+        skippedWithoutSession == 1
+        ? " 1 without a session is skipped." : " \(skippedWithoutSession) without a session are skipped."
     }
     return text
   }
@@ -1174,15 +1179,27 @@ struct GitHubReviewBulkLaunch: Identifiable {
   let provider: SessionProviderKind
   let template: GitHubPromptTemplate
 
+  /// From this many sessions on, the confirmation says so plainly: one click
+  /// starts that many agents at once.
+  static let largeLaunchThreshold = 10
+
+  var isLarge: Bool { pullRequests.count >= Self.largeLaunchThreshold }
+
   var title: String {
-    let noun = pullRequests.count == 1 ? "session" : "sessions"
-    return "Start \(pullRequests.count) \(provider.rawValue) \(noun)?"
+    let sessions = ReviewsCopy.count(
+      pullRequests.count, "\(PullRequestReviewControl.displayName(provider)) session")
+    return isLarge ? "Start \(sessions) at once?" : "Start \(sessions)?"
   }
 
   var confirmTitle: String { "Start \(pullRequests.count)" }
 
   var message: String {
-    "“\(template.name)” for every pull request by someone else in this view that has no linked session yet. Your own pull requests are skipped."
+    var text =
+      "“\(template.name)” for every pull request by someone else in this view that has no linked session yet. Your own pull requests are skipped."
+    if isLarge {
+      text += " They start one after another; you can stop them from the Reviews bar."
+    }
+    return text
   }
 }
 

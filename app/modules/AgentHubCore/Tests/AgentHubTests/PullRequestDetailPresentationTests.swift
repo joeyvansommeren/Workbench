@@ -28,22 +28,64 @@ struct PullRequestDetailPresentationTests {
     #expect(PullRequestDetailPresentation.reviewDecisionTag("REVIEW_REQUIRED")?.tone == .attention)
   }
 
-  @Test("Header tags: a project status equal to a state chip still has its own id")
-  func headerTagsUniqueIDs() throws {
+  @Test("Header tags: no repeats; Draft drops Open, a status equal to a chip is left out")
+  func headerTagsWithoutRepeats() throws {
     let draft = try pullRequest(state: "OPEN", isDraft: true, decision: nil)
     let projectPullRequest = GitHubProjectPullRequest(
       id: "pr", number: 1, title: "T", url: "u", repositoryName: "r", repositoryNameWithOwner: "o/r",
-      authorLogin: "a", updatedAt: nil, isDraft: true, state: "open", projectStatus: "Draft",
+      authorLogin: "a", updatedAt: nil, isDraft: true, state: "open", projectStatus: "draft",
       projectPriority: " Urgent ")
     let tags = PullRequestDetailPresentation.headerTags(detail: draft, pullRequest: projectPullRequest)
 
-    #expect(tags.map(\.text) == ["Open", "Draft", "Draft", "Urgent"])
+    #expect(tags.map(\.text) == ["Draft", "Urgent"])
     #expect(Set(tags.map(\.id)).count == tags.count)
     #expect(tags.last == ReviewsTag(text: "Urgent", tone: .attention, kind: .priority))
+
+    // An open pull request keeps Open, and a different status still shows.
+    let open = try pullRequest(state: "OPEN", isDraft: false, decision: nil)
+    let inReview = GitHubProjectPullRequest(
+      id: "pr", number: 1, title: "T", url: "u", repositoryName: "r", repositoryNameWithOwner: "o/r",
+      authorLogin: "a", updatedAt: nil, isDraft: false, state: "open", projectStatus: "In review",
+      projectPriority: nil)
+    #expect(
+      PullRequestDetailPresentation.headerTags(detail: open, pullRequest: inReview).map(\.text)
+        == ["Open", "In review"])
 
     // Before the detail loads: only the project fields.
     let early = PullRequestDetailPresentation.headerTags(detail: nil, pullRequest: projectPullRequest)
     #expect(early.map(\.kind) == [.projectStatus, .priority])
+  }
+
+  @Test("Long descriptions are cut at the limit and say so")
+  func shortenedDescription() {
+    let short = PullRequestDetailPresentation.shortenedDescription("Fixes the login.", limit: 100)
+    #expect(short.text == "Fixes the login.")
+    #expect(short.isShortened == false)
+
+    let long = PullRequestDetailPresentation.shortenedDescription(
+      String(repeating: "a", count: 120), limit: 100)
+    #expect(long.text == String(repeating: "a", count: 100) + "…")
+    #expect(long.isShortened)
+  }
+
+  @Test("Long conversations show the latest entries and count the earlier ones")
+  func visibleConversation() {
+    let entries = (1...25).map {
+      PullRequestDetailPresentation.ConversationEntry(
+        id: "\($0)", author: "a", date: nil, body: "", kind: .comment)
+    }
+    let folded = PullRequestDetailPresentation.visibleConversation(entries, showsAll: false, limit: 20)
+    #expect(folded.entries.map(\.id) == (6...25).map { "\($0)" })
+    #expect(folded.hiddenCount == 5)
+
+    let all = PullRequestDetailPresentation.visibleConversation(entries, showsAll: true, limit: 20)
+    #expect(all.entries.count == 25)
+    #expect(all.hiddenCount == 0)
+
+    let few = PullRequestDetailPresentation.visibleConversation(
+      Array(entries.prefix(3)), showsAll: false, limit: 20)
+    #expect(few.entries.count == 3)
+    #expect(few.hiddenCount == 0)
   }
 
   @Test("Checks list: failing first, then pending, passed and unknown; by name within a group")

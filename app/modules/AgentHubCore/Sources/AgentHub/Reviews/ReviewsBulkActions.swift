@@ -48,6 +48,52 @@ struct ReviewsBulkActions {
   }
 }
 
+/// How far a bulk "Start for N" launch has got. The launches run one after
+/// another; the bar shows this with a Stop button until the last one starts.
+struct ReviewsBulkLaunchProgress: Equatable {
+  let total: Int
+  private(set) var started = 0
+
+  init(total: Int) {
+    self.total = total
+  }
+
+  /// The one that is starting now, counted from 1.
+  var current: Int { min(started + 1, total) }
+  var isFinished: Bool { started >= total }
+
+  mutating func advance() {
+    started = min(started + 1, total)
+  }
+
+  var text: String { "Starting \(current) of \(total)" }
+}
+
+/// "Starting 3 of 40" and Stop, in the bar while a bulk launch runs. Takes
+/// the place of the Actions menu, so a second launch cannot start meanwhile.
+struct ReviewsBulkLaunchProgressView: View {
+  let progress: ReviewsBulkLaunchProgress
+  let onStop: () -> Void
+
+  var body: some View {
+    HStack(spacing: DesignTokens.Spacing.sm) {
+      ProgressView()
+        .controlSize(.small)
+        .accessibilityHidden(true)
+      Text(progress.text)
+        .wbText(.callout)
+        .monospacedDigit()
+        .foregroundStyle(Color.wbTextSecondary)
+        .lineLimit(1)
+      Button("Stop", action: onStop)
+        .buttonStyle(.wbSecondary)
+        .accessibilityLabel("Stop starting review sessions")
+        .accessibilityIdentifier("reviews.bulkStop")
+    }
+    .fixedSize()
+  }
+}
+
 /// The "Actions ⌄" menu in the Reviews bar. Every item asks for confirmation
 /// through its host before anything starts.
 struct ReviewsBulkActionsMenu: View {
@@ -66,7 +112,7 @@ struct ReviewsBulkActionsMenu: View {
       if !actions.launchCandidates.isEmpty {
         let count = actions.launchCandidates.count
         ForEach([SessionProviderKind.codex, .claude], id: \.self) { provider in
-          Section("Start for \(count) without session · \(provider.rawValue)") {
+          Section("Start for \(count) without session · \(PullRequestReviewControl.displayName(provider))") {
             ForEach(templates) { template in
               Button(template.name) {
                 onLaunch(

@@ -32,17 +32,29 @@ struct ReviewsTableView: View {
   let onSort: (ReviewsTableColumn) -> Void
   let onSelect: (String) -> Void
   let onMoveSelection: (Int) -> Void
+  /// Whether the detail is open: Escape closes it, else Escape passes on to
+  /// the window (palette, sheets).
+  let isDetailOpen: Bool
   let onOpenDetail: () -> Void
   let onCloseDetail: () -> Void
 
   @FocusState private var isFocused: Bool
-  @State private var acceptsFocus = false
+  /// Lifted out of the rows: a row hides its bottom hairline when it or the
+  /// row below is hovered or selected, so no line touches the rounded fill.
+  @State private var hoveredID: String?
 
   private func takeFocus() {
     guard !isFocused else { return }
-    acceptsFocus = true
-    // The view becomes focusable in this update; focus it in the next one.
-    Task { @MainActor in isFocused = true }
+    isFocused = true
+  }
+
+  /// Whether the row at `index` hides its bottom hairline.
+  private func hidesDivider(at index: Int) -> Bool {
+    let highlighted = [selectedID, hoveredID].compactMap { $0 }
+    guard !highlighted.isEmpty else { return false }
+    if highlighted.contains(rows[index].id) { return true }
+    let next = index + 1
+    return next < rows.count && highlighted.contains(rows[next].id)
   }
 
   var body: some View {
@@ -53,13 +65,22 @@ struct ReviewsTableView: View {
         // scrollers, and both pick the same column set.
         LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
           Section {
-            ForEach(rows, id: \.id) { row in
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
               let rowContext = context(row.id)
               ReviewsTableRow(
                 presentation: row,
                 tileColor: rowContext.tileColor,
                 review: rowContext.review,
                 isSelected: row.id == selectedID,
+                isTableFocused: isFocused,
+                hidesDivider: hidesDivider(at: index),
+                onHover: { isHovered in
+                  if isHovered {
+                    hoveredID = row.id
+                  } else if hoveredID == row.id {
+                    hoveredID = nil
+                  }
+                },
                 onSelect: {
                   takeFocus()
                   onSelect(row.id)
@@ -85,9 +106,9 @@ struct ReviewsTableView: View {
         proxy.scrollTo(id)
       }
     }
-    // Focusable only after the first click, so the table never becomes the
-    // window's first responder on appear (plan section 4).
-    .focusable(acceptsFocus)
+    // Tab reaches the table, as it does the sidebar and the boards. Nothing
+    // sets `isFocused` on appear (plan section 4); only a click or Tab does.
+    .focusable(!rows.isEmpty)
     .focusEffectDisabled()
     .focused($isFocused)
     .onKeyPress(.upArrow) {
@@ -103,6 +124,7 @@ struct ReviewsTableView: View {
       return .handled
     }
     .onKeyPress(.escape) {
+      guard isDetailOpen else { return .ignored }
       onCloseDetail()
       return .handled
     }
@@ -147,7 +169,7 @@ private struct ReviewsTableHeader: View {
           }
           if isActive, column != .checks {
             Image(systemName: sort?.ascending == true ? "chevron.up" : "chevron.down")
-              .font(.system(size: 8, weight: .bold))
+              .font(.system(size: 8, weight: .semibold))
           }
         }
         .frame(maxWidth: .infinity, alignment: column.alignment)
@@ -178,6 +200,11 @@ private struct ReviewsTableRow: View {
   let tileColor: RepositoryTileColor
   let review: PullRequestReviewControl
   let isSelected: Bool
+  /// A focused table shows its selection in the accent, an unfocused one in
+  /// grey (the macOS list rule), so the user sees where ↑/↓ go.
+  let isTableFocused: Bool
+  let hidesDivider: Bool
+  let onHover: (Bool) -> Void
   let onSelect: () -> Void
   let onOpenSession: (() -> Void)?
 
@@ -198,18 +225,22 @@ private struct ReviewsTableRow: View {
       Color.wbBorderHairline
         .frame(height: 1)
         .padding(.horizontal, ReviewsTableLayout.rowPadding)
-        .opacity(isSelected || isHovered ? 0 : 1)
+        .opacity(hidesDivider ? 0 : 1)
     }
-    .onHover { isHovered = $0 }
+    .onHover { hovering in
+      isHovered = hovering
+      onHover(hovering)
+    }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("\(presentation.title), \(presentation.repositoryName) \(presentation.number)")
+    .accessibilityValue(presentation.accessibilityValue)
     .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     .accessibilityAction(.default, onSelect)
     .accessibilityIdentifier("reviews.row.\(presentation.id)")
   }
 
   private var background: Color {
-    if isSelected { return .wbSurfaceSelected }
+    if isSelected { return isTableFocused ? Color.wbAccent.opacity(0.18) : .wbSurfaceSelected }
     return isHovered ? .wbSurfaceHover : .clear
   }
 
@@ -253,9 +284,8 @@ private struct ReviewsTableRow: View {
   }
 
   private var titleCell: some View {
+    // No pull request glyph: every row is a pull request.
     HStack(spacing: DesignTokens.Spacing.sm) {
-      PullRequestGlyph(size: 14)
-        .foregroundStyle(Color.wbTextSecondary)
       Text(presentation.title)
         .wbText(.bodyEmphasis)
         .foregroundStyle(Color.wbTextPrimary)
@@ -308,6 +338,7 @@ private struct ReviewsTableRow: View {
           if presentation.extraSessionCount > 0 {
             Text(verbatim: "+\(presentation.extraSessionCount)")
               .wbText(.callout)
+              .monospacedDigit()
               .foregroundStyle(Color.wbTextTertiary)
               .fixedSize()
           }
@@ -359,7 +390,7 @@ private struct ReviewsRowReviewMenu: View {
             .lineLimit(1)
         }
         Image(systemName: "chevron.down")
-          .font(.system(size: 8, weight: .bold))
+          .font(.system(size: 8, weight: .semibold))
       }
       .foregroundStyle(Color.wbTextPrimary)
       .frame(width: ReviewsTableColumn.review.width, height: DesignTokens.Size.controlSmall)
@@ -413,7 +444,6 @@ struct ReviewsTagChip: View {
       .frame(height: 20)
       .foregroundStyle(textColor)
       .background(tintColor, in: Capsule())
-      .help(tag.text)
   }
 
   private var textColor: Color {

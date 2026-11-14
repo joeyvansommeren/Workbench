@@ -60,7 +60,14 @@ enum PullRequestDetailPresentation {
   /// State tags, then the project's status and priority, for the detail header.
   static func headerTags(detail: GitHubPullRequest?, pullRequest: GitHubProjectPullRequest) -> [ReviewsTag] {
     var tags = detail.map(stateTags(for:)) ?? []
-    if let status = nonEmpty(pullRequest.projectStatus) {
+    // Draft already means open.
+    if tags.contains(where: { $0.kind == .draft }) {
+      tags.removeAll { $0.kind == .state && $0.text == "Open" }
+    }
+    // A project status that repeats a state chip ("Draft") is noise.
+    if let status = nonEmpty(pullRequest.projectStatus),
+      !tags.contains(where: { $0.text.caseInsensitiveCompare(status) == .orderedSame })
+    {
       tags.append(ReviewsTag(text: status, tone: .neutral, kind: .projectStatus))
     }
     if let priority = nonEmpty(pullRequest.projectPriority) {
@@ -135,6 +142,32 @@ enum PullRequestDetailPresentation {
         if left != right { return left < right }
         return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
       }
+  }
+
+  // MARK: - Long content
+
+  /// Longer descriptions (release notes, pasted logs) are cut here: Markdown
+  /// lays out the whole body, and the detail opens again on every ↑/↓.
+  static let descriptionCharacterLimit = 20_000
+
+  /// The body to render, and whether it was cut.
+  static func shortenedDescription(
+    _ body: String, limit: Int = descriptionCharacterLimit
+  ) -> (text: String, isShortened: Bool) {
+    guard body.count > limit else { return (body, false) }
+    return (String(body.prefix(limit)) + "…", true)
+  }
+
+  /// The conversation shows the latest entries; older ones fold behind
+  /// "Show N earlier".
+  static let conversationVisibleCount = 20
+
+  /// The entries to draw (oldest first) and how many earlier ones are folded.
+  static func visibleConversation(
+    _ entries: [ConversationEntry], showsAll: Bool, limit: Int = conversationVisibleCount
+  ) -> (entries: [ConversationEntry], hiddenCount: Int) {
+    guard !showsAll, entries.count > limit else { return (entries, 0) }
+    return (Array(entries.suffix(limit)), entries.count - limit)
   }
 
   // MARK: - Conversation
