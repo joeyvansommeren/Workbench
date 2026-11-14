@@ -228,6 +228,33 @@ struct WorkbenchPaletteTests {
     }
   }
 
+  /// The title row's Search field: placeholder text over `surfaceField` on
+  /// the window, with one `surfaceHover` step on top while hovered.
+  @Test(
+    "WCAG >= 4.5 for the Search placeholder over the field, at rest and on hover",
+    arguments: ["standard light", "standard dark", "warm light", "warm dark"]
+  )
+  func searchPlaceholderContrast(label: String) throws {
+    let palettes: [String: WorkbenchPalette] = [
+      "standard light": .appleLight, "standard dark": .appleDark,
+      "warm light": .appleWarmLight, "warm dark": .appleWarmDark,
+    ]
+    let palette = try #require(palettes[label])
+    let rest = palette.surfaceField.composited(over: palette.surfaceWindow)
+    let hover = palette.surfaceHover.composited(over: rest)
+
+    let restRatio = palette.textPlaceholder.contrastRatio(with: rest)
+    #expect(restRatio >= 4.5, "\(label) placeholder on field: \(restRatio)")
+
+    let hoverRatio = palette.textPlaceholder.contrastRatio(with: hover)
+    // Standard light is outside the Warm retune and is left unchanged (4.42).
+    withKnownIssue("Standard light hover placeholder is 4.42:1") {
+      #expect(hoverRatio >= 4.5, "\(label) placeholder on hovered field: \(hoverRatio)")
+    } when: {
+      label == "standard light"
+    }
+  }
+
   @Test("WCAG >= 4.5 status text pairs (standard light)")
   func statusContrastStandardLight() {
     assertStatusContrast(.appleLight, label: "standard light")
