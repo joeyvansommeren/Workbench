@@ -3,7 +3,8 @@
 //  AgentHub
 //
 //  The shell's Linear destination: the team's active cycle
-//  (or your open issues when there is none) on the shared Sprint board.
+//  (or your open issues when there is none), or one project's open issues,
+//  on the shared Sprint board.
 //
 
 import AgentWorkflowLinear
@@ -24,7 +25,12 @@ struct LinearSprintDestination: View {
 
   var body: some View {
     SprintDestinationLayout(isDetailVisible: viewModel.selectedIssueID != nil) {
-      SprintListHead(title: viewModel.activeCycle.map { SprintTitle.linear($0) }, scope: scope) {
+      SprintListHead(
+        title: SprintTitle.linear(project: viewModel.selectedProject, cycle: viewModel.activeCycle),
+        scope: scope
+      ) { isCompact in
+        projectMenu(isCompact: isCompact)
+      } trailing: {
         if viewModel.loadState == .loaded || viewModel.loadState == .loading {
           refreshButton
           filtersButton
@@ -73,11 +79,8 @@ struct LinearSprintDestination: View {
       if viewModel.loadState != .loaded && viewModel.issues.isEmpty {
         WBLoadingState("Loading sprint")
       } else if viewModel.issues.isEmpty {
-        WBEmptyState(
-          systemImage: "tray",
-          title: viewModel.isMyIssuesFallback ? "No open issues assigned to you" : "No issues in this cycle"
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        WBEmptyState(systemImage: "tray", title: emptyTitle)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         board
       }
@@ -155,6 +158,11 @@ struct LinearSprintDestination: View {
     return .handled
   }
 
+  private var emptyTitle: String {
+    if let project = viewModel.selectedProject { return "No open issues in \(project.name)" }
+    return viewModel.isMyIssuesFallback ? "No open issues assigned to you" : "No issues in this cycle"
+  }
+
   private var isSearching: Bool {
     !viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty
   }
@@ -206,6 +214,22 @@ struct LinearSprintDestination: View {
       isMine: { viewModel.assigneeFilter == .me },
       setMine: { viewModel.assigneeFilter = $0 ? .me : .everyone }
     )
+  }
+
+  /// Shown once the team's projects are known; a team without open
+  /// projects has nothing to filter by.
+  @ViewBuilder
+  private func projectMenu(isCompact: Bool) -> some View {
+    if !viewModel.projects.isEmpty {
+      SprintProjectMenu(
+        projects: viewModel.projects,
+        selected: viewModel.selectedProject,
+        isCompact: isCompact
+      ) { projectID in
+        MainThreadStallMonitor.breadcrumb("sprint filter: project \(projectID == nil ? "all" : "one")")
+        Task { await viewModel.selectProject(projectID) }
+      }
+    }
   }
 
   private var refreshButton: some View {

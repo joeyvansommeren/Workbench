@@ -143,8 +143,22 @@ accent tint and ring; hover and press change colour only. The head's
 `ViewThatFits` shows 6 avatars, then 3, then only the menu; the rest sit in
 a "+n" menu (never a "+1"). Filters no longer has an Assignee picker, and
 its count and clear cover the search only. Linear has no per-person filter
-(Everyone / Mine), so its head is unchanged. Breadcrumb `sprint filter:
+(Everyone / Mine). Breadcrumb `sprint filter:
 person on|off`.
+
+**Project filter (Linear, 2026-11-14, Joey).** After All | Mine, a
+"Project" menu (`Sprint/SprintProjectMenu`): All projects, then the team's
+open projects by name (status not completed or canceled), a check on the
+selection. With a project the board shows that project's open issues in
+the team, whatever the cycle (`LinearViewModel.selectProject`); the head's
+title is the project name, without days left. All | Mine and search still
+apply. The pick is saved per team (`linearSelectedProjectIDs`) and dropped
+when the project no longer comes back. Loads carry a generation, so a late
+answer for an old team or project is ignored. The menu label caps at
+180 pt and truncates; the head's last fallback
+(`SprintListHeadCompactRow`, shared with Jira) shows a 28 pt icon and fits
+900 pt with a ticket open and a search active (`SprintProjectMenuTests`).
+Breadcrumb `sprint filter: project all|one`.
 
 ## P7: Approvals (Claude only)
 

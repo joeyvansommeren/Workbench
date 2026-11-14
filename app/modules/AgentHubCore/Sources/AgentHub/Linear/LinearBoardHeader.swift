@@ -60,12 +60,29 @@ private struct LinearTeamSwitcher: View {
           }
         }
       }
+      // The new shell saves a project filter per team; the legacy board
+      // honours it, so it must also be able to change or clear it.
+      if !viewModel.projects.isEmpty {
+        if viewModel.teams.count > 1 { Divider() }
+        Button {
+          Task { await viewModel.selectProject(nil) }
+        } label: {
+          menuLabel("All projects", isSelected: viewModel.selectedProjectID == nil)
+        }
+        ForEach(viewModel.projects) { project in
+          Button {
+            Task { await viewModel.selectProject(project.id) }
+          } label: {
+            menuLabel(project.name, isSelected: project.id == viewModel.selectedProjectID)
+          }
+        }
+      }
     } label: {
       VStack(alignment: .leading, spacing: 2) {
         HStack(spacing: 6) {
           Text(title)
             .font(.secondaryLarge)
-          if viewModel.teams.count > 1 {
+          if hasMenu {
             Image(systemName: "chevron.down")
               .font(.system(size: 11, weight: .semibold))
               .foregroundStyle(.secondary)
@@ -83,8 +100,16 @@ private struct LinearTeamSwitcher: View {
     .fixedSize()
   }
 
+  private var hasMenu: Bool {
+    viewModel.teams.count > 1 || !viewModel.projects.isEmpty
+  }
+
   private var title: String {
     if let team = viewModel.selectedTeam {
+      // The new shell's project filter is saved per team; say so here too.
+      if let project = viewModel.selectedProject {
+        return project.name
+      }
       if let cycle = viewModel.activeCycle {
         return cycle.displayName
       }
@@ -108,7 +133,7 @@ private struct LinearTeamSwitcher: View {
       case 1: parts.append("1 day left")
       default: parts.append("\(days) days left")
       }
-    } else if viewModel.loadState == .loaded {
+    } else if viewModel.loadState == .loaded && viewModel.selectedProjectID == nil {
       parts.append("no active cycle")
     }
     let count = viewModel.issues.count
