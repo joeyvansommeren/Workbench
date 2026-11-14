@@ -114,7 +114,7 @@ struct LinearProjectQueryTests {
   @Test("Pages are followed until the last one")
   func fetchPagesFollowsCursor() async throws {
     var cursors: [String?] = []
-    let all: [Int] = try await LinearAPIClient.fetchPages { after in
+    let all: [Int] = try await LinearAPIClient.fetchPages(maxPages: 10) { after in
       cursors.append(after)
       switch after {
       case nil: return ([1, 2], "a")
@@ -126,22 +126,38 @@ struct LinearProjectQueryTests {
     #expect(cursors == [nil, "a", "b"])
   }
 
-  @Test("Paging stops at the page cap and on a repeated cursor")
+  @Test("Paging stops at the safety cap and on any cursor seen before")
   func fetchPagesStops() async throws {
     var calls = 0
-    let capped: [Int] = try await LinearAPIClient.fetchPages { _ in
+    let capped: [Int] = try await LinearAPIClient.fetchPages(maxPages: 3) { _ in
       calls += 1
       return ([calls], "next-\(calls)")
     }
-    #expect(calls == LinearGraphQL.maxPages)
-    #expect(capped.count == LinearGraphQL.maxPages)
+    #expect(calls == 3)
+    #expect(capped == [1, 2, 3])
 
     calls = 0
-    let repeated: [Int] = try await LinearAPIClient.fetchPages { _ in
+    let repeated: [Int] = try await LinearAPIClient.fetchPages(maxPages: 10) { _ in
       calls += 1
       return ([calls], "same")
     }
     #expect(repeated == [1, 2])
+
+    // A cycle a → b → a stops too, not only a cursor repeated at once.
+    calls = 0
+    let cycled: [Int] = try await LinearAPIClient.fetchPages(maxPages: 10) { after in
+      calls += 1
+      return ([calls], after == "a" ? "b" : "a")
+    }
+    #expect(cycled == [1, 2, 3])
+  }
+
+  @Test("The project list is read far past one board's worth of pages")
+  func projectPageCap() {
+    // A saved project missing from the list is forgotten, so the list must
+    // be complete in practice; issues have their own, smaller cap.
+    #expect(LinearGraphQL.maxProjectPages * 250 >= 10_000)
+    #expect(LinearGraphQL.maxIssuePages * 250 >= 2_000)
   }
 }
 
@@ -226,6 +242,20 @@ struct LinearProjectRequestTests {
     #expect(second["after"] as? String == "cursor-1")
     // The id never ends up in the query text.
     #expect((bodies.first?["query"] as? String)?.contains("team-1") == false)
+  }
+
+  @Test("Five pages of projects are all read, so a saved project on page five is found")
+  func projectsFivePages() async throws {
+    LinearStubProtocol.requestBodies = []
+    LinearStubProtocol.responses = (1...5).map { index in
+      page(#"{ "id": "p\#(index)", "name": "Project \#(index)" }"#, next: index < 5 ? "cursor-\(index)" : nil)
+    }
+
+    let projects = try await client().projects(teamID: "team-1")
+
+    #expect(projects.count == 5)
+    #expect(projects.contains { $0.id == "p5" })
+    #expect(LinearStubProtocol.requestBodies.count == 5)
   }
 
   @Test("A GraphQL error from the projects query is thrown")

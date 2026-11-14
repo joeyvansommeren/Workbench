@@ -147,9 +147,12 @@ enum LinearGraphQL {
     }
     """
 
-  /// Pages fetched at most for one list (4 × 250). A board never needs more,
-  /// and a broken cursor can never loop.
-  static let maxPages = 4
+  /// Safety caps on pages (250 each), so a broken cursor can never loop.
+  /// Projects: high enough to be the whole list in practice (10,000), since
+  /// a saved project missing from it is forgotten. Issues: 2,000 open issues
+  /// in one project and team, more than a board can show.
+  static let maxProjectPages = 40
+  static let maxIssuePages = 8
 
   static func transitionIssue(id: String, stateID: String) -> String {
     """
@@ -220,7 +223,7 @@ public actor LinearAPIClient: LinearService {
   }
 
   public func projects(teamID: String) async throws -> [LinearProject] {
-    let projects: [LinearProject] = try await Self.fetchPages { after in
+    let projects: [LinearProject] = try await Self.fetchPages(maxPages: LinearGraphQL.maxProjectPages) { after in
       let response: LinearGraphQLResponse<TeamProjectsResponse> = try await self.execute(
         query: LinearGraphQL.projects, variables: ["teamID": teamID, "after": after])
       guard let data = response.data else { throw self.errorFromResponse(response) }
@@ -232,7 +235,7 @@ public actor LinearAPIClient: LinearService {
   }
 
   public func projectIssues(projectID: String, teamID: String) async throws -> [LinearIssue] {
-    try await Self.fetchPages { after in
+    try await Self.fetchPages(maxPages: LinearGraphQL.maxIssuePages) { after in
       let response: LinearGraphQLResponse<ProjectIssuesResponse> = try await self.execute(
         query: LinearGraphQL.projectIssues,
         variables: ["projectID": projectID, "teamID": teamID, "after": after])
@@ -263,16 +266,19 @@ public actor LinearAPIClient: LinearService {
 
   // MARK: - Private
 
-  /// Follows `endCursor` until the last page, at most `LinearGraphQL.maxPages`.
+  /// Follows `endCursor` while Linear says there is a next page, up to
+  /// `maxPages`, and stops on a cursor it has already seen.
   static func fetchPages<Node>(
+    maxPages: Int,
     _ page: (_ after: String?) async throws -> (nodes: [Node], nextCursor: String?)
   ) async throws -> [Node] {
     var all: [Node] = []
     var cursor: String?
-    for _ in 0..<LinearGraphQL.maxPages {
+    var seen = Set<String>()
+    for _ in 0..<maxPages {
       let result = try await page(cursor)
       all += result.nodes
-      guard let next = result.nextCursor, next != cursor else { break }
+      guard let next = result.nextCursor, seen.insert(next).inserted else { break }
       cursor = next
     }
     return all
