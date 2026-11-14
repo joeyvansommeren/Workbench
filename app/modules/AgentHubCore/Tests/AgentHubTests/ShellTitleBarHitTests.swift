@@ -174,6 +174,24 @@ struct ShellTitleBarHitTests {
     #expect(chrome.lightPlacements == afterResize, "placement keeps running after the resize")
   }
 
+  @Test("When AppKit resets one button, all three go back to their places")
+  func singleButtonResetIsRepaired() throws {
+    let host = try ShellTitleBarTestWindow(width: 1440)
+    defer { host.close() }
+    let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+    let buttons = try types.map { try #require(host.window.standardWindowButton($0)) }
+    let placed = buttons.map(\.frame)
+    // Evenly spaced, close centred on the prototype's line.
+    #expect(placed[1].minX - placed[0].minX == placed[2].minX - placed[1].minX)
+    for (index, button) in buttons.enumerated() {
+      // What a partial AppKit layout does: one button back at the old
+      // 32 pt place, the others untouched.
+      button.setFrameOrigin(CGPoint(x: 9 + CGFloat(index) * 23, y: 10))
+      host.settle()
+      #expect(buttons.map(\.frame) == placed, "after resetting button \(index): \(buttons.map(\.frame))")
+    }
+  }
+
   @Test("In full screen the toggle moves to the edge and the row still takes clicks")
   func fullScreenRow() throws {
     let host = try ShellTitleBarTestWindow(width: 1440)

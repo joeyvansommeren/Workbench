@@ -86,8 +86,11 @@ struct ShellTitleBarMetrics: Equatable {
 /// 26 pt from the top, the close button's centre 26 pt from the leading edge.
 ///
 /// AppKit's titlebar for a hidden title bar is 32 pt. This makes its
-/// container 52 pt high and moves the three buttons, keeping AppKit's spacing
-/// between them. AppKit lays the titlebar out again on resize, key changes and
+/// container 52 pt high and moves the three buttons to fixed places: AppKit's
+/// own spacing between them (read once, before the first move), counted from
+/// the close button's target. Absolute, never a shift of the current frames,
+/// so a partial AppKit reset of one button cannot misplace the others.
+/// AppKit lays the titlebar out again on resize, key changes and
 /// full screen, so `ShellWindowChromeView` calls this again from those window
 /// notifications and from the container's and buttons' frame-change
 /// notifications. Those are AppKit frame changes, never SwiftUI layout, and
@@ -98,11 +101,23 @@ enum ShellTrafficLights {
   static let bandHeight: CGFloat = 52
   static let closeCentreX: CGFloat = 26
 
-  /// Moves the titlebar container and the buttons into place; true if any
-  /// frame changed.
+  /// AppKit's distance between neighbouring buttons' leading edges, read
+  /// from the unmoved layout (23 pt on macOS 27).
+  @MainActor
+  static func systemSpacing(in window: NSWindow) -> CGFloat? {
+    guard
+      let close = window.standardWindowButton(.closeButton),
+      let zoom = window.standardWindowButton(.zoomButton)
+    else { return nil }
+    let spacing = ((zoom.frame.minX - close.frame.minX) / 2).rounded()
+    return (12...40).contains(spacing) ? spacing : nil
+  }
+
+  /// Moves the titlebar container and the buttons into place, `spacing`
+  /// apart; true if any frame changed.
   @MainActor
   @discardableResult
-  static func place(in window: NSWindow) -> Bool {
+  static func place(in window: NSWindow, spacing: CGFloat) -> Bool {
     guard
       !window.styleMask.contains(.fullScreen),
       let close = window.standardWindowButton(.closeButton),
@@ -126,15 +141,14 @@ enum ShellTrafficLights {
     ))
     setFrame(titlebarView, container.bounds)
 
-    let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
-      .compactMap { window.standardWindowButton($0) }
-      .filter { $0.superview === titlebarView }
-    let shift = (closeCentreX - close.frame.midX).rounded()
-    for button in buttons {
+    let firstLeading = (closeCentreX - close.frame.width / 2).rounded()
+    let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+    for (index, type) in types.enumerated() {
+      guard let button = window.standardWindowButton(type), button.superview === titlebarView else { continue }
       let size = button.frame.size
       setFrame(button, CGRect(
         origin: CGPoint(
-          x: button.frame.minX + shift,
+          x: firstLeading + CGFloat(index) * spacing,
           y: ((titlebarView.bounds.height - size.height) / 2).rounded()
         ),
         size: size
@@ -229,6 +243,7 @@ final class ShellWindowChromeView: NSView {
 
   deinit {
     observers.forEach(NotificationCenter.default.removeObserver)
+    frameObservers.forEach(NotificationCenter.default.removeObserver)
   }
 
   // A listener only: it sits behind the whole frame and must never take a click.
@@ -268,20 +283,72 @@ final class ShellWindowChromeView: NSView {
       NSWindow.didBecomeKeyNotification,
       NSWindow.didResignKeyNotification,
     ]
-    // AppKit can also lay the titlebar out on its own (appearance or title
-    // change). Frame changes of the container and close button post these.
-    let titlebarViews: [NSView] = [
-      window.standardWindowButton(.closeButton),
-      window.standardWindowButton(.closeButton)?.superview?.superview,
-    ].compactMap { $0 }
-    let sources: [(Notification.Name, AnyObject)] =
-      windowEvents.map { ($0, window) } + titlebarViews.map { (NSView.frameDidChangeNotification, $0) }
-    observers += sources.map { name, object in
-      center.addObserver(forName: name, object: object, queue: .main) { [weak self, weak window] _ in
+    observers += windowEvents.map { name in
+      center.addObserver(forName: name, object: window, queue: .main) { [weak self, weak window] _ in
         MainActor.assumeIsolated {
           guard let self, let window else { return }
           self.placeLightsAndMeasure(in: window)
         }
+      }
+    }
+    observeTitlebarFrames(of: window)
+  }
+
+  // AppKit can also lay the titlebar out on its own (appearance or title
+  // change); the container and each button post frame changes then. AppKit
+  // moves the buttons one by one, so the placement waits for the next
+  // run-loop turn, after its layout, and runs once for the whole batch.
+  // AppKit can also replace the buttons after hookup, so every placement
+  // checks that the watched views are still the window's.
+  nonisolated(unsafe) private var frameObservers: [NSObjectProtocol] = []
+  private var watchedTitlebarViews: [ObjectIdentifier] = []
+
+  private func titlebarViews(of window: NSWindow) -> [NSView] {
+    let close = window.standardWindowButton(.closeButton)
+    return [
+      close,
+      window.standardWindowButton(.miniaturizeButton),
+      window.standardWindowButton(.zoomButton),
+      close?.superview?.superview,
+    ].compactMap { $0 }
+  }
+
+  private func observeTitlebarFrames(of window: NSWindow) {
+    let views = titlebarViews(of: window)
+    let ids = views.map(ObjectIdentifier.init)
+    guard ids != watchedTitlebarViews else { return }
+    removeFrameObservers()
+    watchedTitlebarViews = ids
+    frameObservers = views.map { view in
+      NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: .main) {
+        [weak self, weak window] _ in
+        MainActor.assumeIsolated {
+          guard let self, let window else { return }
+          self.schedulePlacement(in: window)
+        }
+      }
+    }
+  }
+
+  private func removeFrameObservers() {
+    frameObservers.forEach(NotificationCenter.default.removeObserver)
+    frameObservers = []
+    watchedTitlebarViews = []
+  }
+
+  private var isPlacementScheduled = false
+
+  private func schedulePlacement(in window: NSWindow) {
+    guard !isPlacingLights, !isPlacementScheduled else { return }
+    isPlacementScheduled = true
+    // The next run-loop pass, in any mode (also a live resize or a nested
+    // loop, where the main dispatch queue waits).
+    RunLoop.main.perform(inModes: [.common]) { [weak self, weak window] in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        self.isPlacementScheduled = false
+        guard let window, window === self.window else { return }
+        self.placeLightsAndMeasure(in: window)
       }
     }
   }
@@ -289,19 +356,26 @@ final class ShellWindowChromeView: NSView {
   /// Times `ShellTrafficLights` moved something; tests check it settles.
   private(set) var lightPlacements = 0
   private var isPlacingLights = false
+  /// AppKit's button spacing, read before the first move.
+  private var lightSpacing: CGFloat?
 
   func stopObserving() {
     observers.forEach(NotificationCenter.default.removeObserver)
     observers = []
+    removeFrameObservers()
   }
 
   private func placeLightsAndMeasure(in window: NSWindow) {
     // Our own frame changes post frame notifications synchronously; skip
     // them, this call already handles their result.
     guard !isPlacingLights else { return }
-    isPlacingLights = true
-    if ShellTrafficLights.place(in: window) { lightPlacements += 1 }
-    isPlacingLights = false
+    observeTitlebarFrames(of: window)
+    if lightSpacing == nil { lightSpacing = ShellTrafficLights.systemSpacing(in: window) }
+    if let lightSpacing {
+      isPlacingLights = true
+      if ShellTrafficLights.place(in: window, spacing: lightSpacing) { lightPlacements += 1 }
+      isPlacingLights = false
+    }
     guard let metrics = ShellTitleBarMetrics.measured(in: window) else { return }
     onTitleBarMetrics(metrics)
   }
