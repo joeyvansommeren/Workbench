@@ -240,7 +240,8 @@ private struct ReviewsTableRow: View {
   }
 
   private var background: Color {
-    if isSelected { return isTableFocused ? Color.wbAccent.opacity(0.18) : .wbSurfaceSelected }
+    // One selection colour everywhere (sidebar, prototype); focus shows as the focus ring.
+    if isSelected { return .wbSurfaceSelected }
     return isHovered ? .wbSurfaceHover : .clear
   }
 
