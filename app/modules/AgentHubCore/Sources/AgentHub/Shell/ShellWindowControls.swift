@@ -13,11 +13,11 @@
 //  region SwiftUI reports as opaque, and SwiftUI leaves the row's controls
 //  out of it once the content has composited layers (the content panel's
 //  clip and shadow): every click on the tabs and Search became a window
-//  drag. Without a toolbar, clicks reach the content as usual. The traffic
-//  lights then sit where AppKit puts them for a hidden title bar, so the
-//  title band follows them instead: its height is the system title bar's
-//  (`ShellTitleBarMetrics`), and every control is centred on the lights'
-//  line. Shell/README.md, "Title row clicks".
+//  drag. Without a toolbar, clicks reach the content as usual, but AppKit's
+//  title bar is only 32 pt. `ShellTrafficLights` grows it to the prototype's
+//  52 pt and centres the lights in it; the title band is then measured from
+//  the lights (`ShellTitleBarMetrics`), so every control shares their line.
+//  Shell/README.md, "Title row clicks" and "Title band".
 //
 
 import AppKit
@@ -30,16 +30,16 @@ import SwiftUI
 /// on window notifications (leaving full screen, screen or backing change,
 /// becoming key; `ShellWindowChrome`), never from layout:
 /// the buttons' place does not depend on our content, so nothing can feed
-/// back. The default is the measurement on macOS 27 (a 32 pt title bar,
-/// lights at x 9, 32, 55, centred 16 pt from the top); older systems can
-/// differ, which is why it is measured.
+/// back. The default is what `ShellTrafficLights` gives on macOS 27: a 52 pt
+/// band, lights centred 26 pt from the top, the zoom button ending at x 79.
+/// If AppKit refuses the move, the measurement still follows the lights.
 struct ShellTitleBarMetrics: Equatable {
   /// Height of the title band: the system title bar.
   var bandHeight: CGFloat
   /// Right edge of the zoom button, in window points.
   var trafficLightsTrailing: CGFloat
 
-  static let standard = ShellTitleBarMetrics(bandHeight: 32, trafficLightsTrailing: 69)
+  static let standard = ShellTitleBarMetrics(bandHeight: 52, trafficLightsTrailing: 79)
 
   /// The metrics of `window`, or nil while the lights are hidden (full
   /// screen) or report something implausible.
@@ -79,6 +79,68 @@ struct ShellTitleBarMetrics: Equatable {
       return nil
     }
     return metrics
+  }
+}
+
+/// Puts the traffic lights in the prototype's 52 pt title bar: centred
+/// 26 pt from the top, the close button's centre 26 pt from the leading edge.
+///
+/// AppKit's titlebar for a hidden title bar is 32 pt. This makes its
+/// container 52 pt high and moves the three buttons, keeping AppKit's spacing
+/// between them. AppKit lays the titlebar out again on resize, key changes and
+/// full screen, so `ShellWindowChromeView` calls this again from those window
+/// notifications and from the container's and buttons' frame-change
+/// notifications. Those are AppKit frame changes, never SwiftUI layout, and
+/// `place(in:)` writes a frame only when it differs, so a call after its own
+/// change finds nothing to do and ends. Skipped in full screen, where AppKit
+/// owns the titlebar.
+enum ShellTrafficLights {
+  static let bandHeight: CGFloat = 52
+  static let closeCentreX: CGFloat = 26
+
+  /// Moves the titlebar container and the buttons into place; true if any
+  /// frame changed.
+  @MainActor
+  @discardableResult
+  static func place(in window: NSWindow) -> Bool {
+    guard
+      !window.styleMask.contains(.fullScreen),
+      let close = window.standardWindowButton(.closeButton),
+      !close.isHidden,
+      let titlebarView = close.superview,
+      let container = titlebarView.superview,
+      let containerParent = container.superview
+    else { return false }
+    var changed = false
+    func setFrame(_ view: NSView, _ frame: CGRect) {
+      guard view.frame != frame else { return }
+      view.frame = frame
+      changed = true
+    }
+
+    setFrame(container, CGRect(
+      x: container.frame.minX,
+      y: containerParent.bounds.height - bandHeight,
+      width: container.frame.width,
+      height: bandHeight
+    ))
+    setFrame(titlebarView, container.bounds)
+
+    let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+      .compactMap { window.standardWindowButton($0) }
+      .filter { $0.superview === titlebarView }
+    let shift = (closeCentreX - close.frame.midX).rounded()
+    for button in buttons {
+      let size = button.frame.size
+      setFrame(button, CGRect(
+        origin: CGPoint(
+          x: button.frame.minX + shift,
+          y: ((titlebarView.bounds.height - size.height) / 2).rounded()
+        ),
+        size: size
+      ))
+    }
+    return changed
   }
 }
 
@@ -181,7 +243,7 @@ final class ShellWindowChromeView: NSView {
     DispatchQueue.main.async { [weak self, weak window] in
       guard let self, let window else { return }
       self.onFullScreenChange(window.styleMask.contains(.fullScreen))
-      self.reportMetrics(of: window)
+      self.placeLightsAndMeasure(in: window)
     }
     let center = NotificationCenter.default
     observers = [
@@ -192,34 +254,54 @@ final class ShellWindowChromeView: NSView {
         [weak self] _ in MainActor.assumeIsolated { self?.onFullScreenChange(false) }
       },
     ]
-    // Measure again whenever the lights can have moved: leaving full screen
-    // (also the first real measurement of a window that opened in full
-    // screen; until then the default stands), another screen or backing
-    // scale, and becoming key (catches a system change made meanwhile).
+    // Place the lights again and measure whenever AppKit can have laid the
+    // titlebar out again: a resize, leaving full screen (also the first real
+    // measurement of a window that opened in full screen; until then the
+    // default stands), another screen or backing scale, a key change.
     // `measured(in:)` returns nil while the lights are hidden, and the model
     // ignores equal metrics, so a repeat costs nothing.
-    let remeasureOn: [Notification.Name] = [
+    let windowEvents: [Notification.Name] = [
+      NSWindow.didResizeNotification,
       NSWindow.didExitFullScreenNotification,
       NSWindow.didChangeScreenNotification,
       NSWindow.didChangeBackingPropertiesNotification,
       NSWindow.didBecomeKeyNotification,
+      NSWindow.didResignKeyNotification,
     ]
-    observers += remeasureOn.map { name in
-      center.addObserver(forName: name, object: window, queue: .main) { [weak self, weak window] _ in
+    // AppKit can also lay the titlebar out on its own (appearance or title
+    // change). Frame changes of the container and close button post these.
+    let titlebarViews: [NSView] = [
+      window.standardWindowButton(.closeButton),
+      window.standardWindowButton(.closeButton)?.superview?.superview,
+    ].compactMap { $0 }
+    let sources: [(Notification.Name, AnyObject)] =
+      windowEvents.map { ($0, window) } + titlebarViews.map { (NSView.frameDidChangeNotification, $0) }
+    observers += sources.map { name, object in
+      center.addObserver(forName: name, object: object, queue: .main) { [weak self, weak window] _ in
         MainActor.assumeIsolated {
           guard let self, let window else { return }
-          self.reportMetrics(of: window)
+          self.placeLightsAndMeasure(in: window)
         }
       }
     }
   }
+
+  /// Times `ShellTrafficLights` moved something; tests check it settles.
+  private(set) var lightPlacements = 0
+  private var isPlacingLights = false
 
   func stopObserving() {
     observers.forEach(NotificationCenter.default.removeObserver)
     observers = []
   }
 
-  private func reportMetrics(of window: NSWindow) {
+  private func placeLightsAndMeasure(in window: NSWindow) {
+    // Our own frame changes post frame notifications synchronously; skip
+    // them, this call already handles their result.
+    guard !isPlacingLights else { return }
+    isPlacingLights = true
+    if ShellTrafficLights.place(in: window) { lightPlacements += 1 }
+    isPlacingLights = false
     guard let metrics = ShellTitleBarMetrics.measured(in: window) else { return }
     onTitleBarMetrics(metrics)
   }

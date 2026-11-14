@@ -140,6 +140,40 @@ struct ShellTitleBarHitTests {
     #expect(abs(toggleLeading - (zoom.convert(zoom.bounds, to: nil).maxX + ShellLayout.trafficLightsToToggleGap)) <= 4)
   }
 
+  @Test("The traffic lights sit in the prototype's 52 pt bar", arguments: [1440.0, 900.0])
+  func lightsInPrototypeBar(width: Double) throws {
+    let host = try ShellTitleBarTestWindow(width: width)
+    defer { host.close() }
+    #expect(host.shellModel.titleBar.bandHeight == ShellTrafficLights.bandHeight)
+    #expect(abs(host.trafficLightsCentreFromTop() - ShellTrafficLights.bandHeight / 2) <= 0.5)
+    let close = try #require(host.window.standardWindowButton(.closeButton))
+    #expect(abs(close.convert(close.bounds, to: nil).midX - ShellTrafficLights.closeCentreX) <= 0.5)
+    // The lights stay clickable: AppKit resolves them, not the content.
+    let hit = host.frameViewHit(at: host.bandPoint(x: ShellTrafficLights.closeCentreX))
+    #expect(hit.map { $0 === close || $0.isDescendant(of: close) } == true, "close button hit \(String(describing: hit))")
+  }
+
+  @Test("Placing the lights settles: a resize moves them back a few times, then nothing")
+  func lightPlacementSettles() throws {
+    let host = try ShellTitleBarTestWindow(width: 1440)
+    defer { host.close() }
+    let chrome = try #require(host.chromeView())
+    host.settle()
+    let afterOpen = chrome.lightPlacements
+    host.settle(turns: 10)
+    #expect(chrome.lightPlacements == afterOpen, "the lights moved again with nothing changed")
+
+    host.window.setContentSize(CGSize(width: 1100, height: 700))
+    host.settle()
+    #expect(abs(host.trafficLightsCentreFromTop() - ShellTrafficLights.bandHeight / 2) <= 0.5)
+    let afterResize = chrome.lightPlacements
+    // AppKit lays the titlebar out a few times per resize (4 on macOS 27);
+    // each layout gets one placement back. A loop would never stop.
+    #expect(afterResize - afterOpen <= 6, "\(afterResize - afterOpen) placements for one resize")
+    host.settle(turns: 10)
+    #expect(chrome.lightPlacements == afterResize, "placement keeps running after the resize")
+  }
+
   @Test("In full screen the toggle moves to the edge and the row still takes clicks")
   func fullScreenRow() throws {
     let host = try ShellTitleBarTestWindow(width: 1440)
@@ -231,6 +265,16 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
   /// the title band's centre line), in window coordinates.
   func bandPoint(x: CGFloat, fromTop: CGFloat? = nil) -> CGPoint {
     CGPoint(x: x, y: window.frame.height - (fromTop ?? shellModel.titleBar.bandHeight / 2))
+  }
+
+  /// The window listener `ShellRoot` installs (`.shellWindowChrome(_:)`).
+  func chromeView() -> ShellWindowChromeView? {
+    func find(_ view: NSView) -> ShellWindowChromeView? {
+      if let chrome = view as? ShellWindowChromeView { return chrome }
+      for child in view.subviews { if let found = find(child) { return found } }
+      return nil
+    }
+    return window.contentView.flatMap(find)
   }
 
   /// The close button's centre, in points below the window's top edge.
