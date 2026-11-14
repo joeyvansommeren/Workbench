@@ -82,7 +82,7 @@ struct ShellSearchButton: View {
           .wbText(.body)
           .foregroundStyle(Color.wbTextPlaceholder)
         Spacer(minLength: 0)
-        KeyCaps(["⌘", "K"])
+        KeyCaps(ShellShortcut.search.keyCaps)
       }
       .padding(.leading, DesignTokens.Spacing.sm)
       .padding(.trailing, DesignTokens.Spacing.xs)
@@ -90,10 +90,13 @@ struct ShellSearchButton: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .background(
-      isHovered ? Color.wbSurfacePressed : Color.wbSurfaceField,
-      in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
-    )
+    .background {
+      // Hover lays one hover step over the field; the pressed colour is
+      // kept for presses, as on every other control.
+      let shape = RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
+      shape.fill(Color.wbSurfaceField)
+        .overlay(shape.fill(isHovered ? Color.wbSurfaceHover : Color.clear))
+    }
     .onHover { isHovered = $0 }
     .accessibilityLabel("Search")
     .accessibilityHint("Command K")

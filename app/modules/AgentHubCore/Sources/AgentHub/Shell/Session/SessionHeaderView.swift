@@ -103,7 +103,7 @@ struct SessionHeaderView<ActionsMenu: View>: View {
         accessibilityIdentifier: "session.toggleSidePanel",
         action: onToggleSidePanel
       )
-      .help(isSidePanelVisible ? "Hide side panel  ⌥⌘0" : "Show side panel  ⌥⌘0")
+      .help("\(isSidePanelVisible ? "Hide" : "Show") side panel  \(ShellShortcut.toggleSidePanel.keyCaps.joined())")
     }
   }
 
@@ -137,8 +137,9 @@ private struct ContextMeter: View {
       if showsDots {
         DotMeter(fraction: fraction)
       }
-      Text("\(Int((min(max(fraction, 0), 1) * 100).rounded()))%")
-        .font(.system(size: 12, weight: .medium))
+      Text("\(percent)%")
+        .wbText(.callout)
+        .fontWeight(.medium)
         .monospacedDigit()
         .foregroundStyle(Color.wbTextPrimary)
         .frame(minWidth: 28, alignment: .trailing)
@@ -147,8 +148,11 @@ private struct ContextMeter: View {
     .frame(height: DesignTokens.Size.control)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Context used")
-    .accessibilityValue("\(Int((fraction * 100).rounded())) percent")
+    .accessibilityValue("\(percent) percent")
   }
+
+  /// Clamped once, so the screen and VoiceOver say the same number.
+  private var percent: Int { Int((min(max(fraction, 0), 1) * 100).rounded()) }
 }
 
 private struct ToolbarDivider: View {

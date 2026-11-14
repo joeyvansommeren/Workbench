@@ -2,7 +2,7 @@
 //  CommitChangesAction.swift
 //  AgentHub
 //
-//  "Commit N files…" in the session side panel. Workbench never commits by
+//  "Commit N files" in the session side panel. Workbench never commits by
 //  itself: it asks the agent to commit, the same way "Create PR" asks it to
 //  open a pull request. The agent's `git commit` then asks for approval.
 //
@@ -35,7 +35,8 @@ enum CommitChangesAction {
   static let cooldownDuration: Duration = .seconds(2)
 
   static func title(fileCount: Int) -> String {
-    fileCount == 1 ? "Commit 1 file…" : "Commit \(fileCount) files…"
+    // No ellipsis: the click sends the prompt at once and asks nothing more.
+    fileCount == 1 ? "Commit 1 file" : "Commit \(fileCount) files"
   }
 
   static func prompt(fileCount: Int) -> String {

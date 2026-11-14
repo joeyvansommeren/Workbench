@@ -18,10 +18,6 @@ final class SidebarTreeActions {
   let navigationModel: SessionNavigationModel
   let coordinator: SessionsActionCoordinator
 
-  /// What the Approve pill does: allow once through the shared responder
-  /// (`SidebarApproval.respond`). One closure, so rows stay unaware of it.
-  var approve: (SessionNode) -> Void = { _ in }
-
   /// Called when `open(_:)` focuses a workspace pane, which clears
   /// `primarySessionId`; the tree keeps the row highlighted with it.
   var onWorkspaceOpen: (SidebarWorkspaceOpen) -> Void = { _ in }
@@ -39,14 +35,6 @@ final class SidebarTreeActions {
     self.shellModel = shellModel
     self.navigationModel = navigationModel
     self.coordinator = coordinator
-    self.approve = SidebarApproval.respond(
-      answer: { node in
-        let viewModel =
-          node.providerKind == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
-        return viewModel.respondToApproval(sessionId: node.session.id, decision: .approveOnce)
-      },
-      openSession: { [weak self] node in self?.open(node) }
-    )
   }
 
   /// Progress of the last approval click on `node`'s current request.
@@ -55,6 +43,13 @@ final class SidebarTreeActions {
     return viewModel.approvalTracker.phase(
       for: node.session.id,
       request: ApprovalRequestKey(state: viewModel.monitorStates[node.session.id]))
+  }
+
+  /// What the pending request asks to run, for the Approve pill's tooltip
+  /// and VoiceOver label.
+  func approvalPresentation(for node: SessionNode) -> ApprovalRequestPresentation? {
+    viewModel(for: node.providerKind).monitorStates[node.session.id]?.pendingToolUse
+      .map(ApprovalRequestPresentation.init(pending:))
   }
 
   private var claude: CLISessionsViewModel { agentHub.claudeSessionsViewModel }
@@ -310,20 +305,25 @@ final class SidebarTreeActions {
 
 // MARK: - Approve
 
-@MainActor
-enum SidebarApproval {
-  /// Allows the pending call once (`answer`, in the app
-  /// `CLISessionsViewModel.respondToApproval`). When the app can't answer, it
-  /// opens the session so the user answers in its terminal (the banner says so).
-  static func respond(
-    answer: @escaping (SessionNode) -> ApprovalResponseOutcome,
-    openSession: @escaping (SessionNode) -> Void
-  ) -> (SessionNode) -> Void {
-    { node in
-      if answer(node) != .sent {
-        openSession(node)
-      }
+/// The Approve pill opens the session, where the banner shows the whole
+/// command before anything is allowed. It never approves blind from the
+/// tree: a one-click approve next to the row's open button let a mis-click
+/// run a command nobody read. Its tooltip and VoiceOver label still say
+/// what waits, so the tree can be scanned without opening each session.
+enum SidebarApprovePillText {
+  static func help(_ phase: ApprovalResponsePhase?, presentation: ApprovalRequestPresentation?) -> String {
+    switch phase {
+    case .answerInTerminal: return "The app could not confirm Claude's menu. Answer in the terminal."
+    case .checkTerminal: return "Sent once. Check the terminal."
+    default:
+      guard let detail = presentation?.detail else { return "Open the session to approve" }
+      return "Open the session to approve:\n\(detail)"
     }
+  }
+
+  static func accessibilityLabel(toolName: String?, presentation: ApprovalRequestPresentation?) -> String {
+    let what = presentation?.detail ?? toolName
+    return what.map { "Review approval: \($0)" } ?? "Review approval"
   }
 }
 

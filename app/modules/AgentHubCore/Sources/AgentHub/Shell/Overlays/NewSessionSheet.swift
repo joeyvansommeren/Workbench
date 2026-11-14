@@ -28,6 +28,15 @@ struct NewSessionSheet: View {
           NewSessionFormLabel("Agent")
           NewSessionAgentPicker(model: model)
         }
+        if !model.isAgentAvailable(model.agent) {
+          // Start stays disabled; say why where the eye is, not in a tooltip.
+          GridRow {
+            Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+            Text(model.agent.notInstalledHelp)
+              .wbText(.callout)
+              .foregroundStyle(Color.wbTextSecondary)
+          }
+        }
         GridRow {
           NewSessionFormLabel("Project")
           HStack(spacing: DesignTokens.Spacing.sm) {
@@ -72,7 +81,7 @@ struct NewSessionSheet: View {
         .keyboardShortcut(.cancelAction)
       Button(action: model.start) {
         HStack(spacing: DesignTokens.Spacing.xsPlus) {
-          Text("Start")
+          Text(model.launchViewModel.isLaunching ? "Starting…" : "Start")
           HStack(spacing: DesignTokens.Spacing.xxs) {
             StartKeyCap("⌘")
             StartKeyCap("↩")
@@ -228,12 +237,23 @@ private struct PopupButtonLabel<Leading: View>: View {
   }
 }
 
+/// A native menu, so arrow keys, type-select, Escape and long lists (it
+/// scrolls) work for free.
 private struct NewSessionProjectPicker: View {
   @Bindable var model: NewSessionSheetModel
-  @State private var isOpen = false
 
   var body: some View {
-    Button { isOpen.toggle() } label: {
+    Menu {
+      Picker("Project", selection: selection) {
+        ForEach(model.repositories) { repository in
+          Text(repository.name).tag(Optional(repository.path))
+        }
+      }
+      .pickerStyle(.inline)
+      .labelsHidden()
+      if !model.repositories.isEmpty { Divider() }
+      Button("Other…", action: model.chooseOtherProject)
+    } label: {
       PopupButtonLabel(title: model.project?.name ?? "Choose project", isMonospaced: false) {
         if let project = model.project {
           LetterTile(name: project.name, path: project.path)
@@ -242,30 +262,21 @@ private struct NewSessionProjectPicker: View {
         }
       }
     }
+    .menuStyle(.button)
     .buttonStyle(.plain)
+    .menuIndicator(.hidden)
+    .fixedSize()
     .accessibilityLabel("Project, \(model.project?.name ?? "none")")
-    .popover(isPresented: $isOpen, arrowEdge: .bottom) {
-      OverlayMenuList {
-        ForEach(model.repositories) { repository in
-          OverlayMenuRow(
-            title: repository.name,
-            isChecked: repository.path == model.project?.path
-          ) {
-            LetterTile(name: repository.name, path: repository.path)
-          } action: {
-            model.selectProject(repository)
-            isOpen = false
-          }
-        }
-        if !model.repositories.isEmpty { OverlayMenuDivider() }
-        OverlayMenuRow(title: "Other…", isChecked: false) {
-          Image(systemName: "folder")
-        } action: {
-          isOpen = false
-          model.chooseOtherProject()
-        }
+  }
+
+  private var selection: Binding<String?> {
+    Binding(
+      get: { model.project?.path },
+      set: { path in
+        guard let repository = model.repositories.first(where: { $0.path == path }) else { return }
+        model.selectProject(repository)
       }
-    }
+    )
   }
 }
 
@@ -330,6 +341,8 @@ private struct WorktreePopoverContent: View {
         TextField("Search worktrees", text: $model.worktreeSearch)
           .textFieldStyle(.plain)
           .wbText(.body)
+          // Return picks the first match, so a search needs no mouse.
+          .onSubmit(selectFirstMatch)
       }
       .padding(.horizontal, DesignTokens.Spacing.sm)
       .frame(height: 36)
@@ -337,12 +350,40 @@ private struct WorktreePopoverContent: View {
       OverlayMenuLabel("Start session in")
 
       row("New worktree", icon: NewSessionWorktreeIcon.new, choice: .newWorktree, mono: false)
-      ForEach(model.existingWorktrees) { worktree in
-        row(worktree.name, icon: NewSessionWorktreeIcon.existing, choice: .existing(worktree), mono: true)
+      let worktrees = model.existingWorktrees
+      if worktrees.isEmpty, !isSearchEmpty {
+        Text("No worktrees match")
+          .wbText(.body)
+          .foregroundStyle(Color.wbTextSecondary)
+          .padding(.horizontal, DesignTokens.Spacing.sm)
+          .frame(height: DesignTokens.Size.row)
+      } else {
+        // Search, "New worktree" and "No worktree" stay put; only the list scrolls.
+        ScrollView(.vertical) {
+          VStack(alignment: .leading, spacing: 0) {
+            ForEach(worktrees) { worktree in
+              row(worktree.name, icon: NewSessionWorktreeIcon.existing, choice: .existing(worktree), mono: true)
+            }
+          }
+        }
+        .frame(maxHeight: Self.listMaxHeight)
+        .fixedSize(horizontal: false, vertical: true)
       }
       OverlayMenuDivider()
       row("No worktree", icon: NewSessionWorktreeIcon.none, choice: .none, mono: false)
     }
+  }
+
+  static let listMaxHeight: CGFloat = 320
+
+  private var isSearchEmpty: Bool {
+    model.worktreeSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private func selectFirstMatch() {
+    guard !isSearchEmpty, let first = model.existingWorktrees.first else { return }
+    model.selectWorktree(.existing(first))
+    onClose()
   }
 
   private func row(

@@ -185,6 +185,14 @@ struct SessionTreeList: View {
   let onLoadMore: (LoadMoreRowModel) -> Void
 
   @FocusState private var isFocused: Bool
+  /// Where ↑/↓ moved the highlight. The session opens only once the key
+  /// rests (`keyOpenDelay`): each open rebuilds the detail and its terminal,
+  /// so holding ↓ must not open every session it passes.
+  @State private var keyboardTargetID: String?
+
+  static let keyOpenDelay: Duration = .milliseconds(150)
+
+  private var highlightedID: String? { keyboardTargetID ?? selectedSessionID }
 
   var body: some View {
     ScrollViewReader { proxy in
@@ -205,6 +213,15 @@ struct SessionTreeList: View {
       .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
         handleKey(press.key, proxy: proxy)
       }
+      .task(id: keyboardTargetID) {
+        guard let targetID = keyboardTargetID else { return }
+        try? await Task.sleep(for: Self.keyOpenDelay)
+        guard !Task.isCancelled else { return }
+        if let node = sessionNode(targetID) { actions.open(node) }
+        keyboardTargetID = nil
+      }
+      // A click (or any other open) wins over a pending arrow-key open.
+      .onChange(of: selectedSessionID) { _, _ in keyboardTargetID = nil }
       .accessibilityElement(children: .contain)
       .accessibilityLabel("Sessions")
     }
@@ -226,7 +243,7 @@ struct SessionTreeList: View {
     case .session(let model):
       SessionTreeRow(
         model: model,
-        isSelected: model.id == selectedSessionID,
+        isSelected: model.id == highlightedID,
         isElsewhere: isElsewhere,
         actions: actions
       )
@@ -240,7 +257,8 @@ struct SessionTreeList: View {
     }
   }
 
-  /// Up and down open the previous or next session; left and right collapse
+  /// Up and down move to the previous or next session and open it once the
+  /// key rests; left and right collapse
   /// or expand the selected session's repository (found even while it is
   /// collapsed and the row is hidden).
   private func handleKey(_ key: KeyEquivalent, proxy: ScrollViewProxy) -> KeyPress.Result {
@@ -249,20 +267,20 @@ struct SessionTreeList: View {
       guard
         let nextID = SidebarTreeRows.adjacentSessionID(
           in: snapshot.rows,
-          from: selectedSessionID,
+          from: highlightedID,
           forward: key == .downArrow,
           repoPathBySessionID: snapshot.repoPathBySessionID
         ),
-        let node = sessionNode(nextID)
+        sessionNode(nextID) != nil
       else {
         return .ignored
       }
-      actions.open(node)
+      keyboardTargetID = nextID
       proxy.scrollTo(nextID)
       return .handled
     case .leftArrow, .rightArrow:
-      guard let selectedSessionID,
-        let repoPath = snapshot.repoPathBySessionID[selectedSessionID],
+      guard let highlightedID,
+        let repoPath = snapshot.repoPathBySessionID[highlightedID],
         let repo = repoModel(repoPath)
       else {
         return .ignored

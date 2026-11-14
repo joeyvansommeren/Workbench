@@ -40,6 +40,27 @@ struct CommandPaletteEntriesTests {
     #expect(entries.first?.trailingText == "Needs approval")
   }
 
+  @Test("A typed query caps Sessions and Pull requests and counts the rest")
+  func typedQueryIsCappedPerGroup() {
+    let sessions = (0..<30).map { session("s\($0)", "Fix \($0)", status: .idle) }
+    let pullRequests = (0..<4).map {
+      CommandPalettePullRequestInput(
+        id: "PR_\($0)", title: "Fix bug \($0)", number: $0, repositoryName: "workbench",
+        repositoryNameWithOwner: "joey/workbench")
+    }
+    let results = CommandPaletteEntries.results(
+      query: "fix", sessions: sessions, pullRequests: pullRequests, groupLimit: 25)
+    #expect(results.entries.filter { $0.group == .sessions }.count == 25)
+    #expect(results.entries.filter { $0.group == .pullRequests }.count == 4)
+    #expect(results.moreText(for: .sessions) == "5 more, keep typing")
+    #expect(results.moreText(for: .pullRequests) == nil)
+    // The kept rows are the first matches, in order.
+    #expect(results.entries.first?.id == "session-s0")
+
+    let idle = CommandPaletteEntries.results(query: "", sessions: sessions, pullRequests: pullRequests)
+    #expect(idle.hiddenCounts.isEmpty)
+  }
+
   @Test("Equal status keeps the caller's order; a pending session counts as thinking")
   func stableWithinRank() {
     let sessions = [
