@@ -15,6 +15,9 @@ import SwiftUI
 enum WBButtonKind {
   case primary, secondary, plain, destructive
 
+  /// Opacity of every disabled button (button styles and `IconButton`).
+  static let disabledOpacity: Double = 0.45
+
   /// Rest / hover fills from the prototype (`.button-*` and `:hover`).
   @MainActor
   func fill(isHovered: Bool) -> Color {
@@ -46,8 +49,10 @@ struct WBButtonBody: View {
 
   var body: some View {
     let shape = RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
-    // A pressed button always shows the hover fill underneath: the pointer is on it.
-    let showsHoverFill = isHovered || configuration.isPressed
+    // A pressed button always shows the hover fill underneath: the pointer is
+    // on it. Disabled buttons show neither.
+    let isPressed = isEnabled && configuration.isPressed
+    let showsHoverFill = isEnabled && (isHovered || isPressed)
 
     configuration.label
       .wbText(.bodyEmphasis)
@@ -57,14 +62,14 @@ struct WBButtonBody: View {
       .background {
         ZStack {
           kind.fill(isHovered: showsHoverFill)
-          if configuration.isPressed {
+          if isPressed {
             Color.wbSurfacePressed
           }
         }
       }
       .clipShape(shape)
       .modifier(WBButtonChrome(kind: kind))
-      .opacity(isEnabled ? 1 : 0.45)
+      .opacity(isEnabled ? 1 : WBButtonKind.disabledOpacity)
       .onHover { isHovered = $0 }
       // No `.animation`: feedback lands on the first frame (plan item 1).
   }

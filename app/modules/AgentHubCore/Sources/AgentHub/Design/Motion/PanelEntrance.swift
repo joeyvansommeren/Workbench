@@ -76,7 +76,28 @@ private struct PanelEntranceModifier: ViewModifier {
   }
 }
 
+/// Records, in the view that hosts a detail panel, whether the panel's
+/// selection was empty at some point while this view was on screen. Only then
+/// is the next open the user's own; a remount (⌘2/3/4, launch with a restored
+/// selection, data that loads late) shows the panel in place.
+private struct PanelOpenTracker: ViewModifier {
+  let isOpen: Bool
+  @Binding var wasClosed: Bool
+
+  func body(content: Content) -> some View {
+    content
+      .onAppear { if !isOpen { wasClosed = true } }
+      .onChange(of: isOpen) { _, open in if !open { wasClosed = true } }
+  }
+}
+
 extension View {
+  /// Apply to the host of a detail panel; pass `wasClosed` to the panel's
+  /// `wbPanelEntrance(animates:)`. `isOpen` follows the selection, not data.
+  func wbTracksPanelOpen(isOpen: Bool, wasClosed: Binding<Bool>) -> some View {
+    modifier(PanelOpenTracker(isOpen: isOpen, wasClosed: wasClosed))
+  }
+
   /// Fades and slides the panel's contents in when the panel appears. Apply
   /// it to the panel's contents, never to the container whose width changes.
   /// - Parameters:

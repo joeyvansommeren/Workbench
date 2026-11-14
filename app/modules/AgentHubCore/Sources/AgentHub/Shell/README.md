@@ -301,7 +301,12 @@ Plan: `Workbench-ui-explorations/apple/MOTION-PLAN.md`.
   appears at once; only the contents fade and slide 8 pt
   (`wbPanelEntrance()`, `Design/Motion/PanelEntrance.swift`). The session side
   panel animates only when it is opened (`WorkbenchShellModel.sidePanelEntrance`),
-  not when a session switch remounts it.
+  not when a session switch remounts it. Reviews and Sprint animate only when
+  the selection goes from none to one while the destination is on screen
+  (`wbTracksPanelOpen`), not on ⌘2/3/4 or at launch.
+- **Approve ⌘↩** handlers are owned by their request
+  (`setApprovalShortcutHandler(forKey:request:_:)`): a banner leaving late
+  cannot clear the next request's handler.
 - **Theme switch** from the title row: one window crossfade of a `CALayer`
   snapshot (`Design/Motion/ThemeCrossfade.swift`, 0.24 s ease-out). It also
   runs under Reduce Motion.

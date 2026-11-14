@@ -97,8 +97,12 @@ private struct ApprovalBannerHost: View {
     }
     .onChange(of: isRevealingTerminal) { _, _ in updateShortcut() }
     .onChange(of: phase) { _, _ in updateShortcut() }
-    .onDisappear { viewModel.setApprovalShortcutHandler(forKey: terminalKey, nil) }
+    // Keyed by request: this runs after the exit fade, when the next
+    // request's banner may already own ⌘↩.
+    .onDisappear { viewModel.setApprovalShortcutHandler(forKey: terminalKey, request: request, nil) }
   }
+
+  private var request: ApprovalRequestKey { ApprovalRequestKey(pending: pending) }
 
   private func respond(_ decision: ApprovalDecision) {
     viewModel.respondToApproval(sessionId: sessionId, decision: decision, terminalKey: terminalKey)
@@ -109,12 +113,12 @@ private struct ApprovalBannerHost: View {
   /// shortcut back. A second answer is refused by the view model regardless.
   private func updateShortcut() {
     guard !isRevealingTerminal, !(phase?.isAnswered ?? false) else {
-      viewModel.setApprovalShortcutHandler(forKey: terminalKey, nil)
+      viewModel.setApprovalShortcutHandler(forKey: terminalKey, request: request, nil)
       return
     }
     let sessionId = sessionId
     let terminalKey = terminalKey
-    viewModel.setApprovalShortcutHandler(forKey: terminalKey) { [weak viewModel] in
+    viewModel.setApprovalShortcutHandler(forKey: terminalKey, request: request) { [weak viewModel] in
       viewModel?.respondToApproval(sessionId: sessionId, decision: .approveOnce, terminalKey: terminalKey)
     }
   }

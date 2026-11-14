@@ -331,22 +331,17 @@ struct GitHubReviewsView: View {
       }
       .layoutPriority(1)
       Spacer()
-        // An overlay, not a sibling: the label never pushes the buttons, so
-        // its fade cannot animate the header layout.
-        .overlay(alignment: .trailing) {
-          if let sessionCommandFeedback {
-            Label(
-              sessionCommandFeedback.message,
-              systemImage: sessionCommandFeedback.isError
-                ? "exclamationmark.triangle" : "paperplane.fill"
-            )
-            .font(.secondaryCaption)
-            .foregroundStyle(sessionCommandFeedback.isError ? .red : .secondary)
-            .lineLimit(1)
-            .fixedSize()
-            .transition(.opacity)
-          }
-        }
+      if let sessionCommandFeedback {
+        Label(
+          sessionCommandFeedback.message,
+          systemImage: sessionCommandFeedback.isError
+            ? "exclamationmark.triangle" : "paperplane.fill"
+        )
+        .font(.secondaryCaption)
+        .foregroundStyle(sessionCommandFeedback.isError ? .red : .secondary)
+        .lineLimit(1)
+        .transition(.opacity)
+      }
       followUpButton(.reReview, rows: rows)
       followUpButton(.resolveComments, rows: rows)
       bulkLaunchMenu(rows: rows)

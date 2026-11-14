@@ -70,13 +70,31 @@ private struct IconButtonStyle: ButtonStyle {
   let cornerRadius: CGFloat
 
   func makeBody(configuration: Configuration) -> some View {
+    IconButtonBody(
+      configuration: configuration, isToggled: isToggled, isHovered: isHovered, cornerRadius: cornerRadius)
+  }
+}
+
+/// A view, so it can read `isEnabled`: a disabled icon button dims like the
+/// other button styles and shows no hover or press fill.
+private struct IconButtonBody: View {
+  let configuration: ButtonStyleConfiguration
+  let isToggled: Bool
+  let isHovered: Bool
+  let cornerRadius: CGFloat
+
+  @Environment(\.isEnabled) private var isEnabled
+
+  var body: some View {
+    let isPressed = isEnabled && configuration.isPressed
+    let isHovered = isEnabled && isHovered
     configuration.label
-      .foregroundStyle(isHovered || isToggled || configuration.isPressed ? Color.wbTextPrimary : Color.wbTextSecondary)
-      .background(fill(isPressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: cornerRadius))
+      .foregroundStyle(isHovered || isToggled || isPressed ? Color.wbTextPrimary : Color.wbTextSecondary)
+      .background(fill(isPressed: isPressed, isHovered: isHovered), in: RoundedRectangle(cornerRadius: cornerRadius))
+      .opacity(isEnabled ? 1 : WBButtonKind.disabledOpacity)
   }
 
-  @MainActor
-  private func fill(isPressed: Bool) -> Color {
+  private func fill(isPressed: Bool, isHovered: Bool) -> Color {
     if isToggled { return .wbSurfaceSelected }
     if isPressed { return .wbSurfacePressed }
     if isHovered { return .wbSurfaceHover }
