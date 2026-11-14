@@ -159,18 +159,32 @@ struct LinearSprintDestination: View {
   @ViewBuilder
   private var detail: some View {
     if let issue = viewModel.selectedIssue {
-      LinearIssueDetailView(
-        issue: issue,
-        cycleName: viewModel.activeCycle?.displayName,
-        isLoadingDetail: viewModel.isLoadingDetail,
+      let links = linkedSessions[issue.identifier] ?? []
+      TicketDetailView(
+        detail: TicketDetailPresentation.linear(
+          issue: issue,
+          cycleName: viewModel.activeCycle?.displayName,
+          isLoadingDetail: viewModel.isLoadingDetail,
+          linkedSessions: links,
+          status: sessionStatus
+        ),
         repositoryPath: $viewModel.repositoryPath,
         repositories: repositories,
-        linkedSessions: linkedSessions[issue.identifier] ?? [],
+        isStarting: viewModel.startingIssueIDs.contains(issue.id),
         isClaudeAvailable: isClaudeAvailable,
         isCodexAvailable: isCodexAvailable,
-        onStart: { provider in start(issue.id, provider: provider) },
-        onOpenSession: onOpenSession,
-        onClose: close
+        actions: TicketDetailActions(
+          onStart: { provider in start(issue.id, provider: provider) },
+          onOpenSession: { id in
+            guard let link = links.first(where: { $0.id == id }) else { return }
+            MainThreadStallMonitor.breadcrumb("sprint ticket: open session")
+            onOpenSession(link)
+          },
+          // Linear issues do not move in the shell (the board has no Move To either).
+          onMove: { _ in },
+          onRefreshPullRequests: {},
+          onClose: close
+        )
       )
     }
   }
@@ -257,6 +271,15 @@ private struct LinearSprintFiltersPopover: View {
           .labelsHidden()
         }
       }
+      // The list head hides All | Mine in narrow windows; this keeps it reachable.
+      SprintFilterSection(title: "Assignee") {
+        Picker("Assignee", selection: assigneeSelection) {
+          Text("Everyone").tag(LinearViewModel.AssigneeFilter.everyone)
+          Text("Mine").tag(LinearViewModel.AssigneeFilter.me)
+        }
+        .labelsHidden()
+        .accessibilityIdentifier("sprint.filters.assignee")
+      }
       Toggle("Move issues to started when a session begins", isOn: $viewModel.moveToStartedOnLaunch)
         .wbText(.callout)
       // Deletes the key from the Keychain, so it asks first.
@@ -276,6 +299,16 @@ private struct LinearSprintFiltersPopover: View {
     }
     .padding(DesignTokens.Spacing.lg)
     .frame(width: DesignTokens.Width.popover)
+  }
+
+  private var assigneeSelection: Binding<LinearViewModel.AssigneeFilter> {
+    Binding(
+      get: { viewModel.assigneeFilter },
+      set: { filter in
+        viewModel.assigneeFilter = filter
+        MainThreadStallMonitor.breadcrumb("sprint filter: assignee")
+      }
+    )
   }
 
   private var teamSelection: Binding<String> {

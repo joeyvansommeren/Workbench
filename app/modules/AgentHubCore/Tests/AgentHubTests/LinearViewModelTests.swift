@@ -141,6 +141,27 @@ struct LinearViewModelTests {
     #expect(await service.workflowStateCalls == 3)
   }
 
+  @Test("The Filters assignee choice scopes the board to my issues and is remembered")
+  func assigneeScope() async {
+    let suiteName = "LinearViewModelTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    defaults.set("everyone", forKey: AgentHubDefaults.linearAssigneeFilter)
+    let viewModel = LinearViewModel(service: MockLinearService(), userDefaults: defaults, hasAPIKey: { true })
+    await viewModel.load(keepsBoardOnFailure: true)
+    #expect(viewModel.filteredIssues.count == 3)
+
+    viewModel.assigneeFilter = .me
+    #expect(viewModel.filteredIssues.map(\.id) == ["todo-2"])
+    #expect(viewModel.columns.flatMap(\.issues).map(\.id) == ["todo-2"])
+    #expect(defaults.string(forKey: AgentHubDefaults.linearAssigneeFilter) == "me")
+    #expect(LinearViewModel(userDefaults: defaults).assigneeFilter == .me)
+
+    viewModel.assigneeFilter = .everyone
+    #expect(viewModel.filteredIssues.count == 3)
+    #expect(LinearViewModel(userDefaults: defaults).assigneeFilter == .everyone)
+  }
+
   @Test("Without a key the board asks to connect and never calls Linear")
   func noKey() async {
     let service = MockLinearService()
@@ -196,7 +217,9 @@ private actor MockLinearService: LinearIssueReading, LinearIssueTransitioning {
     if let error { throw error }
     return [
       LinearIssue(id: "todo-1", identifier: "XFA-1", title: "One", state: Self.todo),
-      LinearIssue(id: "todo-2", identifier: "XFA-2", title: "Two", state: Self.todo),
+      LinearIssue(
+        id: "todo-2", identifier: "XFA-2", title: "Two", state: Self.todo,
+        assignee: LinearUser(id: "me", name: "Joey")),
       LinearIssue(id: "doing-1", identifier: "XFA-3", title: "Three", state: Self.doing),
     ]
   }
