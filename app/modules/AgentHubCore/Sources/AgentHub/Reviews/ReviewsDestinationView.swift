@@ -2,13 +2,14 @@
 //  ReviewsDestinationView.swift
 //  AgentHub
 //
-//  The Reviews destination of the new shell (`ReviewsView` in the prototype):
-//  a fixed 400 pt pull request list, a hairline, then the detail.
+//  The Reviews destination of the new shell: the scope and Filters bar, then
+//  the pull request table. Clicking a row opens the detail as a fixed-width
+//  trailing panel; the table stays visible next to it.
 //
-//  Layout-loop rules (CLAUDE.md, plan section 4): a plain `HStack` with a
-//  fixed list width. No split views, no geometry-driven widths, and nothing
-//  takes focus on appear. The legacy `GitHubReviewsView` stays for the
-//  flag-off path.
+//  Layout-loop rules (CLAUDE.md, plan section 4): plain `HStack`/`VStack`
+//  with fixed widths. No split views, no `.inspector`, no geometry-driven
+//  widths, and nothing takes focus on appear. The legacy `GitHubReviewsView`
+//  stays for the flag-off path.
 //
 
 import AgentHubGitHub
@@ -17,12 +18,13 @@ import SwiftUI
 /// Reviews widths. Their sum, with the shell sidebar and panel inset, must fit
 /// `ShellLayout.windowMinWidth` (checked by `ReviewsLayoutTests`).
 enum ReviewsLayout {
-  static let listWidth: CGFloat = 400
+  static let tableMinWidth: CGFloat = ReviewsTableLayout.minimumWidth
   static let hairlineWidth: CGFloat = 1
-  static let detailMinWidth: CGFloat = 200
+  static let detailWidth: CGFloat = DesignTokens.Width.sidePanel
+  static let barHeight: CGFloat = 52
 
-  /// The narrowest content panel Reviews fits in.
-  static var minimumContentWidth: CGFloat { listWidth + hairlineWidth + detailMinWidth }
+  /// The narrowest content panel Reviews fits in, with the detail open.
+  static var minimumContentWidth: CGFloat { tableMinWidth + hairlineWidth + detailWidth }
 }
 
 struct ReviewsDestinationView: View {
@@ -32,6 +34,15 @@ struct ReviewsDestinationView: View {
   @AppStorage(AgentHubDefaults.reviewsAgent)
   private var agentRaw = SessionProviderKind.claude.rawValue
   @State private var customMessageContext: GitHubReviewCustomMessageContext?
+  @State private var sessionCommandContext: GitHubReviewSessionCommandContext?
+  @State private var sessionFeedback: String?
+  /// The pull request whose detail was closed while it stays selected. Any
+  /// other selection (a click, a jump from a session) opens the detail.
+  @State private var closedDetailID: String?
+  @State private var pendingBulkLaunch: GitHubReviewBulkLaunch?
+  @State private var pendingFollowUp: GitHubReviewBulkFollowUp?
+  /// "Sent to 3 of 4 sessions" after a bulk follow-up, shown in the bar.
+  @State private var bulkFeedback: String?
 
   private var viewModel: GitHubReviewsViewModel { agentHub.gitHubReviewsViewModel }
   private var support: ReviewSessionSupport { ReviewSessionSupport(agentHub: agentHub) }
@@ -45,30 +56,56 @@ struct ReviewsDestinationView: View {
       visible.map { ($0.id, support.links(for: $0, inventories: inventories)) },
       uniquingKeysWith: { first, _ in first }
     )
+    let rows = ReviewsTableRows.make(pullRequests: visible, links: links, sort: viewModel.tableSort)
+    let detailPullRequest = openDetailPullRequest(in: visible)
+    let bulkActions = ReviewsBulkActions(rows: rows, viewModel: viewModel)
 
-    HStack(spacing: 0) {
-      ReviewsListColumn(
+    VStack(spacing: 0) {
+      ReviewsBar(
         viewModel: viewModel,
-        visiblePullRequests: visible,
-        tileColor: { tileColor(for: $0, in: tileColors) },
-        sessionLinks: links,
+        feedback: bulkFeedback,
         onRetry: { await support.recoverAndRestoreSessions() }
-      )
-      .frame(width: ReviewsLayout.listWidth)
-
-      Color.wbBorderHairline
-        .frame(width: ReviewsLayout.hairlineWidth)
-
-      // The detail sits in an overlay so its content can never widen the
-      // row: near the window minimum it clips instead of pushing the list
-      // over (child minimums must fit the window, CLAUDE.md layout loop).
-      Color.clear
-        .frame(minWidth: ReviewsLayout.detailMinWidth, maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .topLeading) {
-          detail(visible: visible, links: links, tileColors: tileColors)
+      ) {
+        if !bulkActions.isEmpty {
+          ReviewsBulkActionsMenu(
+            actions: bulkActions,
+            templates: GitHubPromptLibrary.shared.templates,
+            isAgentAvailable: isAgentAvailable,
+            isStarting: !viewModel.startingReviewPRIDs.isEmpty,
+            onLaunch: { launch in
+              MainThreadStallMonitor.breadcrumb("reviews bulk: start \(launch.pullRequests.count)")
+              pendingBulkLaunch = launch
+            },
+            onFollowUp: { followUp in
+              MainThreadStallMonitor.breadcrumb("reviews bulk: follow-up \(followUp.targets.count)")
+              pendingFollowUp = followUp
+            }
+          )
         }
+      }
+      Color.wbBorderHairline.frame(height: 1)
+      HStack(spacing: 0) {
+        ReviewsQueueContent(
+          viewModel: viewModel,
+          isEmpty: visible.isEmpty,
+          onRetry: { await support.recoverAndRestoreSessions() }
+        ) {
+          table(rows: rows, links: links, tileColors: tileColors)
+        }
+        .frame(minWidth: ReviewsLayout.tableMinWidth, maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+
+        if let detailPullRequest {
+          Color.wbBorderHairline
+            .frame(width: ReviewsLayout.hairlineWidth)
+          detail(detailPullRequest, links: links[detailPullRequest.id] ?? [], tileColors: tileColors)
+            .frame(width: ReviewsLayout.detailWidth)
+            .frame(maxHeight: .infinity)
+            .clipped()
+        }
+      }
     }
+    .onExitCommand { closeDetail() }
     .task {
       agentHub.claudeSessionsViewModel.refreshCLIAvailability()
       agentHub.codexSessionsViewModel.refreshCLIAvailability()
@@ -76,8 +113,47 @@ struct ReviewsDestinationView: View {
       await support.recoverAndRestoreSessions()
     }
     .task(id: viewModel.selectedPullRequestID) {
+      sessionFeedback = nil
       guard viewModel.selectedPullRequestID != nil else { return }
       await viewModel.loadSelectedDetail()
+    }
+    .task(id: sessionFeedback) {
+      guard sessionFeedback != nil else { return }
+      try? await Task.sleep(for: .seconds(3))
+      guard !Task.isCancelled else { return }
+      sessionFeedback = nil
+    }
+    .task(id: bulkFeedback) {
+      guard bulkFeedback != nil else { return }
+      try? await Task.sleep(for: .seconds(4))
+      guard !Task.isCancelled else { return }
+      bulkFeedback = nil
+    }
+    .confirmationDialog(
+      pendingBulkLaunch?.title ?? "",
+      isPresented: Binding(
+        get: { pendingBulkLaunch != nil },
+        set: { if !$0 { pendingBulkLaunch = nil } }
+      ),
+      presenting: pendingBulkLaunch
+    ) { launch in
+      Button(launch.confirmTitle) { runBulkLaunch(launch) }
+      Button("Cancel", role: .cancel) { pendingBulkLaunch = nil }
+    } message: { launch in
+      Text(launch.message)
+    }
+    .confirmationDialog(
+      pendingFollowUp?.title ?? "",
+      isPresented: Binding(
+        get: { pendingFollowUp != nil },
+        set: { if !$0 { pendingFollowUp = nil } }
+      ),
+      presenting: pendingFollowUp
+    ) { followUp in
+      Button("Send to \(followUp.targets.count) sessions") { runFollowUp(followUp) }
+      Button("Cancel", role: .cancel) { pendingFollowUp = nil }
+    } message: { followUp in
+      Text(followUp.message)
     }
     .sheet(item: $customMessageContext) { context in
       GitHubReviewCustomMessageSheet(
@@ -94,42 +170,205 @@ struct ReviewsDestinationView: View {
         }
       )
     }
+    .sheet(item: $sessionCommandContext) { context in
+      GitHubReviewSessionCommandSheet(
+        context: context,
+        onCancel: { sessionCommandContext = nil },
+        onSend: { command in
+          sessionCommandContext = nil
+          guard
+            let prompt = GitHubReviewFollowUpPromptBuilder.custom(
+              command, pullRequest: context.pullRequest)
+          else { return }
+          sendCommand(prompt, to: context.link)
+        }
+      )
+    }
+  }
+
+  // MARK: - Table
+
+  private func table(
+    rows: [GitHubReviewTableRow],
+    links: [String: [GitHubReviewSessionLink]],
+    tileColors: [String: RepositoryTileColor]
+  ) -> some View {
+    let now = Date()
+    let presentations = rows.map {
+      ReviewsTableRowPresentation(row: $0, checks: viewModel.checksByPullRequestID[$0.id], now: now)
+    }
+    let pullRequestsByID = Dictionary(
+      rows.map { ($0.id, $0.pullRequest) }, uniquingKeysWith: { first, _ in first })
+    let ids = presentations.map(\.id)
+    return ReviewsTableView(
+      rows: presentations,
+      selectedID: viewModel.selectedPullRequestID,
+      sort: viewModel.tableSort,
+      context: { id in
+        let pullRequest = pullRequestsByID[id]
+        let link = links[id]?.first
+        return ReviewsTableRowContext(
+          tileColor: pullRequest.map { tileColor(for: $0, in: tileColors) } ?? .teal,
+          review: pullRequest.map(reviewControl(for:)) ?? emptyReviewControl,
+          onOpenSession: link.map { link in { openSession(link) } }
+        )
+      },
+      onSort: sortBy,
+      onSelect: { id in
+        guard let pullRequest = pullRequestsByID[id] else { return }
+        select(pullRequest)
+      },
+      onMoveSelection: { delta in moveSelection(by: delta, in: ids, pullRequests: pullRequestsByID) },
+      onOpenDetail: openDetail,
+      onCloseDetail: closeDetail
+    )
+  }
+
+  private func sortBy(_ column: ReviewsTableColumn) {
+    viewModel.tableSort = ReviewsTableSort.next(
+      after: viewModel.tableSort, clicking: column, checks: viewModel.checksByPullRequestID)
+    MainThreadStallMonitor.breadcrumb("reviews sort: \(column.rawValue)")
+  }
+
+  private func select(_ pullRequest: GitHubProjectPullRequest) {
+    let wasOpen = isDetailOpen
+    closedDetailID = nil
+    if viewModel.selectedPullRequestID != pullRequest.id {
+      viewModel.selectedPullRequestID = pullRequest.id
+      MainThreadStallMonitor.breadcrumb("reviews pr: \(pullRequest.repositoryName)#\(pullRequest.number)")
+    }
+    if !wasOpen { MainThreadStallMonitor.breadcrumb("reviews detail: open") }
+  }
+
+  /// ↑/↓ moves the selection. An open detail follows it; a closed one stays closed.
+  private func moveSelection(
+    by delta: Int, in ids: [String], pullRequests: [String: GitHubProjectPullRequest]
+  ) {
+    let wasOpen = isDetailOpen
+    guard
+      let id = ReviewsTableSelection.moved(
+        from: viewModel.selectedPullRequestID, in: ids, by: delta),
+      id != viewModel.selectedPullRequestID, let pullRequest = pullRequests[id]
+    else { return }
+    viewModel.selectedPullRequestID = id
+    closedDetailID = wasOpen ? nil : id
+    MainThreadStallMonitor.breadcrumb("reviews pr: \(pullRequest.repositoryName)#\(pullRequest.number)")
+  }
+
+  private var isDetailOpen: Bool {
+    guard let selected = viewModel.selectedPullRequestID else { return false }
+    return selected != closedDetailID
+  }
+
+  private func openDetail() {
+    guard viewModel.selectedPullRequestID != nil, !isDetailOpen else { return }
+    closedDetailID = nil
+    MainThreadStallMonitor.breadcrumb("reviews detail: open")
+  }
+
+  private func closeDetail() {
+    guard isDetailOpen else { return }
+    closedDetailID = viewModel.selectedPullRequestID
+    MainThreadStallMonitor.breadcrumb("reviews detail: close")
+  }
+
+  private func openDetailPullRequest(in visible: [GitHubProjectPullRequest]) -> GitHubProjectPullRequest? {
+    guard isDetailOpen else { return nil }
+    return visible.first { $0.id == viewModel.selectedPullRequestID }
   }
 
   // MARK: - Detail
 
-  @ViewBuilder
   private func detail(
-    visible: [GitHubProjectPullRequest],
-    links: [String: [GitHubReviewSessionLink]],
+    _ pullRequest: GitHubProjectPullRequest,
+    links: [GitHubReviewSessionLink],
     tileColors: [String: RepositoryTileColor]
   ) -> some View {
-    if let pullRequest = visible.first(where: { $0.id == viewModel.selectedPullRequestID }) {
-      PullRequestDetailView(
-        pullRequest: pullRequest,
-        detail: viewModel.selectedDetail,
-        isLoadingDetail: viewModel.isLoadingDetail,
-        detailError: viewModel.detailError,
-        tileColor: tileColor(for: pullRequest, in: tileColors),
-        viewerLogin: viewModel.viewerLogin,
-        sessionLink: links[pullRequest.id]?.first,
-        review: reviewControl(for: pullRequest),
-        onOpenSession: { link in
-          MainThreadStallMonitor.breadcrumb("reviews open session: \(link.itemID)")
-          actions.openReviewSession(link)
+    PullRequestDetailView(
+      pullRequest: pullRequest,
+      detail: viewModel.selectedDetail,
+      isLoadingDetail: viewModel.isLoadingDetail,
+      detailError: viewModel.detailError,
+      detailUpdatedAt: viewModel.detailUpdatedAt,
+      tileColor: tileColor(for: pullRequest, in: tileColors),
+      viewerLogin: viewModel.viewerLogin,
+      sessionLinks: links,
+      sessionFeedback: sessionFeedback,
+      review: reviewControl(for: pullRequest),
+      onOpenSession: openSession,
+      onFollowUp: { link, followUp in
+        switch followUp {
+        case .pullAndReviewAgain:
+          sendCommand(GitHubReviewFollowUpPromptBuilder.pullAndReviewAgain(pullRequest), to: link)
+        case .sendCommand:
+          sessionCommandContext = GitHubReviewSessionCommandContext(pullRequest: pullRequest, link: link)
         }
-      )
-      .id(pullRequest.id)
-    } else if !visible.isEmpty {
-      WBEmptyState(icon: .pullRequest, title: "No pull request selected")
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else {
-      Color.clear
+      },
+      onRefresh: {
+        MainThreadStallMonitor.breadcrumb("reviews detail: refresh")
+        Task { await viewModel.loadSelectedDetail() }
+      },
+      onClose: closeDetail
+    )
+    .id(pullRequest.id)
+  }
+
+  private func openSession(_ link: GitHubReviewSessionLink) {
+    MainThreadStallMonitor.breadcrumb("reviews open session: \(link.itemID)")
+    actions.openReviewSession(link)
+  }
+
+  private func sendCommand(_ prompt: String, to link: GitHubReviewSessionLink) {
+    guard GitHubReviewSessionCommandPolicy.canSend(isPending: link.isPending) else {
+      sessionFeedback = "Session is still starting"
+      return
+    }
+    let sessions =
+      link.provider == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
+    let didSend = sessions.sendAutomatedPrompt(to: link.session, prompt: prompt)
+    MainThreadStallMonitor.breadcrumb("reviews session command: \(link.provider.rawValue)")
+    sessionFeedback = didSend ? "Sent to \(link.provider.rawValue)" : "Could not send command"
+  }
+
+  // MARK: - Bulk actions
+
+  /// Sequential, as in the legacy header: each launch registers its session
+  /// link before the next starts.
+  private func runBulkLaunch(_ launch: GitHubReviewBulkLaunch) {
+    pendingBulkLaunch = nil
+    Task {
+      for pullRequest in launch.pullRequests {
+        guard viewModel.beginStartingReview(for: pullRequest.id) else { continue }
+        defer { viewModel.endStartingReview(for: pullRequest.id) }
+        await actions.startReview(pullRequest, provider: launch.provider, template: launch.template)
+      }
     }
   }
 
+  private func runFollowUp(_ followUp: GitHubReviewBulkFollowUp) {
+    pendingFollowUp = nil
+    var sent = 0
+    for target in followUp.targets
+    where GitHubReviewSessionCommandPolicy.canSend(isPending: target.link.isPending) {
+      let sessions =
+        target.link.provider == .claude
+        ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
+      if sessions.sendAutomatedPrompt(to: target.link.session, prompt: followUp.prompt(for: target)) {
+        sent += 1
+      }
+    }
+    bulkFeedback = "Sent to \(sent) of \(followUp.targets.count) sessions"
+  }
+
+  // MARK: - Review
+
   private var agent: SessionProviderKind {
     SessionProviderKind(rawValue: agentRaw) ?? .claude
+  }
+
+  private func isAgentAvailable(_ provider: SessionProviderKind) -> Bool {
+    (provider == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel)
+      .isCLIAvailable
   }
 
   private func reviewControl(for pullRequest: GitHubProjectPullRequest) -> PullRequestReviewControl {
@@ -137,10 +376,7 @@ struct ReviewsDestinationView: View {
       agent: agent,
       templates: GitHubPromptLibrary.shared.templates,
       isStarting: viewModel.startingReviewPRIDs.contains(pullRequest.id),
-      isAgentAvailable: { provider in
-        (provider == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel)
-          .isCLIAvailable
-      },
+      isAgentAvailable: isAgentAvailable,
       onSelectAgent: { provider in
         agentRaw = provider.rawValue
         MainThreadStallMonitor.breadcrumb("reviews agent: \(provider.rawValue)")
@@ -153,6 +389,13 @@ struct ReviewsDestinationView: View {
           pullRequest: pullRequest, provider: provider)
       }
     )
+  }
+
+  /// Never shown: every row id maps to a pull request.
+  private var emptyReviewControl: PullRequestReviewControl {
+    PullRequestReviewControl(
+      agent: agent, templates: [], isStarting: true, isAgentAvailable: { _ in false },
+      onSelectAgent: { _ in }, onReview: { _, _ in }, onWriteOwnMessage: { _ in })
   }
 
   private func startReview(
@@ -193,33 +436,20 @@ struct ReviewsDestinationView: View {
   }
 }
 
-// MARK: - List column
+// MARK: - Bar
 
-private struct ReviewsListColumn: View {
+/// The scope (Requested / Mine / All), the bulk actions and the Filters
+/// popover, above the table.
+private struct ReviewsBar<Actions: View>: View {
   @Bindable var viewModel: GitHubReviewsViewModel
-  let visiblePullRequests: [GitHubProjectPullRequest]
-  let tileColor: (GitHubProjectPullRequest) -> RepositoryTileColor
-  let sessionLinks: [String: [GitHubReviewSessionLink]]
+  let feedback: String?
   let onRetry: () async -> Void
+  @ViewBuilder let actions: () -> Actions
 
   @State private var isFiltersOpen = false
   @State private var reloadTask: Task<Void, Never>?
-  @State private var recoveryFeedback: String?
 
   var body: some View {
-    VStack(spacing: 0) {
-      header
-      banners
-      content
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-    .onDisappear {
-      reloadTask?.cancel()
-      reloadTask = nil
-    }
-  }
-
-  private var header: some View {
     HStack(spacing: DesignTokens.Spacing.sm) {
       WorkbenchSegmentedControl(
         selection: Binding(
@@ -231,6 +461,13 @@ private struct ReviewsListColumn: View {
       )
       .fixedSize()
       Spacer(minLength: 0)
+      if let feedback {
+        Text(feedback)
+          .wbText(.callout)
+          .foregroundStyle(Color.wbTextSecondary)
+          .lineLimit(1)
+      }
+      actions()
       FiltersButton(
         activeCount: isSearching ? 1 : 0,
         accessibilityIdentifier: "reviews.filters",
@@ -245,13 +482,53 @@ private struct ReviewsListColumn: View {
         ReviewsFiltersPopover(viewModel: viewModel, onReload: toggleReload)
       }
     }
-    .padding(.leading, DesignTokens.Spacing.lg)
-    .padding(.trailing, DesignTokens.Spacing.md)
-    .frame(height: 56)
+    .padding(.horizontal, DesignTokens.Spacing.lg)
+    .frame(height: ReviewsLayout.barHeight)
+    .onDisappear {
+      reloadTask?.cancel()
+      reloadTask = nil
+    }
   }
 
   private var isSearching: Bool {
     !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private func toggleReload() {
+    if viewModel.isRefreshing {
+      viewModel.cancelRefresh()
+      reloadTask?.cancel()
+      reloadTask = nil
+      return
+    }
+    MainThreadStallMonitor.breadcrumb("reviews refresh")
+    reloadTask = Task {
+      await viewModel.reloadProjects()
+      guard !Task.isCancelled, viewModel.recoveryIssue == nil else { return }
+      await onRetry()
+      reloadTask = nil
+    }
+  }
+}
+
+// MARK: - Queue content
+
+/// The table, or the state that replaces it: loading, empty, no matches, or a
+/// recovery step (gh missing, signed out, missing scope, rate limited).
+private struct ReviewsQueueContent<Table: View>: View {
+  @Bindable var viewModel: GitHubReviewsViewModel
+  let isEmpty: Bool
+  let onRetry: () async -> Void
+  @ViewBuilder let table: () -> Table
+
+  @State private var recoveryFeedback: String?
+
+  var body: some View {
+    VStack(spacing: 0) {
+      banners
+      content
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
   }
 
   @ViewBuilder
@@ -259,8 +536,12 @@ private struct ReviewsListColumn: View {
     if let message = viewModel.errorMessage ?? viewModel.sessionLinkErrorMessage {
       ErrorBanner(message)
         .padding(.horizontal, DesignTokens.Spacing.sm)
-        .padding(.bottom, DesignTokens.Spacing.sm)
+        .padding(.top, DesignTokens.Spacing.sm)
     }
+  }
+
+  private var isSearching: Bool {
+    !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   @ViewBuilder
@@ -274,12 +555,10 @@ private struct ReviewsListColumn: View {
         "rectangle.3.group", title: "No GitHub Projects",
         description: "Sign in to gh with the project scope.")
     } else if viewModel.selectedView == nil {
-      state("line.3.horizontal.decrease", title: "Choose a project view") {
-        Button("Filters") { isFiltersOpen = true }.buttonStyle(.wbSecondary)
-      }
+      state("line.3.horizontal.decrease", title: "Choose a project view in Filters")
     } else if viewModel.isLoadingPullRequests, viewModel.pullRequests.isEmpty {
       state(.pullRequest, title: "Loading pull requests")
-    } else if visiblePullRequests.isEmpty {
+    } else if isEmpty {
       if isSearching {
         state("magnifyingglass", title: "No matches") {
           Button("Clear search") { viewModel.searchText = "" }.buttonStyle(.wbSecondary)
@@ -288,42 +567,9 @@ private struct ReviewsListColumn: View {
         state("checkmark.circle", title: "No pull requests")
       }
     } else {
-      rows
+      table()
     }
   }
-
-  private var rows: some View {
-    ScrollView {
-      LazyVStack(spacing: DesignTokens.Spacing.xxs) {
-        ForEach(visiblePullRequests) { pullRequest in
-          let link = sessionLinks[pullRequest.id]?.first
-          PullRequestRow(
-            presentation: PullRequestRowPresentation(
-              pullRequest: pullRequest,
-              checks: viewModel.checksByPullRequestID[pullRequest.id]
-            ),
-            tileColor: tileColor(pullRequest),
-            sessionStatus: link.map {
-              SessionStatusPresentation(status: $0.status, isPending: $0.isPending)
-            },
-            isSelected: viewModel.selectedPullRequestID == pullRequest.id,
-            onSelect: { select(pullRequest) }
-          )
-        }
-      }
-      .padding(.horizontal, DesignTokens.Spacing.sm)
-      .padding(.bottom, DesignTokens.Spacing.sm)
-    }
-    .accessibilityIdentifier("reviews.list")
-  }
-
-  private func select(_ pullRequest: GitHubProjectPullRequest) {
-    guard viewModel.selectedPullRequestID != pullRequest.id else { return }
-    viewModel.selectedPullRequestID = pullRequest.id
-    MainThreadStallMonitor.breadcrumb("reviews pr: \(pullRequest.repositoryName)#\(pullRequest.number)")
-  }
-
-  // MARK: - States
 
   private func state<Actions: View>(
     _ icon: WBEmptyStateIcon,
@@ -340,7 +586,6 @@ private struct ReviewsListColumn: View {
     .frame(maxWidth: .infinity)
   }
 
-  /// gh missing, signed out, missing project scope, rate limited or failing.
   private func recoveryState(_ issue: GitHubReviewRecoveryIssue) -> some View {
     VStack(spacing: DesignTokens.Spacing.sm) {
       state("exclamationmark.triangle", title: issue.title, description: issue.message, isError: true) {
@@ -382,22 +627,6 @@ private struct ReviewsListColumn: View {
       recoveryFeedback = "Install the GitHub CLI, then choose Try again."
     case .retry:
       break
-    }
-  }
-
-  private func toggleReload() {
-    if viewModel.isRefreshing {
-      viewModel.cancelRefresh()
-      reloadTask?.cancel()
-      reloadTask = nil
-      return
-    }
-    MainThreadStallMonitor.breadcrumb("reviews refresh")
-    reloadTask = Task {
-      await viewModel.reloadProjects()
-      guard !Task.isCancelled, viewModel.recoveryIssue == nil else { return }
-      await onRetry()
-      reloadTask = nil
     }
   }
 }

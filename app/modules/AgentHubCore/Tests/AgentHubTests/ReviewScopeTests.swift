@@ -170,7 +170,40 @@ struct ReviewScopeTests {
     #expect(model.checksByPullRequestID["0"] == .failure)
   }
 
+  @Test("Bulk actions: start for others' PRs without a session, re-review others', resolve yours")
+  func bulkActions() async {
+    let model = await loadedModel(login: "joey", authors: ["joey", "amaes", "jdewit", "joey"])
+    let rows = model.pullRequests.enumerated().map { index, pullRequest in
+      // 0 (yours) and 1 (amaes) have a ready session; 2 and 3 have none.
+      GitHubReviewTableRow(pullRequest: pullRequest, sessionLinks: index < 2 ? [link("s\(index)")] : [])
+    }
+    let actions = ReviewsBulkActions(rows: rows, viewModel: model)
+
+    #expect(actions.launchCandidates.map(\.id) == ["2"])
+    #expect(actions.reReviewTargets.map(\.pullRequest.id) == ["1"])
+    #expect(actions.resolveTargets.map(\.pullRequest.id) == ["0"])
+    #expect(actions.resolveSkipped == 1)
+    #expect(actions.followUp(.resolveComments).skippedWithoutSession == 1)
+    #expect(!actions.isEmpty)
+  }
+
+  @Test("Bulk actions are empty while your login is unknown")
+  func bulkActionsUnknownLogin() async {
+    let model = await loadedModel(login: nil, authors: ["joey", "amaes"])
+    let rows = model.pullRequests.map { GitHubReviewTableRow(pullRequest: $0, sessionLinks: []) }
+
+    #expect(ReviewsBulkActions(rows: rows, viewModel: model).isEmpty)
+  }
+
   // MARK: - Helpers
+
+  private func link(_ id: String) -> GitHubReviewSessionLink {
+    GitHubReviewSessionLink(
+      provider: .claude,
+      session: CLISession(
+        id: id, projectPath: "/tmp/repo", branchName: "main", lastActivityAt: Date(), firstMessage: nil),
+      itemID: "claude-\(id)", isPending: false, displayName: id, status: .idle)
+  }
 
   private func loadedModel(
     login: String?, authors: [String?], defaults: UserDefaults? = nil
@@ -203,10 +236,13 @@ struct ReviewScopeTests {
 @MainActor
 @Suite("Reviews layout")
 struct ReviewsLayoutTests {
-  @Test("Reviews fits the shell's minimum window width")
+  @Test("Reviews, with the detail panel open, fits the shell's minimum window width")
   func fitsWindowMinimum() {
     let needed =
       DesignTokens.Width.sidebar + ReviewsLayout.minimumContentWidth + DesignTokens.Inset.panel
     #expect(needed <= ShellLayout.windowMinWidth)
+    #expect(
+      ReviewsLayout.minimumContentWidth
+        == ReviewsLayout.tableMinWidth + ReviewsLayout.hairlineWidth + ReviewsLayout.detailWidth)
   }
 }
