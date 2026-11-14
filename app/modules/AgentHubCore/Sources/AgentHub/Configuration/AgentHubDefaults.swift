@@ -277,7 +277,7 @@ public enum AgentHubDefaults {
 
   /// Whether the new Apple-style shell is enabled.
   /// Read once at launch; changing requires a relaunch.
-  /// Type: Bool (default: false)
+  /// Type: Bool (default: true; an explicit NO gives the legacy UI)
   public static let appleShellEnabled = "\(keyPrefix)features.appleShell"
 
   /// Which scope the new shell's Reviews list shows: `requested`, `mine` or `all`.

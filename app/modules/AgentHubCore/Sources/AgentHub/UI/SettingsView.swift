@@ -23,7 +23,7 @@ public struct SettingsView: View {
   @State private var githubPromptLibrary = GitHubPromptLibrary.shared
 
   @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
-  @AppStorage(AgentHubDefaults.appleShellEnabled) private var appleShellEnabled = false
+  @AppStorage(AgentHubDefaults.appleShellEnabled) private var appleShellEnabled = true
   @AppStorage(AgentHubDefaults.smartModeEnabled)
   private var smartModeEnabled: Bool = false
 
