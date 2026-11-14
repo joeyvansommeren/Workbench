@@ -36,7 +36,8 @@ struct SprintListHead<Trailing: View>: View {
         SprintTitleView(title: title)
       }
       if showsScope {
-        WorkbenchSegmentedControl(selection: $scope, accessibilityIdentifier: "sprint.assignee")
+        WorkbenchSegmentedControl(
+          selection: $scope, accessibilityLabel: "Assignee", accessibilityIdentifier: "sprint.assignee")
           .fixedSize()
       }
       Spacer(minLength: 0)

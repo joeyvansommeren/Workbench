@@ -200,8 +200,8 @@ private struct ReviewsTableRow: View {
   let tileColor: RepositoryTileColor
   let review: PullRequestReviewControl
   let isSelected: Bool
-  /// A focused table shows its selection in the accent, an unfocused one in
-  /// grey (the macOS list rule), so the user sees where ↑/↓ go.
+  /// A focused table rings its selected row, so the user sees where ↑/↓ go.
+  /// The fill stays grey either way (one selection colour everywhere).
   let isTableFocused: Bool
   let hidesDivider: Bool
   let onHover: (Bool) -> Void
@@ -221,6 +221,7 @@ private struct ReviewsTableRow: View {
       background,
       in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
     )
+    .wbFocusRing(isSelected && isTableFocused, cornerRadius: DesignTokens.Radius.item)
     .overlay(alignment: .bottom) {
       Color.wbBorderHairline
         .frame(height: 1)
@@ -240,7 +241,7 @@ private struct ReviewsTableRow: View {
   }
 
   private var background: Color {
-    // One selection colour everywhere (sidebar, prototype); focus shows as the focus ring.
+    // One selection colour everywhere (sidebar, prototype); focus shows as the ring.
     if isSelected { return .wbSurfaceSelected }
     return isHovered ? .wbSurfaceHover : .clear
   }
@@ -314,7 +315,8 @@ private struct ReviewsTableRow: View {
 
   private var authorCell: some View {
     HStack(spacing: DesignTokens.Spacing.xsPlus) {
-      WBAvatar(initials: presentation.author)
+      // 18 pt lines up with the repository's letter tile.
+      WBAvatar(initials: presentation.author, size: 18)
       Text(presentation.author)
         .wbText(.callout)
         .foregroundStyle(Color.wbTextSecondary)

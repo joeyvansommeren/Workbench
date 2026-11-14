@@ -247,16 +247,20 @@ struct PullRequestDetailView: View {
     let isAvailable = review.isAgentAvailable(agent)
     let title =
       review.isStarting ? "Starting…" : "Review with \(PullRequestReviewControl.displayName(agent))"
-    return ReviewSplitButton(
-      title: title,
+    // Only the primary half disables (agent missing, no prompt), so the menu
+    // stays open for picking another agent. While a review starts, both do.
+    return SplitButton(
+      title,
+      accessibilityIdentifier: "reviews.startReview",
       isPrimaryEnabled: review.isPrimaryEnabled,
-      isMenuEnabled: !review.isStarting
+      menuAccessibilityLabel: "Choose agent and prompt"
     ) {
       guard review.isPrimaryEnabled, let template = review.primaryTemplate else { return }
       review.onReview(agent, template)
     } menu: {
       PullRequestReviewMenuItems(review: review)
     }
+    .disabled(review.isStarting)
     .fixedSize()
     .help(isAvailable ? "Start an independent review session" : agent.notInstalledHelp)
   }
@@ -458,67 +462,6 @@ private struct PullRequestSessionLinkRow: View {
   }
 
   private var providerName: String { PullRequestReviewControl.displayName(link.provider) }
-}
-
-/// "Review with <agent>" and its agent and prompt menu. Like `SplitButton`,
-/// but only the primary half disables (agent missing, review starting), so
-/// the menu stays open for picking another agent. Disabled looks like the
-/// button styles (0.45). Swap back to `SplitButton` once it can disable its
-/// primary half alone.
-private struct ReviewSplitButton<MenuContent: View>: View {
-  let title: String
-  let isPrimaryEnabled: Bool
-  let isMenuEnabled: Bool
-  let action: () -> Void
-  @ViewBuilder let menu: () -> MenuContent
-
-  @State private var isChevronHovered = false
-
-  var body: some View {
-    HStack(spacing: 1) {
-      Button(action: action) {
-        Text(title).wbText(.bodyEmphasis)
-      }
-      .buttonStyle(ReviewSplitLeftStyle())
-      .disabled(!isPrimaryEnabled)
-      .opacity(isPrimaryEnabled ? 1 : 0.45)
-
-      Menu(content: menu) {
-        Image(systemName: "chevron.down")
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(Color.wbTextOnAccent)
-          .frame(width: 28, height: DesignTokens.Size.control)
-          .contentShape(Rectangle())
-      }
-      .menuStyle(.button)
-      .buttonStyle(.plain)
-      .menuIndicator(.hidden)
-      .frame(width: 28, height: DesignTokens.Size.control)
-      .background(WBSplitChevronFill(isHovered: isChevronHovered))
-      .onHover { isChevronHovered = $0 }
-      .clipShape(
-        UnevenRoundedRectangle(
-          topLeadingRadius: 0,
-          bottomLeadingRadius: 0,
-          bottomTrailingRadius: DesignTokens.Radius.item,
-          topTrailingRadius: DesignTokens.Radius.item
-        )
-      )
-      .disabled(!isMenuEnabled)
-      .opacity(isMenuEnabled ? 1 : 0.45)
-      .accessibilityLabel("Choose agent and prompt")
-    }
-    .accessibilityIdentifier("reviews.startReview")
-  }
-}
-
-private struct ReviewSplitLeftStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    WBSplitLeftBody(
-      configuration: configuration,
-      leadingPadding: DesignTokens.Spacing.md,
-      trailingPadding: DesignTokens.Spacing.md)
-  }
 }
 
 extension MarkdownUI.Theme {

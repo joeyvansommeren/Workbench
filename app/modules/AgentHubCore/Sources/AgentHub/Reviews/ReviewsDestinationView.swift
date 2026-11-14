@@ -518,6 +518,7 @@ private struct ReviewsBar<Actions: View>: View {
           set: { viewModel.setReviewScope($0) }
         ),
         showCounts: { viewModel.count(for: $0) },
+        accessibilityLabel: "Review scope",
         accessibilityIdentifier: "reviews.scope"
       )
       .fixedSize()
@@ -573,8 +574,8 @@ private struct ReviewsBar<Actions: View>: View {
         accessibilityIdentifier: "reviews.refresh",
         action: refresh
       )
-      .help("Refresh pull requests  ⌘R")
-      .keyboardShortcut("r", modifiers: .command)
+      .help("Refresh pull requests  \(ShellShortcut.refresh.keyCaps.joined())")
+      .keyboardShortcut(ShellShortcut.refresh)
     }
   }
 

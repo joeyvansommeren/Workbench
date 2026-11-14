@@ -82,7 +82,8 @@ struct ShellSearchButton: View {
           .wbText(.body)
           .foregroundStyle(Color.wbTextPlaceholder)
         Spacer(minLength: 0)
-        KeyCaps(ShellShortcut.search.keyCaps)
+        // Field radius 8 − 4 pt inset, so the caps' corners stay concentric.
+        KeyCaps(ShellShortcut.search.keyCaps, cornerRadius: 4)
       }
       .padding(.leading, DesignTokens.Spacing.sm)
       .padding(.trailing, DesignTokens.Spacing.xs)

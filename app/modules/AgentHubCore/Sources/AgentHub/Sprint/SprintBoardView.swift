@@ -312,6 +312,8 @@ struct SprintTicketCard: View {
     .onHover { isHovered = $0 }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("\(ticket.key): \(ticket.title)")
+    // The avatar is hidden from VoiceOver, so the assignee is said here.
+    .accessibilityValue(ticket.assigneeName.map { "Assigned to \($0)" } ?? "")
     .accessibilityAddTraits(.isButton)
     .accessibilityAction(named: "Open details", onOpen)
     .accessibilityActions {

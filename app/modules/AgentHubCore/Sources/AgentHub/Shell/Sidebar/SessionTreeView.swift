@@ -248,6 +248,9 @@ struct SessionTreeList: View {
         actions: actions
       )
       .equatable()
+      // Focus shows as a ring on the highlighted row; the fill stays grey
+      // (one selection colour everywhere).
+      .wbFocusRing(isFocused && model.id == highlightedID, cornerRadius: DesignTokens.Radius.row)
       .simultaneousGesture(TapGesture().onEnded { isFocused = true })
       // Only runs inside an animated transaction ("Load more"); never slides.
       .transition(.opacity)

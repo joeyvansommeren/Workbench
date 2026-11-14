@@ -87,10 +87,13 @@ struct SidePanelDiffView: View {
     )
     return LazyVStack(spacing: 0) {
       ForEach(files.prefix(visibleCount)) { file in
-        SidePanelDiffFileRow(file: file, isSelected: file.relativePath == model.selectedPath) {
+        let isSelected = file.relativePath == model.selectedPath
+        SidePanelDiffFileRow(file: file, isSelected: isSelected) {
           model.select(path: file.relativePath)
           isListFocused = true
         }
+        // Focus shows as a ring on the selected file; the fill stays grey.
+        .wbFocusRing(isListFocused && isSelected, cornerRadius: DesignTokens.Radius.item)
       }
       if visibleCount < files.count {
         SidePanelShowAllFilesRow(count: files.count) { isFileListExpanded = true }

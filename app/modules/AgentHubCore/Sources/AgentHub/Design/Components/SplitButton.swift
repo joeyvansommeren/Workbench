@@ -15,23 +15,34 @@ public struct SplitButton<Label: View, MenuContent: View>: View {
   let accessibilityIdentifier: String?
   let isPrimaryEnabled: Bool
   let menuAccessibilityLabel: String
+  let primaryAccessibilityLabel: String?
+  let primaryHelp: String?
+  let primaryShortcut: KeyboardShortcut?
   let leadingPadding: CGFloat
   let trailingPadding: CGFloat
   let action: () -> Void
   @ViewBuilder let menu: () -> MenuContent
 
+  @Environment(\.isEnabled) private var isEnabled
   @State private var isChevronHovered = false
 
   /// - Parameters:
   ///   - isPrimaryEnabled: Disables the left half only. The chevron menu stays
   ///     live, so the user can still pick another option.
   ///   - menuAccessibilityLabel: VoiceOver label for the chevron half.
+  ///   - primaryAccessibilityLabel: VoiceOver label for the left half, when
+  ///     its label is more than words (for example text plus key caps).
+  ///   - primaryHelp: Tooltip for the left half only.
+  ///   - primaryShortcut: Keyboard shortcut for the left half only.
   ///   - trailingPadding: Space after the label; use `Spacing.sm` when the
   ///     label ends in key caps.
   public init(
     accessibilityIdentifier: String? = nil,
     isPrimaryEnabled: Bool = true,
     menuAccessibilityLabel: String = "More options",
+    primaryAccessibilityLabel: String? = nil,
+    primaryHelp: String? = nil,
+    primaryShortcut: KeyboardShortcut? = nil,
     trailingPadding: CGFloat = DesignTokens.Spacing.md,
     action: @escaping () -> Void,
     @ViewBuilder label: @escaping () -> Label,
@@ -41,6 +52,9 @@ public struct SplitButton<Label: View, MenuContent: View>: View {
     self.accessibilityIdentifier = accessibilityIdentifier
     self.isPrimaryEnabled = isPrimaryEnabled
     self.menuAccessibilityLabel = menuAccessibilityLabel
+    self.primaryAccessibilityLabel = primaryAccessibilityLabel
+    self.primaryHelp = primaryHelp
+    self.primaryShortcut = primaryShortcut
     self.leadingPadding = DesignTokens.Spacing.md
     self.trailingPadding = trailingPadding
     self.action = action
@@ -57,6 +71,9 @@ public struct SplitButton<Label: View, MenuContent: View>: View {
       // Our `wbFocusRing` replaces the native one (see `WBSplitLeftBody`).
       .focusEffectDisabled()
       .disabled(!isPrimaryEnabled)
+      .keyboardShortcut(primaryShortcut)
+      .help(primaryHelp ?? "")
+      .modifier(SplitPrimaryAccessibilityLabel(label: primaryAccessibilityLabel))
 
       // .borderlessButton lets AppKit draw the label: it ignores the token colour
       // (white chevron on Warm dark's near-white accent) and adds a second arrow.
@@ -76,6 +93,8 @@ public struct SplitButton<Label: View, MenuContent: View>: View {
       .onHover { isChevronHovered = $0 }
       .foregroundStyle(Color.wbTextOnAccent)
       .clipShape(WBSplitShape.trailing)
+      // A disabled split button dims both halves, like the button styles.
+      .opacity(isEnabled ? 1 : DesignTokens.Opacity.disabled)
       .accessibilityLabel(menuAccessibilityLabel)
     }
     // One drop shadow for the pair, like `WBPrimaryButtonStyle`.
@@ -102,6 +121,20 @@ extension SplitButton where Label == Text {
       label: { Text(title) },
       menu: menu
     )
+  }
+}
+
+/// Sets the left half's VoiceOver label only when the caller gives one, so a
+/// text label keeps reading as its own text.
+private struct SplitPrimaryAccessibilityLabel: ViewModifier {
+  let label: String?
+
+  func body(content: Content) -> some View {
+    if let label {
+      content.accessibilityLabel(label)
+    } else {
+      content
+    }
   }
 }
 
@@ -144,7 +177,7 @@ private struct SplitLeftStyle: ButtonStyle {
 
 /// The accent half of a split button. Hover and press change colour only, on
 /// the first frame: hover `wbAccentHover`, press `wbAccentHover` plus a
-/// `wbSurfacePressed` layer. Shared with the Approve split button.
+/// `wbSurfacePressed` layer.
 struct WBSplitLeftBody: View {
   let configuration: ButtonStyleConfiguration
   let leadingPadding: CGFloat
@@ -160,6 +193,9 @@ struct WBSplitLeftBody: View {
 
   var body: some View {
     let shape = WBSplitShape.leading
+    // Disabled: no hover or press fill, as in `WBButtonBody`.
+    let isPressed = isEnabled && configuration.isPressed
+    let showsHover = isEnabled && (isHovered || isPressed)
     configuration.label
       .wbText(.bodyEmphasis)
       .foregroundStyle(Color.wbTextOnAccent)
@@ -168,8 +204,8 @@ struct WBSplitLeftBody: View {
       .frame(height: DesignTokens.Size.control)
       .background {
         ZStack {
-          isHovered || configuration.isPressed ? Color.wbAccentHover : Color.wbAccent
-          if configuration.isPressed {
+          showsHover ? Color.wbAccentHover : Color.wbAccent
+          if isPressed {
             Color.wbSurfacePressed
           }
         }

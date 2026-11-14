@@ -105,8 +105,6 @@ struct ReviewsBulkActionsMenu: View {
   let onLaunch: (GitHubReviewBulkLaunch) -> Void
   let onFollowUp: (GitHubReviewBulkFollowUp) -> Void
 
-  @State private var isHovered = false
-
   var body: some View {
     Menu {
       if !actions.launchCandidates.isEmpty {
@@ -142,27 +140,12 @@ struct ReviewsBulkActionsMenu: View {
         }
       }
     } label: {
-      HStack(spacing: DesignTokens.Spacing.xsPlus) {
-        Text("Actions")
-          .wbText(.bodyEmphasis)
-        Image(systemName: "chevron.down")
-          .font(.system(size: 9, weight: .semibold))
-      }
-      .foregroundStyle(Color.wbTextPrimary)
-      .padding(.horizontal, DesignTokens.Spacing.smPlus)
-      .frame(height: DesignTokens.Size.control)
-      .background(
-        isHovered ? Color.wbSurfaceControlHover : Color.wbSurfaceControl,
-        in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item)
-      )
-      .wbElevation(.control)
-      .contentShape(Rectangle())
+      WBMenuButtonLabel("Actions")
     }
     .menuStyle(.button)
     .buttonStyle(.plain)
     .menuIndicator(.hidden)
     .fixedSize()
-    .onHover { isHovered = $0 }
     .help("Start reviews or send follow-ups for the pull requests in view")
     .accessibilityLabel("Bulk review actions")
     .accessibilityIdentifier("reviews.bulkActions")

@@ -169,8 +169,8 @@ struct SprintRefreshButton: View {
         accessibilityIdentifier: "sprint.refresh",
         action: action
       )
-      .help("\(accessibilityLabel)  ⌘R")
-      .keyboardShortcut("r", modifiers: .command)
+      .help("\(accessibilityLabel)  \(ShellShortcut.refresh.keyCaps.joined())")
+      .keyboardShortcut(ShellShortcut.refresh)
     }
   }
 }

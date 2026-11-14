@@ -271,12 +271,35 @@ struct ApprovalBanner: View {
       Button("Deny", action: onDeny)
         .buttonStyle(.wbSecondary)
         .help("Deny: Claude asks what to do instead")
-      ApprovalSplitButton(
-        showsKeyCaps: !isCompact,
-        onApprove: onApprove,
-        onApproveAlways: onApproveAlways,
-        onShowInTerminal: isCompact ? onShowInTerminal : nil
-      )
+      approveButton(isCompact: isCompact)
+    }
+    .fixedSize()
+  }
+
+  /// Approve ⌘↩ plus a chevron menu with "Always allow". In the narrowest
+  /// layout the menu also holds "Show in terminal" and the key caps go.
+  private func approveButton(isCompact: Bool) -> some View {
+    SplitButton(
+      menuAccessibilityLabel: "More approval options",
+      primaryAccessibilityLabel: "Approve once",
+      primaryHelp: "Allow once",
+      primaryShortcut: KeyboardShortcut(.return, modifiers: .command),
+      trailingPadding: DesignTokens.Spacing.sm,
+      action: onApprove
+    ) {
+      HStack(spacing: DesignTokens.Spacing.xs) {
+        Text("Approve")
+        if !isCompact {
+          KeyCaps(["⌘", "↩"], style: .onAccent)
+            .accessibilityHidden(true)
+        }
+      }
+    } menu: {
+      Button("Always allow", action: onApproveAlways)
+      if isCompact {
+        Divider()
+        Button("Show in terminal", action: onShowInTerminal)
+      }
     }
     .fixedSize()
   }
@@ -367,95 +390,6 @@ private struct HuggingMaxHeight: Layout {
     subviews.first?.place(
       at: bounds.origin, anchor: .topLeading,
       proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
-  }
-}
-
-// MARK: - Approve split button
-
-/// Approve ⌘↩ plus a chevron menu with "Always allow". Mirrors the P2
-/// `SplitButton`, which only takes a text title.
-private struct ApprovalSplitButton: View {
-  var showsKeyCaps = true
-  let onApprove: () -> Void
-  let onApproveAlways: () -> Void
-  /// Set in the narrowest layout, where the banner has no room for the icon.
-  var onShowInTerminal: (() -> Void)?
-
-  @State private var isChevronHovered = false
-
-  var body: some View {
-    HStack(spacing: 1) {
-      Button(action: onApprove) {
-        HStack(spacing: DesignTokens.Spacing.xs) {
-          Text("Approve")
-            .wbText(.bodyEmphasis)
-          if showsKeyCaps {
-            HStack(spacing: DesignTokens.Spacing.xxs) {
-              OnAccentKeyCap("⌘")
-              OnAccentKeyCap("↩")
-            }
-          }
-        }
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(ApprovalSplitLeftStyle())
-      .keyboardShortcut(.return, modifiers: .command)
-      .help("Allow once")
-      .accessibilityLabel("Approve once")
-
-      Menu {
-        Button("Always allow", action: onApproveAlways)
-        if let onShowInTerminal {
-          Divider()
-          Button("Show in terminal", action: onShowInTerminal)
-        }
-      } label: {
-        Image(systemName: "chevron.down")
-          .font(.system(size: 9, weight: .semibold))
-          .foregroundStyle(Color.wbTextOnAccent)
-          .frame(width: 28, height: DesignTokens.Size.control)
-          .contentShape(Rectangle())
-      }
-      .menuStyle(.button)
-      .buttonStyle(.plain)
-      .menuIndicator(.hidden)
-      .frame(width: 28, height: DesignTokens.Size.control)
-      .background(WBSplitChevronFill(isHovered: isChevronHovered))
-      .onHover { isChevronHovered = $0 }
-      .clipShape(
-        UnevenRoundedRectangle(
-          topLeadingRadius: 0, bottomLeadingRadius: 0,
-          bottomTrailingRadius: DesignTokens.Radius.item, topTrailingRadius: DesignTokens.Radius.item)
-      )
-      .accessibilityLabel("More approval options")
-    }
-    .fixedSize()
-  }
-}
-
-private struct ApprovalSplitLeftStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    // Colour-only hover and press, shared with the P2 `SplitButton`.
-    WBSplitLeftBody(
-      configuration: configuration,
-      leadingPadding: DesignTokens.Spacing.md,
-      trailingPadding: DesignTokens.Spacing.sm
-    )
-  }
-}
-
-/// `.button-primary .keycap`: a darker cap with on-accent text.
-private struct OnAccentKeyCap: View {
-  let text: String
-  init(_ text: String) { self.text = text }
-
-  var body: some View {
-    Text(text)
-      .font(.system(size: 11, weight: .medium))
-      .foregroundStyle(Color.wbTextOnAccent)
-      .frame(minWidth: 18, minHeight: 18)
-      .background(.black.opacity(0.22), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.small))
-      .accessibilityHidden(true)
   }
 }
 
