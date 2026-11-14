@@ -2,14 +2,13 @@
 //  OpenSessionTabsAggregate.swift
 //  AgentHub
 //
-//  One provider's saved tab list when several windows are open. Rule: the
-//  saved list is the ordered union of every window's tabs this run (window
-//  order, then tab order). So a window never drops another window's tabs, and
-//  a tab the user closed is saved only while another window still has it open.
+//  One provider's saved session list when several windows are open. Each
+//  window reports the session it shows (P6 reported its open tabs; the name
+//  stays). Rule: the saved list is the ordered union of every window's ids
+//  this run, so a window never drops another window's session.
 //
-//  A closed window's list stays in the union for the rest of the run (closing
-//  the last window must not wipe the saved tabs on quit); the next new window
-//  opens those tabs again.
+//  A closed window's entry stays in the union for the rest of the run
+//  (closing the last window must not wipe the saved session on quit).
 //
 
 import Foundation

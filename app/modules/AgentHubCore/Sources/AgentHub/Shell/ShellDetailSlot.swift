@@ -3,8 +3,8 @@
 //  AgentHub
 //
 //  DETAIL SLOT of the new shell: what the content panel shows for the current
-//  destination. P4 hosts the existing views; P6 replaces Sessions, P8 Reviews
-//  and P9 Sprint, each by swapping its own case below.
+//  destination: Sessions (P6), Reviews (P8), Jira and Linear (P9, one tab
+//  each since P12).
 //
 
 import SwiftUI
@@ -36,8 +36,10 @@ struct ShellDetailSlot: View {
       )
     case .reviews:
       ReviewsDestinationView(agentHub: agentHub, actions: actions)
-    case .sprint:
-      SprintDestinationView(agentHub: agentHub, actions: actions)
+    case .jira:
+      JiraDestinationView(agentHub: agentHub, actions: actions)
+    case .linear:
+      LinearDestinationView(agentHub: agentHub, actions: actions)
     }
   }
 }

@@ -59,7 +59,7 @@ struct CommandPaletteEntriesTests {
     let entries = CommandPaletteEntries.build(query: "  ", sessions: sessions, pullRequests: [pullRequest])
     #expect(entries.filter { $0.group == .sessions }.count == 4)
     #expect(entries.filter { $0.group == .pullRequests }.isEmpty)
-    #expect(entries.filter { $0.group == .goTo }.map(\.title) == ["Sessions", "Reviews", "Sprint"])
+    #expect(entries.filter { $0.group == .goTo }.map(\.title) == ["Sessions", "Reviews", "Jira", "Linear"])
     #expect(entries.filter { $0.group == .commands }.map(\.title) == [
       "New session", "Resume session by ID", "Toggle side panel",
     ])
@@ -121,7 +121,8 @@ struct CommandPaletteEntriesTests {
     let keysByTitle = Dictionary(uniqueKeysWithValues: entries.map { ($0.title, $0.keys) })
     #expect(keysByTitle["Sessions"] == ["⌘", "1"])
     #expect(keysByTitle["Reviews"] == ["⌘", "2"])
-    #expect(keysByTitle["Sprint"] == ["⌘", "3"])
+    #expect(keysByTitle["Jira"] == ["⌘", "3"])
+    #expect(keysByTitle["Linear"] == ["⌘", "4"])
     #expect(keysByTitle["New session"] == ["⌘", "N"])
     #expect(keysByTitle["Resume session by ID"] == ["⇧", "⌘", "R"])
     #expect(keysByTitle["Toggle side panel"] == ["⌥", "⌘", "0"])

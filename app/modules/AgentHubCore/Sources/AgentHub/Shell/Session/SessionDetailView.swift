@@ -2,7 +2,7 @@
 //  SessionDetailView.swift
 //  AgentHub
 //
-//  The Sessions detail of the new shell: the selected tab's header, its
+//  The Sessions detail of the new shell: the shown session's header, its
 //  content (terminal, chat, files or diffs) and the side panel.
 //
 //  Layout-loop safety (implementation plan, section 4): no split views and no
@@ -25,7 +25,7 @@ struct SessionDetailView: View {
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.sessionNavigationModel) private var navigationModel
   @Environment(\.sessionsActionCoordinator) private var actionCoordinator
-  @Environment(SessionTabsModel.self) private var tabsModel
+  @Environment(SessionDetailStateModel.self) private var stateModel
   @Environment(WorkbenchShellModel.self) private var shellModel
 
   @AppStorage(AgentHubDefaults.selectedSidePanelProvider)
@@ -61,7 +61,7 @@ struct SessionDetailView: View {
         SessionDetailContent(
           item: item,
           viewModel: viewModel(for: item.providerKind),
-          presentation: SessionTabPresentation.make(
+          presentation: SessionPresentation.make(
             item: item,
             title: viewModel(for: item.providerKind).displayName(for: item.session),
             repositories: ShellSessionItems.repositories(claude: claudeViewModel, codex: codexViewModel)
@@ -76,7 +76,7 @@ struct SessionDetailView: View {
     .onAppear {
       consumeRouterRequests()
       runSelectionUpkeep()
-      tabsModel.autoOpen.start(items: items.compactMap(autoOpenItem))
+      stateModel.autoOpen.start(items: items.compactMap(autoOpenItem))
     }
     .task { await workspaceViewModel.load() }
     .task(id: pendingCIFailureRequestID) { await consumeCIFailureActionRequest() }
@@ -87,13 +87,13 @@ struct SessionDetailView: View {
       consumeRouterRequests()
     }
     .onChange(of: navigationModel.workflowComparisonState.presentedComparison?.id) { _, _ in
-      openPresentedComparisonAsTabs()
+      showPresentedComparison()
     }
     .onChange(of: itemIDs) { _, _ in
       consumeRouterRequests()
       // Sessions load after the view appears; pick what to show once they do.
       runSelectionUpkeep()
-      tabsModel.autoOpen.prune(activeSessionIDs: Set(items.map(\.session.id)))
+      stateModel.autoOpen.prune(activeSessionIDs: Set(items.map(\.session.id)))
     }
     .onChange(of: claudeViewModel.pendingFileOpen?.filePath) { _, _ in
       consumePendingFileOpen(from: claudeViewModel, providerKind: .claude)
@@ -140,22 +140,22 @@ struct SessionDetailView: View {
 
   // MARK: - Selection upkeep
 
-  /// While nothing is shown (launch, sessions still loading): show the first
-  /// restored tab, else the newest session. Never after the user closed every
-  /// tab this run; then the empty state stays. Decision: `SessionTabsModel`.
+  /// While nothing is shown (launch, sessions still loading): show the session
+  /// shown at the last run, else the newest one. When the shown session goes
+  /// away: the newest one. Decision: `SessionDetailStateModel`.
   private func runSelectionUpkeep() {
     guard let navigationModel,
       navigationModel.selectedWorkspaceID == nil,
       navigationModel.selectedModuleLandingPath == nil,
       agentHub?.globalSessionSelectionRouter.selectionRequest == nil
     else { return }
-    switch tabsModel.selectionUpkeep(primarySessionId: navigationModel.primarySessionId, availableIDs: itemIDs) {
+    switch stateModel.selectionUpkeep(primarySessionId: navigationModel.primarySessionId, availableIDs: itemIDs) {
     case .none:
       break
     case .select(let id):
       navigationModel.selectSession(id)
     case .selectFirstAvailable:
-      // Workspace-owned sessions show inside their workspace, never as a tab.
+      // Workspace-owned sessions show inside their workspace, never on their own.
       let standalone = items.filter { item in
         item.isPending
           || workspaceViewModel.workspaceID(owningSession: item.session.id, provider: item.providerKind) == nil
@@ -216,11 +216,11 @@ struct SessionDetailView: View {
     navigationModel?.selectSession(item.id)
     switch request.action {
     case .openGitHubPanel:
-      tabsModel.setSidePanelSegment(.gitHub, for: item.id)
+      stateModel.setSidePanelSegment(.gitHub, for: item.id)
       if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
     case .fixCI:
       guard CIFailureFixAction.canFix(viewModel: viewModel) else { return }
-      tabsModel.setContentMode(.terminal, for: item.id, defaultProjectPath: item.session.projectPath)
+      stateModel.setContentMode(.terminal, for: item.id, defaultProjectPath: item.session.projectPath)
       viewModel.focusTerminal(forKey: item.session.id)
       CIFailureFixAction.send(request.payload, session: item.session, viewModel: viewModel)
     }
@@ -247,12 +247,10 @@ struct SessionDetailView: View {
     )
   }
 
-  /// The new shell has no side-by-side comparison yet: both sessions open as
-  /// tabs and the implementation stays selected.
-  private func openPresentedComparisonAsTabs() {
+  /// The new shell has no side-by-side comparison yet: the implementation is
+  /// shown; the review session stays one click away in the sidebar.
+  private func showPresentedComparison() {
     guard let comparison = navigationModel?.workflowComparisonState.presentedComparison else { return }
-    tabsModel.open(comparison.review.itemID)
-    tabsModel.open(comparison.implementation.itemID)
     navigationModel?.selectSession(comparison.implementation.itemID)
   }
 
@@ -276,7 +274,7 @@ struct SessionDetailView: View {
       sessionProjectPath: session.projectPath,
       repositories: ShellSessionItems.repositories(claude: claudeViewModel, codex: codexViewModel)
     )
-    tabsModel.openFile(pending.filePath, lineNumber: pending.lineNumber, projectPath: projectPath, for: item.id)
+    stateModel.openFile(pending.filePath, lineNumber: pending.lineNumber, projectPath: projectPath, for: item.id)
     navigationModel?.selectSession(item.id)
   }
 }
@@ -284,18 +282,18 @@ struct SessionDetailView: View {
 // MARK: - One session
 
 /// Header, content and side panel of one session. Keyed by item id, so its
-/// per-session state (GitHub quick access, sheets) starts fresh per tab while
+/// per-session state (GitHub quick access, sheets) starts fresh per session while
 /// the terminal itself lives on in the view model.
 private struct SessionDetailContent: View {
   let item: ProjectableSessionItem
   let viewModel: CLISessionsViewModel
-  let presentation: SessionTabPresentation
+  let presentation: SessionPresentation
   let onFork: (CLISession, SessionProviderKind) -> Void
 
   @Environment(\.agentHub) private var agentHub
   @Environment(\.colorScheme) private var colorScheme
   @Environment(WorkbenchShellModel.self) private var shellModel
-  @Environment(SessionTabsModel.self) private var tabsModel
+  @Environment(SessionDetailStateModel.self) private var stateModel
 
   @State private var quickAccessViewModel = SessionGitHubQuickAccessViewModel()
   @State private var liveTerminalStatus: String?
@@ -342,7 +340,7 @@ private struct SessionDetailContent: View {
   }
 
   private var editorState: MonitoringEditorState {
-    tabsModel.editorState(for: item.id, defaultProjectPath: session.projectPath)
+    stateModel.editorState(for: item.id, defaultProjectPath: session.projectPath)
   }
 
   private var effectiveContentMode: MonitoringCardContentMode {
@@ -354,7 +352,7 @@ private struct SessionDetailContent: View {
     Binding(
       get: { effectiveContentMode },
       set: { mode in
-        tabsModel.setContentMode(mode, for: item.id, defaultProjectPath: session.projectPath)
+        stateModel.setContentMode(mode, for: item.id, defaultProjectPath: session.projectPath)
         if mode == .terminal { viewModel.focusTerminal(forKey: terminalKey) }
       }
     )
@@ -363,7 +361,7 @@ private struct SessionDetailContent: View {
   private var selectedEditorFilePath: Binding<String?> {
     Binding(
       get: { editorState.selectedFilePath },
-      set: { tabsModel.setSelectedFilePath($0, for: item.id, defaultProjectPath: session.projectPath) }
+      set: { stateModel.setSelectedFilePath($0, for: item.id, defaultProjectPath: session.projectPath) }
     )
   }
 
@@ -540,7 +538,7 @@ private struct SessionDetailContent: View {
       liveTerminalStatus: liveTerminalStatus,
       onTerminalInteraction: nil,
       onRequestShowEditor: {
-        tabsModel.setContentMode(.editor, for: item.id, defaultProjectPath: session.projectPath)
+        stateModel.setContentMode(.editor, for: item.id, defaultProjectPath: session.projectPath)
       },
       onInlineRequestSubmit: { prompt, sess in viewModel.showTerminalWithPrompt(for: sess, prompt: prompt) },
       chatBackground: Color.wbSurfaceContent
@@ -559,7 +557,7 @@ private struct SessionDetailContent: View {
 
   private var autoOpenCandidate: MonitoringAutoOpenSidePanelCandidate? {
     guard !item.isPending else { return nil }
-    return tabsModel.autoOpen.candidate(
+    return stateModel.autoOpen.candidate(
       for: MonitoringAutoOpenSidePanelItem(
         itemID: item.id, providerKind: providerKind, session: session, state: state))
   }
@@ -569,8 +567,8 @@ private struct SessionDetailContent: View {
   private func openAutoSidePanelIfNeeded() {
     guard let candidate = autoOpenCandidate else { return }
     let shown = shellModel.sidePanelVisible ? segmentBinding.wrappedValue : nil
-    guard let segment = tabsModel.autoOpen.decide(candidate, shownSegment: shown) else { return }
-    tabsModel.setSidePanelSegment(segment, for: item.id)
+    guard let segment = stateModel.autoOpen.decide(candidate, shownSegment: shown) else { return }
+    stateModel.setSidePanelSegment(segment, for: item.id)
     if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
   }
 
@@ -597,7 +595,7 @@ private struct SessionDetailContent: View {
   private var segmentBinding: Binding<SidePanelSegment> {
     Binding(
       get: {
-        SidePanelSegments.coerced(tabsModel.sidePanelSegment(for: item.id), availability: sidePanelAvailability)
+        SidePanelSegments.coerced(stateModel.sidePanelSegment(for: item.id), availability: sidePanelAvailability)
       },
       set: { segment in
         if segment == .storybook {
@@ -605,7 +603,7 @@ private struct SessionDetailContent: View {
             await DevServerManager.shared.startStorybookServer(for: session.id, projectPath: session.projectPath)
           }
         }
-        tabsModel.setSidePanelSegment(segment, for: item.id)
+        stateModel.setSidePanelSegment(segment, for: item.id)
       }
     )
   }
@@ -763,7 +761,7 @@ private struct SessionDetailContent: View {
 
 /// Width budget of the session detail. Must fit the shell's minimum window
 /// with the sidebar: 288 + 8 + content minimum + side panel minimum ≤ 900
-/// (checked by `SessionTabsModelTests`). The panel's drag maximum is a user
+/// (checked by `SessionDetailStateModelTests`). The panel's drag maximum is a user
 /// choice and may squeeze the content at the smallest window.
 enum SessionDetailLayout {
   static let contentMinWidth: CGFloat = 260

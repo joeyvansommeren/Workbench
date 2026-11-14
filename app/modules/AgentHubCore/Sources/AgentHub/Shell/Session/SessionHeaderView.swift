@@ -11,7 +11,7 @@
 import SwiftUI
 
 struct SessionHeaderView<ActionsMenu: View>: View {
-  let presentation: SessionTabPresentation
+  let presentation: SessionPresentation
   let contextFraction: Double?
   let availableContentModes: [MonitoringCardContentMode]
   @Binding var contentMode: MonitoringCardContentMode

@@ -2,21 +2,24 @@
 //  SprintListHead.swift
 //  AgentHub
 //
-//  The row above the board (`.list-head`): Jira | Linear, All | Mine, and a
-//  trailing slot for Refresh and Filters.
+//  The row above the Jira and Linear boards (`.list-head`): the sprint or
+//  cycle name with its days-left chip, All | Mine, and a trailing slot for
+//  Refresh and Filters.
 //
 
 import SwiftUI
 
 struct SprintListHead<Trailing: View>: View {
-  @Binding var tracker: SprintTracker
+  /// Nil hides the title (Linear without an active cycle).
+  let title: SprintTitle?
   @Binding var scope: SprintAssigneeScope
   @ViewBuilder let trailing: Trailing
 
   var body: some View {
-    HStack(spacing: DesignTokens.Spacing.sm) {
-      WorkbenchSegmentedControl(selection: $tracker, accessibilityIdentifier: "shell.sprintTracker")
-        .fixedSize()
+    HStack(spacing: DesignTokens.Spacing.md) {
+      if let title {
+        SprintTitleView(title: title)
+      }
       WorkbenchSegmentedControl(selection: $scope, accessibilityIdentifier: "sprint.assignee")
         .fixedSize()
       Spacer(minLength: 0)
@@ -27,6 +30,41 @@ struct SprintListHead<Trailing: View>: View {
     .padding(.leading, DesignTokens.Spacing.lg)
     .padding(.trailing, DesignTokens.Spacing.md)
     .frame(height: 56)
+  }
+}
+
+/// "Sprint 47" and a days-left chip (was `#toolbar-sprint` in the prototype).
+struct SprintTitleView: View {
+  let title: SprintTitle
+
+  var body: some View {
+    HStack(spacing: DesignTokens.Spacing.sm) {
+      Text(title.title)
+        .wbText(.title3)
+        .foregroundStyle(Color.wbTextPrimary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+      if let daysLeft = title.daysLeft {
+        SprintDaysLeftChip(text: daysLeft)
+      }
+    }
+  }
+}
+
+/// `.status-chip[data-status="idle"]` without a glyph.
+private struct SprintDaysLeftChip: View {
+  let text: String
+
+  var body: some View {
+    Text(text)
+      .wbText(.subheadline)
+      .fontWeight(.medium)
+      .foregroundStyle(Color.wbStatusIdleText)
+      .lineLimit(1)
+      .padding(.horizontal, DesignTokens.Spacing.sm)
+      .frame(height: 22)
+      .background(Color.wbStatusIdleTint, in: Capsule())
+      .fixedSize()
   }
 }
 

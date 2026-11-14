@@ -11,9 +11,9 @@ only its own slot:
 
 | Slot | View | Replaced by |
 |---|---|---|
-| sidebar | `ShellSidebarContainer` (`Sidebar/`: nav rows, session tree, footer) | P5 |
-| toolbar | `ShellToolbar` (`SessionsToolbarContent` (P6), `SprintToolbarContent` (P9), titles, search) | P6 tabs, P8, P9 |
-| detail | `ShellDetailSlot` (one `case` per destination) | P6 Sessions, P8 Reviews, P9 Sprint |
+| sidebar | `ShellSidebarContainer` (`Sidebar/`: session tree, footer) | P5 |
+| toolbar | `ShellToolbar` (destination tabs, search, palette, light/dark) | P12 |
+| detail | `ShellDetailSlot` (one `case` per destination) | P6 Sessions, P8 Reviews, P9 Jira and Linear |
 
 Per-window state lives in `ShellRoot`: `WorkbenchShellModel`,
 `SessionNavigationModel` and `SessionsActionCoordinator` (environment-injected,
@@ -33,10 +33,8 @@ Measured in an AppKit test host on macOS 27.
   safe-area top is 0, and the shell draws its own 52 pt row. Nothing ignores the
   top safe area except backgrounds. `TitleBarDragArea` gives the empty row drag
   and double-click (it honours `AppleActionOnDoubleClick`).
-- **Known gap.** Without a toolbar the system title bar is 32 pt, so the traffic
-  lights sit at x 9, y 9, not centred in the 52 pt row as in the prototype.
-  Moving them needs AppKit frame changes on every layout, which is a layout-loop
-  risk, so they stay.
+- **Known gap (closed in P12).** Without a toolbar the system title bar is
+  32 pt and the traffic lights sit at x 9, y 9. P12 centres them; see below.
 
 ## Layout-loop rules
 
@@ -45,10 +43,13 @@ code. No `GeometryReader` widths. The sidebar collapses as a plain `HStack`
 child. `ShellLayout.windowMinWidth` is 900: no split view is hosted in the
 shell any more, and every destination's content minimum plus the 288 pt
 sidebar and the 8 pt panel inset fits it. `ReviewsLayoutTests` (Reviews) and
-`SessionTabsModelTests` (Sessions: `SessionDetailLayout`, content 260 + side
+`SessionDetailReviewTests` (Sessions: `SessionDetailLayout`, content 260 + side
 panel 320) check it.
 
 ## P6: session view (`Shell/Session/`)
+
+P12 removed the session tab strip: Sessions shows the one session selected in
+the sidebar. The tab notes below are history; see "P12" for what replaced them.
 
 - **Tabs.** `SessionTabsModel` is per window (owned by `ShellRoot`, injected
   with `.environment(sessionTabsModel)`). `SessionTabsSync` keeps it in step:
@@ -91,8 +92,8 @@ panel 320) check it.
 
 ## Sidebar (P5)
 
-`Sidebar/` holds the prototype sidebar: `SidebarNavSection` (Reviews and
-Sprint with `SidebarNavCounts`), `SessionTreeView` and `SidebarFooter`.
+`Sidebar/` holds the prototype sidebar: `SessionTreeView` and `SidebarFooter`.
+(The Reviews and Sprint nav rows became tabs in P12.)
 
 - **Tree.** `SessionTreeProjection` (P3) → `SessionTreeWorkflowMerge` (adds
   tracked repos without sessions and empty rows for manual workflows) →
@@ -133,17 +134,16 @@ The legacy `GitHubReviewsView` is unchanged for the flag-off path.
 
 ## P9: Sprint
 
-`.sprint` shows `SprintDestinationView` (`Jira/`), toolbar `SprintToolbarContent`
-(`Sprint/`): the sprint or cycle name and a days-left chip ("Sprint" when Linear
-has no active cycle). As in the prototype, Jira | Linear, All | Mine and Filters
-sit in the board's list head, not the toolbar. Jira and Linear map to the
+Since P12, `.jira` shows `JiraDestinationView` and `.linear` shows
+`LinearDestinationView` (both in `Jira/SprintDestinationView.swift`). The list
+head (`SprintListHead`) shows the sprint or cycle name with its days-left chip
+(no title when Linear has no active cycle), All | Mine and Filters. Jira and Linear map to the
 tracker-neutral `SprintColumnItem`s (`Sprint/SprintBoardItems.swift`), drawn by
 `SprintBoardView`: up to 4 equal columns, more scroll sideways with
 `containerRelativeFrame`; no GeometryReader. The ticket detail is a 380 pt
 trailing panel in a plain HStack (not `.inspector`); it still hosts the legacy
-`JiraTicketDetailView` / `LinearIssueDetailView`. With no saved tracker, Sprint
-opens on Jira when `acli` is installed, else Linear. Breadcrumbs:
-`sprint tracker: …`, `sprint filter: …`, `sprint ticket: open|close|start …`.
+`JiraTicketDetailView` / `LinearIssueDetailView`. Breadcrumbs:
+`sprint filter: …`, `sprint ticket: open|close|start …`.
 
 ## P7: Approvals (Claude only)
 
@@ -235,3 +235,45 @@ GeometryReader.
   compact view's mode and file; its Close returns to the compact view.
 - **Keys and breadcrumbs:** ↑/↓ move the selection once the list has focus.
   `side panel diff: file <path>`, `side panel diff: mode <mode>`.
+
+## P12: title bar and destination tabs
+
+- **Destinations.** `.sessions`, `.reviews`, `.jira`, `.linear`, shown as tabs
+  in the title row (`ShellDestinationTabs`: P6 tab look, lead icon, count from
+  `ShellDestinationCounts`; no close, no "+"). ⌘1–⌘4 come from `ShellShortcuts`.
+  `LegacySectionMapper`: `.sprint` → Jira, `.linear` → Linear, `.workflows` →
+  Sessions. The destination was never saved, so no old state needs mapping;
+  the old `sprintTracker` default is no longer read. When the full titles do
+  not fit (900 pt window), `ViewThatFits` shows icon and count only.
+- **Title row** (`ShellToolbar`): tabs at the content column, a spacer, Search,
+  Standard | Warm (`ShellPaletteSwitch`) and light/dark (`ShellAppearanceButton`:
+  moon in light, sun in dark; explicit Light/Dark, from System the opposite of
+  what shows). Both use `WorkbenchAppearanceController` and the stored values,
+  so the bar, Settings and the palette stay in step. Breadcrumbs:
+  `palette: <x>`, `appearance: <x>`, `shell: <destination>`.
+- **Traffic lights.** The sidebar toggle is the window's only toolbar item
+  (`ShellTitlebarToolbar`, `.navigation`, Liquid Glass background hidden,
+  toolbar background hidden). With a toolbar AppKit draws a 52 pt unified bar
+  and centres the real traffic lights at y 26 (frames x 19, 42, 65). Measured
+  in a test host (macOS 27): empty `NSToolbar` → 66 pt bar; one item → 52 pt;
+  the item lands at x 100–128, y 12–40 at 1440 and 900 wide; its AppKit
+  viewer takes x 92–136 over the full 52 pt, which is why the toggle is the
+  item and not a SwiftUI view drawn under an invisible item. Clicks elsewhere
+  in the band still reach the hosting view (`TitleBarDragArea`: drag, and
+  double-click per `AppleActionOnDoubleClick`).
+- **Rejected:** moving `standardWindowButton`s by hand. AppKit lays them out
+  again on resize, zoom, full screen and appearance changes, and the 32 pt
+  titlebar container would clip them, so they would need moving from layout
+  callbacks: a layout-loop risk.
+- **Safe area.** With the toolbar the top safe area is 52 pt (0 without it
+  under `.hiddenTitleBar`). `ShellFrame` ignores the top container safe area
+  and lays out from the window's top edge, so the layout is the same either
+  way and never reads the inset. The item set never changes at runtime.
+- **Sessions.** One session, the sidebar's selection. `SessionDetailStateModel`
+  (was `SessionTabsModel`) keeps per-session content mode, Files state, side
+  panel segment and auto-open state, plus the selection upkeep: on launch the
+  session shown at the last run, else the newest; when the shown session goes
+  away, the newest. `ShownSessionSync` (was `SessionTabsSync`) saves the shown
+  session per window in the v17 `openSessionTabIds` column (migration
+  untouched). A workflow comparison shows the implementation session.
+- **Sidebar** starts with the repo → branch → session tree at 52 pt.

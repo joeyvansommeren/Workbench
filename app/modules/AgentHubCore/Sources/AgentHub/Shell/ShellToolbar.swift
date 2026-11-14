@@ -2,89 +2,51 @@
 //  ShellToolbar.swift
 //  AgentHub
 //
-//  TOOLBAR SLOT of the new shell: the custom 52 pt title row above the
-//  content panel (Variant B, see Shell/README.md). The row's structure never
-//  changes; a destination change only swaps the leading content.
-//
-//  Sessions shows the P6 tab strip (`SessionsToolbarContent`).
-//  P8 and P9 may replace the Reviews and Sprint titles.
+//  TOOLBAR SLOT of the new shell: the 52 pt title row above the content panel
+//  (`.titlebar` in the prototype). Destination tabs at the content column, a
+//  flexible spacer, then Search, Standard | Warm and the light/dark button.
+//  The row's structure never changes with the destination; only the selected
+//  tab does. See Shell/README.md, "P12", for how the real traffic lights are
+//  centred in this row.
 //
 
 import SwiftUI
 
 /// Fixed positions from the prototype's window chrome.
 enum ShellLayout {
-  /// Leading edge of the sidebar toggle, just right of the traffic lights.
-  static let sidebarToggleLeading: CGFloat = 84
   /// Leading padding of the title row while the sidebar is hidden, so its
-  /// content clears the traffic lights and the sidebar toggle.
-  static let collapsedToolbarLeading: CGFloat = 132
+  /// content clears the traffic lights (x 19–79) and the sidebar toggle,
+  /// which AppKit places at x 100–128 (`ShellTitlebarToolbar`); 14 pt after
+  /// the toggle, as in the prototype.
+  static let collapsedToolbarLeading: CGFloat = 142
   /// Child minimums must fit the window minimum (CLAUDE.md, layout-loop
   /// crash). No split view is hosted in the shell any more: Reviews (P8) and
   /// the Sessions detail (P6, `SessionDetailLayout`) both fit 288 + 8 + their
-  /// content minimum. `ReviewsLayoutTests` and `SessionTabsModelTests` check it.
+  /// content minimum. `ReviewsLayoutTests` and `SessionDetailStateModelTests`
+  /// check it. In the title row the trailing controls keep their size and
+  /// the tabs truncate their titles when the row is short.
   static let windowMinWidth: CGFloat = 900
   static let windowMinHeight: CGFloat = 600
 }
 
 struct ShellToolbar: View {
   @Environment(WorkbenchShellModel.self) private var shellModel
-  let onNewSession: () -> Void
 
   var body: some View {
     HStack(spacing: DesignTokens.Spacing.sm) {
-      leadingContent
-        .frame(maxWidth: .infinity, alignment: .leading)
-      ShellSearchButton()
+      ShellDestinationTabs()
+      Spacer(minLength: 0)
+      HStack(spacing: DesignTokens.Spacing.sm) {
+        ShellSearchButton()
+        ShellPaletteSwitch()
+        ShellAppearanceButton()
+      }
+      .fixedSize()
     }
     .padding(.leading, shellModel.sidebarVisible ? 0 : ShellLayout.collapsedToolbarLeading)
     .padding(.trailing, DesignTokens.Spacing.md)
     .frame(height: DesignTokens.Size.titlebar)
     .background(TitleBarDragArea())
-  }
-
-  @ViewBuilder
-  private var leadingContent: some View {
-    switch shellModel.destination {
-    case .sessions:
-      SessionsToolbarContent(onNewSession: onNewSession)
-    case .reviews:
-      ShellToolbarTitle(text: "Reviews")
-    case .sprint:
-      SprintToolbarContent()
-    }
-  }
-}
-
-/// The window controls next to the traffic lights: the sidebar toggle. It
-/// stays put when the sidebar hides, like `.window-controls` in the prototype.
-struct ShellWindowControls: View {
-  @Environment(WorkbenchShellModel.self) private var shellModel
-
-  var body: some View {
-    IconButton(
-      systemImage: "sidebar.left",
-      accessibilityLabel: shellModel.sidebarVisible ? "Hide sidebar" : "Show sidebar",
-      accessibilityIdentifier: "shell.toggleSidebar"
-    ) {
-      shellModel.toggleSidebar()
-    }
-    .help(shellModel.sidebarVisible ? "Hide sidebar  ⌃⌘S" : "Show sidebar  ⌃⌘S")
-    .padding(.leading, ShellLayout.sidebarToggleLeading)
-    .frame(height: DesignTokens.Size.titlebar)
-  }
-}
-
-private struct ShellToolbarTitle: View {
-  let text: String
-
-  var body: some View {
-    Text(text)
-      .wbText(.title3)
-      .foregroundStyle(Color.wbTextPrimary)
-      .lineLimit(1)
-      .fixedSize()
-      .padding(.leading, DesignTokens.Spacing.sm)
   }
 }
 

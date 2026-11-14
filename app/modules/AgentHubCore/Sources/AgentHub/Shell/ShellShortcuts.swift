@@ -38,16 +38,18 @@ extension ShellDestination {
     switch self {
     case .sessions: return "Sessions"
     case .reviews: return "Reviews"
-    case .sprint: return "Sprint"
+    case .jira: return "Jira"
+    case .linear: return "Linear"
     }
   }
 
-  /// ⌘1, ⌘2, ⌘3 in sidebar order.
+  /// ⌘1 to ⌘4 in tab order.
   var shortcut: ShellShortcut {
     switch self {
     case .sessions: return ShellShortcut(key: "1", modifiers: .command, keyCaps: ["⌘", "1"])
     case .reviews: return ShellShortcut(key: "2", modifiers: .command, keyCaps: ["⌘", "2"])
-    case .sprint: return ShellShortcut(key: "3", modifiers: .command, keyCaps: ["⌘", "3"])
+    case .jira: return ShellShortcut(key: "3", modifiers: .command, keyCaps: ["⌘", "3"])
+    case .linear: return ShellShortcut(key: "4", modifiers: .command, keyCaps: ["⌘", "4"])
     }
   }
 }

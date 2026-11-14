@@ -30,7 +30,7 @@ enum SprintDaysLeft {
   }
 }
 
-/// What the Sprint toolbar shows for the current tracker.
+/// What the Jira or Linear list head shows: sprint or cycle name, days left.
 struct SprintTitle: Equatable {
   let title: String
   /// Nil when the sprint or cycle has no end date.
