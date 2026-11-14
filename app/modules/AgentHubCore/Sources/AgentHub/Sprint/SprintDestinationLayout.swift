@@ -108,9 +108,9 @@ struct SprintNoticeView: View {
 /// sentence telling the user where to click.
 struct SprintNoMatchesView: View {
   let title: String
-  /// Nil when no search or person filter is on.
+  /// Nil when no search is on.
   let onClearFilters: (() -> Void)?
-  /// Nil unless the head is set to Mine.
+  /// Nil when the board shows everyone (no Mine, person or Unassigned).
   let onShowAll: (() -> Void)?
 
   var body: some View {
