@@ -265,6 +265,57 @@ struct JiraSprintViewModelTests {
     #expect(missing.isCLIMissing == true)
   }
 
+  @Test("Failures are classified: missing acli, auth, network, other")
+  func failureKinds() {
+    func kind(_ exitCode: Int32, _ message: String) -> JiraSprintViewModel.FailureKind {
+      JiraSprintViewModel.failureKind(
+        for: JiraTicketReaderError.commandFailed(exitCode: exitCode, message: message))
+    }
+    #expect(kind(127, "The Atlassian CLI (acli) was not found.") == .cliMissing)
+    #expect(kind(1, "Error: unauthorized: use 'acli jira auth login' to authenticate") == .auth)
+    #expect(kind(1, "not logged in") == .auth)
+    #expect(kind(-1, "acli did not respond within 60 seconds") == .network)
+    #expect(kind(1, "dial tcp: lookup xfatech.atlassian.net: no such host") == .network)
+    #expect(kind(1, "Internal server error") == .other)
+    #expect(kind(1, "") == .other)
+    #expect(JiraSprintViewModel.failureKind(for: URLError(.notConnectedToInternet)) == .network)
+    #expect(JiraSprintViewModel.failureKind(for: JiraTicketReaderError.invalidResponse) == .other)
+  }
+
+  @Test("A failed refresh keeps the loaded board and offers Retry; a later success clears it")
+  func failedRefreshKeepsBoard() async {
+    let service = MockJiraSprintService(tickets: Self.sprintTickets)
+    let viewModel = JiraSprintViewModel(service: service, userDefaults: Self.makeDefaults())
+    await viewModel.load()
+
+    await service.setError(
+      JiraTicketReaderError.commandFailed(exitCode: 1, message: "dial tcp: no such host\nmore"))
+    await viewModel.load()
+
+    #expect(viewModel.state == .loaded)
+    #expect(viewModel.sprintTickets.count == Self.sprintTickets.count)
+    #expect(viewModel.statusNotice?.isError == true)
+    #expect(viewModel.statusNotice?.canRetry == true)
+    #expect(viewModel.statusNotice?.text == "Could not refresh Jira: dial tcp: no such host")
+
+    await service.setError(nil)
+    await viewModel.load()
+    #expect(viewModel.statusNotice == nil)
+  }
+
+  @Test("An auth error on refresh replaces the board, so Connect is offered")
+  func authFailureOnRefresh() async {
+    let service = MockJiraSprintService(tickets: Self.sprintTickets)
+    let viewModel = JiraSprintViewModel(service: service, userDefaults: Self.makeDefaults())
+    await viewModel.load()
+
+    await service.setError(JiraTicketReaderError.commandFailed(exitCode: 1, message: "unauthorized"))
+    await viewModel.load()
+
+    #expect(viewModel.state == .failed("unauthorized"))
+    #expect(viewModel.failureKind == .auth)
+  }
+
   @Test("Launch prompt uses the full ticket description, falling back to the snapshot")
   func launchPrompt() async {
     let detailed = JiraTicketSnapshot(
@@ -357,8 +408,10 @@ private actor MockJiraSprintService: JiraTicketReading, JiraTicketSearching, Jir
   }
 
   private let tickets: [JiraTicketSnapshot]
-  private let error: Error?
+  private var error: Error?
   private let detailed: JiraTicketSnapshot?
+
+  func setError(_ value: Error?) { error = value }
   private(set) var searchedJQL: [String] = []
 
   init(tickets: [JiraTicketSnapshot] = [], error: Error? = nil, detailed: JiraTicketSnapshot? = nil) {

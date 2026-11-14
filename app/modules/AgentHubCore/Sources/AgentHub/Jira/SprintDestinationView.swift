@@ -99,7 +99,9 @@ struct JiraSprintDestination: View {
       VStack(spacing: 0) {
         if let notice = viewModel.statusNotice {
           SprintNoticeView(
-            text: notice.text, isError: notice.isError, onDismiss: viewModel.dismissStatusNotice)
+            text: notice.text, isError: notice.isError,
+            onRetry: notice.canRetry ? { Task { await viewModel.load() } } : nil,
+            onDismiss: viewModel.dismissStatusNotice)
         }
         content
       }
@@ -134,9 +136,15 @@ struct JiraSprintDestination: View {
         WBEmptyState(
           systemImage: "calendar",
           title: "No open sprint",
-          description: "This board has no active or upcoming sprint. Pick another board in Filters."
+          // The board picker only shows when there is another board to pick.
+          description: viewModel.boards.count > 1
+            ? "This board has no active or upcoming sprint. Pick another board in Filters."
+            : "This board has no active or upcoming sprint."
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if viewModel.sprintTickets.isEmpty {
+        WBEmptyState(systemImage: "tray", title: "No tickets in this sprint")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         board
       }
@@ -149,9 +157,11 @@ struct JiraSprintDestination: View {
         columns: viewModel.columns,
         linkedSessions: linkedSessions,
         pullRequests: viewModel.pullRequestsByTicket,
+        startingKeys: viewModel.startingSessionKeys,
         status: sessionStatus
       ),
       selectedTicketID: viewModel.selectedTicketKey,
+      isFocused: isBoardFocused,
       actions: SprintBoardActions(
         onOpen: open,
         onStart: { start($0, provider: nil) },
@@ -176,6 +186,7 @@ struct JiraSprintDestination: View {
     .onKeyPress(.downArrow) { move(.down) }
     .onKeyPress(.leftArrow) { move(.left) }
     .onKeyPress(.rightArrow) { move(.right) }
+    .onKeyPress(.return) { startSelected() }
     .onKeyPress(.escape) {
       guard viewModel.selectedTicketKey != nil else { return .ignored }
       close()
@@ -183,14 +194,22 @@ struct JiraSprintDestination: View {
     }
     .overlay {
       if viewModel.filteredTickets.isEmpty {
-        WBEmptyState(
-          systemImage: "line.3.horizontal.decrease",
+        SprintNoMatchesView(
           title: "No matching tickets",
-          description: "Switch to All or clear the filters."
-        )
-        .allowsHitTesting(false)
+          onClearFilters: activeFilterCount > 0 ? clearFilters : nil,
+          onShowAll: viewModel.assigneeFilter == .me ? { viewModel.assigneeFilter = .everyone } : nil)
       }
     }
+  }
+
+  /// Return on the board: open the first ticket, or start the open one.
+  private func startSelected() -> KeyPress.Result {
+    guard let key = viewModel.selectedTicketKey else { return move(.down) }
+    guard let ticket = viewModel.sprintTickets.first(where: { $0.key == key }),
+      ticket.statusCategory != "done", (linkedSessions[key] ?? []).isEmpty
+    else { return .ignored }
+    start(key, provider: nil)
+    return .handled
   }
 
   @ViewBuilder
@@ -232,16 +251,9 @@ struct JiraSprintDestination: View {
   }
 
   private var refreshButton: some View {
-    IconButton(
-      systemImage: "arrow.clockwise",
-      accessibilityLabel: "Refresh sprint",
-      accessibilityIdentifier: "sprint.refresh"
-    ) {
+    SprintRefreshButton(isLoading: viewModel.state == .loading, accessibilityLabel: "Refresh sprint") {
       Task { await viewModel.load() }
     }
-    .disabled(viewModel.state == .loading)
-    .help("Refresh sprint  ⌘R")
-    .keyboardShortcut("r", modifiers: .command)
   }
 
   private var activeFilterCount: Int {
@@ -258,14 +270,7 @@ struct JiraSprintDestination: View {
       activeCount: activeFilterCount,
       accessibilityIdentifier: "sprint.filters",
       onOpen: { isFiltersOpen = true },
-      onClear: {
-        viewModel.searchText = ""
-        switch viewModel.assigneeFilter {
-        case .person, .unassigned: viewModel.assigneeFilter = .everyone
-        case .everyone, .me: break
-        }
-        MainThreadStallMonitor.breadcrumb("sprint filter: clear")
-      }
+      onClear: clearFilters
     )
     .popover(isPresented: $isFiltersOpen, arrowEdge: .bottom) {
       JiraSprintFiltersPopover(
@@ -280,6 +285,16 @@ struct JiraSprintDestination: View {
   }
 
   // MARK: Actions
+
+  /// Clears search and a person filter; All | Mine stays as it is.
+  private func clearFilters() {
+    viewModel.searchText = ""
+    switch viewModel.assigneeFilter {
+    case .person, .unassigned: viewModel.assigneeFilter = .everyone
+    case .everyone, .me: break
+    }
+    MainThreadStallMonitor.breadcrumb("sprint filter: clear")
+  }
 
   private func open(_ key: String) {
     viewModel.openTicket(key)
@@ -426,60 +441,86 @@ private struct JiraSprintFiltersPopover: View {
 
 // MARK: - Failure
 
-/// Missing acli: the install command. Other failures: the error and Connect.
+/// One state per failure kind, each said once next to its fix: missing acli
+/// shows the install command, an auth error Connect, a network error Retry.
 private struct JiraSprintFailureView: View {
   let message: String
   @Bindable var viewModel: JiraSprintViewModel
 
   var body: some View {
-    VStack(spacing: 0) {
-      if !viewModel.isCLIMissing {
-        ErrorBanner(message)
-          .padding(.horizontal, DesignTokens.Spacing.lg)
-      }
-      Group {
-        if viewModel.isCLIMissing {
-          WBEmptyState(
-            systemImage: "terminal",
-            title: "Install the Atlassian CLI",
-            description: "Sprint reads Jira through acli. Install it, then retry."
-          ) {
-            VStack(spacing: DesignTokens.Spacing.md) {
-              CommandBlock(JiraCLIProcessRunner.installCommand)
-                .frame(maxWidth: 760)
-              retryButton
-            }
+    Group {
+      switch viewModel.failureKind ?? .other {
+      case .cliMissing:
+        WBEmptyState(
+          systemImage: "terminal",
+          title: "Install the Atlassian CLI",
+          description: "Sprint reads Jira through acli. Install it, then retry."
+        ) {
+          VStack(spacing: DesignTokens.Spacing.md) {
+            CommandBlock(JiraCLIProcessRunner.installCommand)
+              .frame(maxWidth: 760)
+            retryButton(style: .secondary)
           }
-        } else {
-          WBEmptyState(
-            systemImage: "exclamationmark.triangle",
-            isError: true,
-            title: "Could not load Jira",
-            description: "Connect your Atlassian account, then retry."
-          ) {
-            connectButton
-            retryButton
+        }
+      case .auth:
+        WBEmptyState(
+          systemImage: "person.crop.circle.badge.exclamationmark",
+          isError: true,
+          title: "Connect Jira",
+          description: "Sign in to your Atlassian account to load the sprint."
+        ) {
+          connectButton(isPrimary: true)
+        }
+      case .network:
+        WBEmptyState(
+          systemImage: "wifi.exclamationmark",
+          isError: true,
+          title: "Could not reach Jira",
+          description: SprintErrorText.summary(message)
+        ) {
+          retryButton(style: .primary)
+        }
+      case .other:
+        WBEmptyState(
+          systemImage: "exclamationmark.triangle",
+          isError: true,
+          title: "Could not load Jira",
+          description: SprintErrorText.summary(message)
+        ) {
+          // The message may still be an expired sign-in acli words differently.
+          HStack(spacing: DesignTokens.Spacing.sm) {
+            retryButton(style: .primary)
+            connectButton(isPrimary: false)
           }
         }
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   @ViewBuilder
-  private var connectButton: some View {
-    if viewModel.isConnecting {
-      Button("Waiting for browser…") {}
-        .buttonStyle(.wbPrimary)
-        .disabled(true)
+  private func connectButton(isPrimary: Bool) -> some View {
+    let title = viewModel.isConnecting ? "Waiting for browser…" : "Connect Jira"
+    let button = Button(title) { Task { await viewModel.connect() } }
+      .disabled(viewModel.isConnecting)
+    if isPrimary {
+      button.buttonStyle(.wbPrimary)
     } else {
-      Button("Connect Jira") { Task { await viewModel.connect() } }
-        .buttonStyle(.wbPrimary)
+      button.buttonStyle(.wbSecondary)
     }
   }
 
-  private var retryButton: some View {
-    Button("Retry") { Task { await viewModel.load() } }
-      .buttonStyle(.wbSecondary)
+  private enum RetryStyle { case primary, secondary }
+
+  @ViewBuilder
+  private func retryButton(style: RetryStyle) -> some View {
+    // A load swaps this screen for the spinner; the view model also ignores a
+    // second load while one runs.
+    let button = Button("Retry") { Task { await viewModel.load() } }
+      .disabled(viewModel.isConnecting)
+    switch style {
+    case .primary: button.buttonStyle(.wbPrimary)
+    case .secondary: button.buttonStyle(.wbSecondary)
+    }
   }
 }

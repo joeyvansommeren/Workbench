@@ -31,7 +31,15 @@ struct LinearSprintDestination: View {
         }
       }
     } content: {
-      content
+      VStack(spacing: 0) {
+        if let refreshError = viewModel.refreshError {
+          SprintNoticeView(
+            text: refreshError, isError: true,
+            onRetry: { Task { await viewModel.load() } },
+            onDismiss: viewModel.dismissRefreshError)
+        }
+        content
+      }
     } detail: {
       detail
     }
@@ -49,14 +57,13 @@ struct LinearSprintDestination: View {
   private var content: some View {
     switch viewModel.loadState {
     case .noKey:
-      LinearConnectState(viewModel: viewModel, errorMessage: nil)
+      LinearConnectState(viewModel: viewModel, isKeyRejected: false)
     case .unauthorized:
-      LinearConnectState(viewModel: viewModel, errorMessage: "The Linear API key is invalid or revoked.")
+      LinearConnectState(viewModel: viewModel, isKeyRejected: true)
     case .rateLimited:
-      LinearRetryState(
-        viewModel: viewModel, message: "Linear asked Workbench to slow down. Try again in a moment.")
+      LinearRetryState(viewModel: viewModel, message: LinearViewModel.rateLimitedMessage)
     case .failed(let message):
-      LinearRetryState(viewModel: viewModel, message: message)
+      LinearRetryState(viewModel: viewModel, message: SprintErrorText.summary(message))
     case .idle, .loading, .loaded:
       if viewModel.loadState != .loaded && viewModel.issues.isEmpty {
         SprintLoadingView()
@@ -77,9 +84,11 @@ struct LinearSprintDestination: View {
       columns: SprintBoardItems.linear(
         columns: viewModel.columns,
         linkedSessions: linkedSessions,
+        startingIDs: viewModel.startingIssueIDs,
         status: sessionStatus
       ),
       selectedTicketID: viewModel.selectedIssueID,
+      isFocused: isBoardFocused,
       actions: SprintBoardActions(
         onOpen: open,
         onStart: { start($0, provider: nil) },
@@ -100,6 +109,11 @@ struct LinearSprintDestination: View {
     .focusable()
     .focused($isBoardFocused)
     .focusEffectDisabled()
+    .onKeyPress(.upArrow) { move(.up) }
+    .onKeyPress(.downArrow) { move(.down) }
+    .onKeyPress(.leftArrow) { move(.left) }
+    .onKeyPress(.rightArrow) { move(.right) }
+    .onKeyPress(.return) { startSelected() }
     .onKeyPress(.escape) {
       guard viewModel.selectedIssueID != nil else { return .ignored }
       close()
@@ -107,14 +121,39 @@ struct LinearSprintDestination: View {
     }
     .overlay {
       if viewModel.filteredIssues.isEmpty {
-        WBEmptyState(
-          systemImage: "line.3.horizontal.decrease",
+        SprintNoMatchesView(
           title: "No matching issues",
-          description: "Switch to All or clear the filters."
-        )
-        .allowsHitTesting(false)
+          onClearFilters: isSearching ? clearSearch : nil,
+          onShowAll: viewModel.assigneeFilter == .me ? { viewModel.assigneeFilter = .everyone } : nil)
       }
     }
+  }
+
+  private func move(_ direction: SprintMoveDirection) -> KeyPress.Result {
+    viewModel.moveSelection(direction)
+    if let id = viewModel.selectedIssueID {
+      MainThreadStallMonitor.breadcrumb("sprint ticket: open \(id)")
+    }
+    return .handled
+  }
+
+  /// Return on the board: open the first issue, or start the open one.
+  private func startSelected() -> KeyPress.Result {
+    guard let id = viewModel.selectedIssueID else { return move(.down) }
+    guard let issue = viewModel.issues.first(where: { $0.id == id }),
+      issue.state.type != "completed", (linkedSessions[issue.identifier] ?? []).isEmpty
+    else { return .ignored }
+    start(id, provider: nil)
+    return .handled
+  }
+
+  private var isSearching: Bool {
+    !viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty
+  }
+
+  private func clearSearch() {
+    viewModel.searchText = ""
+    MainThreadStallMonitor.breadcrumb("sprint filter: clear")
   }
 
   @ViewBuilder
@@ -146,27 +185,17 @@ struct LinearSprintDestination: View {
   }
 
   private var refreshButton: some View {
-    IconButton(
-      systemImage: "arrow.clockwise",
-      accessibilityLabel: "Refresh issues",
-      accessibilityIdentifier: "sprint.refresh"
-    ) {
+    SprintRefreshButton(isLoading: viewModel.loadState == .loading, accessibilityLabel: "Refresh issues") {
       Task { await viewModel.load() }
     }
-    .disabled(viewModel.loadState == .loading)
-    .help("Refresh issues  ⌘R")
-    .keyboardShortcut("r", modifiers: .command)
   }
 
   private var filtersButton: some View {
     FiltersButton(
-      activeCount: viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : 1,
+      activeCount: isSearching ? 1 : 0,
       accessibilityIdentifier: "sprint.filters",
       onOpen: { isFiltersOpen = true },
-      onClear: {
-        viewModel.searchText = ""
-        MainThreadStallMonitor.breadcrumb("sprint filter: clear")
-      }
+      onClear: clearSearch
     )
     .popover(isPresented: $isFiltersOpen, arrowEdge: .bottom) {
       LinearSprintFiltersPopover(viewModel: viewModel)
@@ -213,6 +242,8 @@ struct LinearSprintDestination: View {
 private struct LinearSprintFiltersPopover: View {
   @Bindable var viewModel: LinearViewModel
 
+  @State private var isConfirmingDisconnect = false
+
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
       WorkbenchField("Search issues", text: $viewModel.searchText, systemImage: "magnifyingglass")
@@ -228,8 +259,20 @@ private struct LinearSprintFiltersPopover: View {
       }
       Toggle("Move issues to started when a session begins", isOn: $viewModel.moveToStartedOnLaunch)
         .wbText(.callout)
-      Button("Disconnect Linear") { viewModel.disconnect() }
+      // Deletes the key from the Keychain, so it asks first.
+      Button("Disconnect Linear") { isConfirmingDisconnect = true }
         .buttonStyle(.wbDestructive)
+        .confirmationDialog(
+          "Disconnect Linear?", isPresented: $isConfirmingDisconnect, titleVisibility: .visible
+        ) {
+          Button("Disconnect", role: .destructive) {
+            viewModel.disconnect()
+            MainThreadStallMonitor.breadcrumb("sprint linear: disconnect")
+          }
+          Button("Cancel", role: .cancel) {}
+        } message: {
+          Text("You need to paste your API key again to reconnect.")
+        }
     }
     .padding(DesignTokens.Spacing.lg)
     .frame(width: DesignTokens.Width.popover)
@@ -251,7 +294,8 @@ private struct LinearSprintFiltersPopover: View {
 /// No key yet, or a rejected key: ask for an API key.
 private struct LinearConnectState: View {
   @Bindable var viewModel: LinearViewModel
-  let errorMessage: String?
+  /// Linear refused the stored key; said once, in the description.
+  let isKeyRejected: Bool
 
   @State private var apiKey = ""
   @State private var isConnecting = false
@@ -259,42 +303,44 @@ private struct LinearConnectState: View {
   private var trimmedKey: String { apiKey.trimmingCharacters(in: .whitespacesAndNewlines) }
 
   var body: some View {
-    VStack(spacing: 0) {
-      if let errorMessage {
-        ErrorBanner(errorMessage)
-          .padding(.horizontal, DesignTokens.Spacing.lg)
-      }
-      WBEmptyState(
-        systemImage: "key",
-        title: "Connect Linear",
-        description: "Paste a personal API key from Linear's security settings."
-      ) {
-        VStack(spacing: DesignTokens.Spacing.md) {
-          SecureField("API key", text: $apiKey)
-            .textFieldStyle(.plain)
-            .wbText(.body)
-            .padding(.horizontal, DesignTokens.Spacing.sm)
-            .frame(width: 300, height: DesignTokens.Size.control)
-            .background(Color.wbSurfaceField, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
-            .onSubmit(connect)
-          HStack(spacing: DesignTokens.Spacing.sm) {
-            Button("Connect", action: connect)
-              .buttonStyle(.wbPrimary)
-              .disabled(trimmedKey.isEmpty || isConnecting)
-            if let url = URL(string: "https://linear.app/settings/account/security") {
-              Link("Create a key", destination: url)
-                .wbText(.callout)
-            }
+    WBEmptyState(
+      systemImage: "key",
+      isError: isKeyRejected,
+      title: "Connect Linear",
+      description: isKeyRejected
+        ? "Linear rejected the API key. Paste a new one from Linear's security settings."
+        : "Paste a personal API key from Linear's security settings."
+    ) {
+      VStack(spacing: DesignTokens.Spacing.md) {
+        SecureField("API key", text: $apiKey)
+          .textFieldStyle(.plain)
+          .wbText(.body)
+          // Same inset as `WorkbenchField`.
+          .padding(.horizontal, DesignTokens.Spacing.smPlus)
+          .frame(width: 300, height: DesignTokens.Size.control)
+          .background(
+            Color.wbSurfaceField,
+            in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
+          )
+          .onSubmit(connect)
+        HStack(spacing: DesignTokens.Spacing.sm) {
+          Button(isConnecting ? "Connecting…" : "Connect", action: connect)
+            .buttonStyle(.wbPrimary)
+            .disabled(trimmedKey.isEmpty || isConnecting)
+          if let url = URL(string: "https://linear.app/settings/account/security") {
+            Link("Create a key", destination: url)
+              .wbText(.callout)
           }
         }
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   private func connect() {
     let key = trimmedKey
-    guard !key.isEmpty else { return }
+    // Return in the field skips the button's disabled state.
+    guard !key.isEmpty, !isConnecting else { return }
     isConnecting = true
     Task {
       await viewModel.connect(apiKey: key)
@@ -308,14 +354,17 @@ private struct LinearRetryState: View {
   let message: String
 
   var body: some View {
-    VStack(spacing: 0) {
-      ErrorBanner(message)
-        .padding(.horizontal, DesignTokens.Spacing.lg)
-      WBEmptyState(systemImage: "exclamationmark.triangle", isError: true, title: "Could not load Linear") {
-        Button("Retry") { Task { await viewModel.load() } }
-          .buttonStyle(.wbSecondary)
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    WBEmptyState(
+      systemImage: "exclamationmark.triangle",
+      isError: true,
+      title: "Could not load Linear",
+      description: message
+    ) {
+      // A load swaps this screen for the spinner; the view model also ignores
+      // a second load while one runs.
+      Button("Retry") { Task { await viewModel.load() } }
+        .buttonStyle(.wbPrimary)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
