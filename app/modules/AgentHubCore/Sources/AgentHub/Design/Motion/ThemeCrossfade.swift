@@ -2,8 +2,8 @@
 //  ThemeCrossfade.swift
 //  AgentHub
 //
-//  One window crossfade when the user switches Standard | Warm or light |
-//  dark in the title row (motion plan item 13). Without it, a light ↔ dark
+//  One window crossfade when the palette's "Switch appearance" flips light
+//  and dark (motion plan item 13). Without it, a light ↔ dark
 //  switch is a full-window brightness cut, and SwiftUI and the terminal
 //  repaint at different moments, which looks broken.
 //

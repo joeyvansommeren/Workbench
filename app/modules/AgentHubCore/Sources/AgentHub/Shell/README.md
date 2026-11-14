@@ -12,7 +12,7 @@ only its own slot:
 | Slot | View | Replaced by |
 |---|---|---|
 | sidebar | `ShellSidebarContainer` (`Sidebar/`: session tree, footer) | P5 |
-| toolbar | `ShellToolbar` (destination tabs, search, palette, light/dark) | P12 |
+| toolbar | `ShellToolbar` (destination tabs, search) | P12 |
 | detail | `ShellDetailSlot` (one `case` per destination) | P6 Sessions, P8 Reviews, P9 Jira and Linear |
 
 Per-window state lives in `ShellRoot`: `WorkbenchShellModel`,
@@ -30,11 +30,15 @@ Measured in an AppKit test host on macOS 27.
   900 pt wide the spacer item jumps before the toggle, and an item with
   `maxWidth: .infinity` stays at its minimum, so P6's tab strip cannot fill.
 - **Variant B (chosen).** `.hiddenTitleBar` window (as legacy), no toolbar items,
-  safe-area top is 0, and the shell draws its own 52 pt row. Nothing ignores the
-  top safe area except backgrounds. `TitleBarDragArea` gives the empty row drag
-  and double-click (it honours `AppleActionOnDoubleClick`).
-- **Known gap (closed in P12).** Without a toolbar the system title bar is
-  32 pt and the traffic lights sit at x 9, y 9. P12 centres them; see below.
+  safe-area top is 0, and the shell draws its own title band (height from
+  `ShellTitleBarMetrics`, see "Title band"). Nothing ignores the top safe area
+  except backgrounds. `TitleBarDragArea` gives the empty band drag and
+  double-click (it honours `AppleActionOnDoubleClick`).
+- **Traffic lights.** Without a toolbar the system title bar is 32 pt and the
+  traffic lights sit at x 9–69, centred 16 pt from the top (macOS 27). P12
+  centred them in a 52 pt bar with a toolbar; that broke every click in the
+  title row and was undone. The title band now follows the lights instead.
+  See "Title row clicks" and "Title band".
 
 ## Layout-loop rules
 
@@ -229,44 +233,32 @@ GeometryReader.
   `LegacySectionMapper`: `.sprint` → Jira, `.linear` → Linear, `.workflows` →
   Sessions. The destination was never saved, so no old state needs mapping;
   the old `sprintTracker` default is no longer read.
-- **Title row** (`ShellToolbar`): tabs at the content column, a spacer, Search,
-  Standard | Warm (`ShellPaletteSwitch`) and light/dark (`ShellAppearanceButton`:
-  moon in light, sun in dark; explicit Light/Dark, from System the opposite of
-  what shows). Both use `WorkbenchAppearanceController` and the stored values,
-  so the bar, Settings and the palette stay in step. Breadcrumbs:
-  `palette: <x>`, `appearance: <x>`, `shell: <destination>`.
-- **Traffic lights.** The sidebar toggle is the window's only toolbar item
-  (`ShellTitlebarToolbar`, `.navigation`, Liquid Glass background hidden,
-  toolbar background hidden). With a toolbar AppKit draws a 52 pt unified bar
-  and centres the real traffic lights at y 26 (frames x 19, 42, 65). Measured
-  in a test host (macOS 27): empty `NSToolbar` → 66 pt bar; one item → 52 pt;
-  the item lands at x 100–128, y 12–40 at 1440 and 900 wide; its AppKit
-  viewer takes x 92–136 over the full 52 pt, which is why the toggle is the
-  item and not a SwiftUI view drawn under an invisible item. Clicks elsewhere
-  in the band still reach the hosting view (`TitleBarDragArea`: drag, and
-  double-click per `AppleActionOnDoubleClick`).
+- **Title row** (`ShellToolbar`): tabs at the content column, a spacer, then
+  Search. Standard | Warm and light/dark left the row (2026-11-14, Joey): they
+  live in Settings › Appearance (`WorkbenchAppearanceSettingsSection`) and the
+  palette's "Switch appearance", which crossfades the window
+  (`ThemeCrossfade`). Breadcrumbs: `appearance: <x>`, `shell: <destination>`.
+- **Sidebar toggle and traffic lights.** No `NSToolbar` (see "Title row
+  clicks"). The toggle is `ShellWindowControls`, a SwiftUI overlay on
+  `ShellFrame`, 12 pt right of the zoom button (x 81–109 on macOS 27; 8–36 in
+  full screen), centred in the title band; it stays put when the sidebar
+  hides. Its background is a `TitleBarDragArea` over the sidebar column, so
+  the whole band drags the window. Band height and positions: "Title band".
 - **Rejected:** moving `standardWindowButton`s by hand. AppKit lays them out
   again on resize, zoom, full screen and appearance changes, and the 32 pt
   titlebar container would clip them, so they would need moving from layout
   callbacks: a layout-loop risk.
-- **Toolbar never changes at runtime.** `ShellWindowChrome` (hooked up once
-  per window) turns off toolbar customization, display-mode changes and
-  autosave; `ShellCommands` replaces the `.toolbar` command group, so View has
-  no Show/Hide Toolbar. Check when touching either: a hidden or resized
-  toolbar changes the title bar height and the top safe area at runtime, and
-  would remove the only sidebar toggle.
+- **View menu.** `ShellCommands` replaces the `.toolbar` command group, so
+  View has no Show/Hide Toolbar item.
 - **Full screen.** `ShellWindowChrome` sets `WorkbenchShellModel.isFullScreen`
-  from the window's full-screen notifications (never from geometry). With the
-  sidebar hidden the title row's leading padding drops from 142 to 50, since
-  the traffic lights are gone (the toggle's full-screen position is assumed,
-  not measured).
+  from the window's full-screen notifications (never from geometry). The
+  toggle moves to x 8 and, with the sidebar hidden, the title row's leading
+  padding drops from 123 to 50, since the traffic lights are gone.
 - **Narrow windows.** The tabs fall back to icon + count, then icon only
   (`ViewThatFits`); the row has `minWidth: 0` and gives way to the trailing
   controls.
-- **Safe area.** With the toolbar the top safe area is 52 pt (0 without it
-  under `.hiddenTitleBar`). `ShellFrame` ignores the top container safe area
-  and lays out from the window's top edge, so the layout is the same either
-  way and never reads the inset. The item set never changes at runtime.
+- **Safe area.** `ShellFrame` ignores the top container safe area and lays
+  out from the window's top edge, so the layout never reads the inset.
 - **Sessions.** One session, the sidebar's selection. `SessionDetailStateModel`
   (was `SessionTabsModel`) keeps per-session content mode, Files state, side
   panel segment and auto-open state, plus the selection upkeep: on launch the
@@ -279,7 +271,90 @@ GeometryReader.
   shown session per window in the v17 `openSessionTabIds` column (migration
   untouched; ordered union across windows via `OpenSessionTabsAggregate`; the
   first window takes it back via `claimRestoredOpenSessionTabIds`).
-- **Sidebar** starts with the repo → branch → session tree at 52 pt.
+- **Sidebar** starts with the repo → branch → session tree at the content
+  panel's top (`ShellLayout.contentTop`, 40 pt on macOS 27).
+
+## Title row clicks (fix, 2026-11-14)
+
+- **Bug.** In the installed app no control in the title row took a click:
+  tabs, Search, Standard | Warm, light/dark. The sidebar toggle worked.
+- **Root cause.** P12 gave the window an `NSToolbar` (the toggle as its only
+  item) for the 52 pt bar and centred traffic lights. With a toolbar, a
+  mouse-down under the titlebar reaches the content only inside the region
+  the content's hosting view reports through AppKit's
+  `_regionForOpaqueDescendants:forMove:forUnderTitlebar:`. Elsewhere
+  `-[NSWindow sendEvent:]` calls `performWindowDragWithEvent:` and no view
+  gets `mouseDown:`. SwiftUI's region covers its controls in a simple tree,
+  but not once the content has composited layers: one `.clipShape` or
+  `.shadow` below the row (the content panel has both) was enough. Hit
+  testing was never the problem: the frame view resolves those points into
+  the hosting view.
+- **Evidence** (macOS 27, real `ShellFrame` + `ShellToolbar`, a trusted probe
+  app that loads the test bundle, key and active window, real HID clicks and
+  `NSWindow.sendEvent`, also inside a real `WindowGroup`): with the toolbar,
+  tab and Search clicks did nothing, and the hosting view never received
+  `mouseDown:`. Without it they worked. A bare row plus a toolbar worked until
+  a clipped or shadowed view was added below the row. P12's measurement used
+  a stand-alone host with no such layers, so it saw clicks pass.
+- **Fix (approach c): no `NSToolbar`.** The toggle is a SwiftUI overlay again
+  (`ShellWindowControls`), as before P12. The lights stay at AppKit's default
+  for a hidden title bar, and the title band is fitted to them ("Title band").
+- **Rejected:** (a) the whole row as the toolbar's only item. Clicks work
+  there, but AppKit sizes a flexible SwiftUI item to its minimum. Its width
+  would have to come from window-resize state, and an item one frame too wide
+  moves to overflow, which takes the whole row and the toggle with it (a
+  runtime toolbar change). (b) Keep the toolbar and mark the row as
+  interactive: an opaque, non-movable AppKit view behind the row did not
+  enter SwiftUI's region, and there is no public API for it.
+- **Guard.** `ShellTitleBarHitTests` hosts the real `ShellFrame` the way a
+  scene does and clicks every title-row control through `NSWindow.sendEvent`
+  at 1440 and 900 pt. It also checks the empty bar (drag, double-click zoom,
+  with the double-click setting injected, not read from the machine) and
+  that the window has no toolbar. It failed on the P12 code and passes now.
+  (The real `WorkbenchShellView` root cannot be hosted in `xctest`: its
+  sessions view model asks `UNUserNotificationCenter` for permission, which
+  throws without an app bundle. The static guard below covers the root.)
+  `TitleBarDragView` accepts the first mouse, like a real title bar, so an
+  inactive window drags and zooms from the first click.
+- **Static guard.** `scripts/check-shell.sh` (run by `scripts/test.sh`, also
+  in `packages`, so CI runs it) fails on `.toolbar`, `ToolbarItem…` and
+  `.searchable` in `Shell/`, `Reviews/`, `Sprint/`, `Design/` and the two
+  Sprint destination files. Any of them gives the window an `NSToolbar`
+  again. Legacy flag-off files are listed in the script's `ALLOWED`.
+
+## Title band (2026-11-14)
+
+- **One line.** Traffic lights, sidebar toggle, tabs and Search share one
+  centre line, as in the prototype (Joey's complaint was that they did not).
+  The lights cannot move safely (see "Rejected" in P12), so the band follows
+  them.
+- **Measured, not assumed.** `ShellWindowChrome` reads the real close and
+  zoom buttons at window hookup (next run-loop turn) and again on window
+  notifications: leaving full screen (a window that opened in full screen
+  keeps the default until then), a screen or backing-scale change, and
+  becoming key. Never from layout; the model ignores equal metrics.
+  `ShellRoot` applies it (`.shellWindowChrome(_:)`) outside the
+  `.wbRedrawsOnPaletteChange()` subtree, so a palette switch keeps it; it
+  removes its observers when dismantled. The result goes to
+  `WorkbenchShellModel.titleBar` (`ShellTitleBarMetrics`): band height = 2 ×
+  the close button's centre below the top edge; toggle leading = the zoom
+  button's right edge + 12. The buttons' place does not depend on our
+  content, so nothing feeds back. Implausible values (lights hidden in full
+  screen, band outside 20–60) are ignored. The default, `.standard`, is the
+  macOS 27 measurement: band 32 pt (lights centred 16 pt from the top),
+  zoom button ending at x 69. Only macOS 27 was available to measure; older
+  systems may differ (a 28 pt title bar), which is why it is measured.
+- **Below the band.** The content panel starts 8 pt below it
+  (`DesignTokens.Inset.panel`, 40 pt on macOS 27), and the sidebar tree
+  starts at the same y (`ShellLayout.contentTop`).
+- **Controls.** The destination tabs are 28 pt (`Size.control`, not the
+  32 pt `Size.tab`), so the pill clears the window's top edge in a 32 pt
+  band. Search and the toggle are 28 pt too. All are centred in the band.
+  The old 52 pt `Size.titlebar` token is gone.
+- **Guard.** `ShellTitleBarHitTests` sweeps each control top to bottom and
+  checks that its centre line is the close button's (±1 pt) at 1440 and 900
+  pt, and that the toggle sits 12 pt after the zoom button. It also checks
+  full screen with the lights hidden: toggle at the edge, tabs still clicked.
 
 ## P14: motion pass
 
@@ -312,8 +387,8 @@ Plan: `Workbench-ui-explorations/apple/MOTION-PLAN.md`.
 - **Approve ⌘↩** handlers are owned by their request
   (`setApprovalShortcutHandler(forKey:request:_:)`): a banner leaving late
   cannot clear the next request's handler.
-- **Theme switch** from the title row: one window crossfade of a `CALayer`
-  snapshot (`Design/Motion/ThemeCrossfade.swift`, 0.24 s ease-out). It also
+- **Theme switch** from the palette's "Switch appearance": one window
+  crossfade of a `CALayer` snapshot (`Design/Motion/ThemeCrossfade.swift`, 0.24 s ease-out). It also
   runs under Reduce Motion.
 - **Hover preview:** 700 ms for the first, then at once while one is open or
   for 1 s after (`HoverPreviewTiming` on `SidebarTreeActions`).

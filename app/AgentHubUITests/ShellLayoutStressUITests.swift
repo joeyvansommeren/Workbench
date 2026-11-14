@@ -43,17 +43,13 @@ final class ShellLayoutStressUITests: XCTestCase {
       "The new shell did not load"
     )
 
-    // Double-click the empty title area 10× in the system 32 pt strip, then 4×
-    // lower in the custom 52 pt row (TitleBarDragArea). Each zooms or un-zooms.
-    let systemStrip = window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0))
-      .withOffset(CGVector(dx: 0, dy: 12))
-    for _ in 0..<10 {
-      systemStrip.doubleClick()
-    }
-    let customRow = window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0))
-      .withOffset(CGVector(dx: 0, dy: 42))
-    for _ in 0..<4 {
-      customRow.doubleClick()
+    // Double-click the empty part of the title band 14×: the band is as high as
+    // the system title bar (ShellTitleBarMetrics), so y 16 is its centre line.
+    // Each double-click zooms or un-zooms.
+    let titleBand = window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0))
+      .withOffset(CGVector(dx: 0, dy: 16))
+    for _ in 0..<14 {
+      titleBand.doubleClick()
     }
     assertRunning(app)
 

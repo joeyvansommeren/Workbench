@@ -215,8 +215,8 @@ struct MonitoringCardView: View {
 
 The new interface (`Shell/`, see `Shell/README.md`) is the default. `AgentHubApp` reads `AppleShellLaunchFlag` once at launch: unset or YES gives the shell; an explicit NO (Settings › General › New interface, or `-com.agenthub.features.appleShell NO`) gives the legacy `AgentHubOperationsView`. The legacy shell stays behind the flag until P11b deletes it. Design rules: `DESIGN.md`.
 
-- `ShellFrame` has three slots: sidebar (288 pt), a 52 pt title row, and the detail in an inset content panel. No `NavigationSplitView`.
-- Title row: destination tabs Sessions, Reviews, Jira, Linear (⌘1–⌘4, with counts), then Search, Standard | Warm and light/dark.
+- `ShellFrame` has three slots: sidebar (288 pt), a title band as high as the system title bar (measured from the traffic lights, 32 pt on macOS 27, so lights and controls share one line), and the detail in an inset content panel 8 pt below it. No `NavigationSplitView`.
+- Title row: destination tabs Sessions, Reviews, Jira, Linear (⌘1–⌘4, with counts), then Search. Appearance and palette are in Settings › Appearance (and the palette's "Switch appearance"), not in the title row.
 - Sidebar: one repo → branch → session tree (`Shell/Sidebar/`). Workflows are folded into the branch rows; there is no Workflows screen.
 - Per-window state (`WorkbenchShellModel`, `SessionNavigationModel`, `SessionsActionCoordinator`) lives in `ShellRoot`, never in provider singletons.
 
@@ -437,7 +437,7 @@ The short version: GitHub observation is a shared actor service in `AgentHubGitH
 ### Rules for new UI work (shell)
 
 - **No split views** in the shell path: no `NavigationSplitView`, `HSplitView`, `VSplitView`, `NSSplitView` or `.inspector`. Use a plain `HStack` with fixed widths, or `ResizablePanelContainer`. Trailing panels (side panel, Reviews and Sprint detail) are fixed-width `HStack` children.
-- **One fixed `NSToolbar` item.** The sidebar toggle (`ShellTitlebarToolbar`) is the window's only toolbar item. It gives the 52 pt title bar and the centred traffic lights. Never add, remove or swap toolbar items, and never toggle toolbar or title visibility at runtime. `ShellWindowChrome` turns off toolbar customization; `ShellCommands` removes Show/Hide Toolbar.
+- **No `NSToolbar`, no `.toolbar` on the shell window.** With a toolbar, AppKit sends a click under the titlebar to the content only inside the region SwiftUI reports as opaque, and SwiftUI leaves the title row's controls out of it once the content has composited layers (clip, shadow): every click in the row became a window drag (release blocker, 2026-11-14; `Shell/README.md`, "Title row clicks"). The sidebar toggle is a SwiftUI overlay (`ShellWindowControls`). `ShellTitleBarHitTests` clicks every title-row control through `NSWindow.sendEvent`; run it after any change to the title row, `ShellFrame` or the window style. `scripts/check-shell.sh` (in `scripts/test.sh` and CI) fails on `.toolbar`, `ToolbarItem…` and `.searchable` in shell code.
 - **The top safe area is ignored once, in `ShellFrame`.** Layout starts at the window's top edge and never reads the inset. No other content ignores the top safe area; only backgrounds may.
 - **No `GeometryReader` widths.** No size read from geometry may feed the frame of an ancestor or sibling. If one is needed, use `onGeometryChange` with rounding, an equality check and hysteresis.
 - **Narrow widths use `ViewThatFits`**, not measured widths: the destination tabs fall back to icon + count, then icon only; the Reviews table drops columns.

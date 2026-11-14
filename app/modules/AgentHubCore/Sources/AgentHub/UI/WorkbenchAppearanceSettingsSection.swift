@@ -21,7 +21,7 @@ struct WorkbenchAppearanceSettingsSection: View {
   // Backed by the stored values, so a change made elsewhere (the palette's
   // "Switch appearance") shows here too.
   @AppStorage(AgentHubDefaults.appearance) private var appearanceRaw = AppearancePreference.system.rawValue
-  @AppStorage(AgentHubDefaults.palette) private var paletteRaw = PalettePreference.standard.rawValue
+  @AppStorage(AgentHubDefaults.palette) private var paletteRaw = PalettePreference.defaultPalette.rawValue
 
   var body: some View {
     Section("Appearance") {
@@ -39,7 +39,7 @@ struct WorkbenchAppearanceSettingsSection: View {
       LabeledContent("Palette") {
         WorkbenchSegmentedControl(
           selection: Binding(
-            get: { PalettePreference(rawValue: paletteRaw) ?? .standard },
+            get: { PalettePreference(rawValue: paletteRaw) ?? .defaultPalette },
             set: { WorkbenchAppearanceController.selectPalette($0) }
           ),
           accessibilityLabel: "Palette",

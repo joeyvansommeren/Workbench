@@ -77,36 +77,41 @@ struct WorkbenchPaletteTests {
 
   // MARK: - Warm spot-checks
 
-  @Test("warm light surfaceWindow matches #F3F1EC")
+  @Test("warm light surfaceWindow matches #F0EEE6")
   func warmLightSurfaceWindow() {
-    assertHex(WorkbenchPalette.appleWarmLight.surfaceWindow, "#F3F1EC")
+    assertHex(WorkbenchPalette.appleWarmLight.surfaceWindow, "#F0EEE6")
   }
 
-  @Test("warm light accent matches #1C1917 (ink)")
+  @Test("warm light accent matches #BE5837 (clay)")
   func warmLightAccent() {
-    assertHex(WorkbenchPalette.appleWarmLight.accent, "#1C1917")
+    assertHex(WorkbenchPalette.appleWarmLight.accent, "#BE5837")
   }
 
-  @Test("warm dark textPrimary matches #F3EEE8")
+  @Test("warm dark surfaceContent matches #262624 (warm charcoal)")
+  func warmDarkSurfaceContent() {
+    assertHex(WorkbenchPalette.appleWarmDark.surfaceContent, "#262624")
+  }
+
+  @Test("warm dark textPrimary matches #FAF9F5")
   func warmDarkTextPrimary() {
-    assertHex(WorkbenchPalette.appleWarmDark.textPrimary, "#F3EEE8")
+    assertHex(WorkbenchPalette.appleWarmDark.textPrimary, "#FAF9F5")
   }
 
-  @Test("warm dark accent matches #F3EEE8 (ink)")
+  @Test("warm dark accent matches #BE5837 (clay)")
   func warmDarkAccent() {
-    assertHex(WorkbenchPalette.appleWarmDark.accent, "#F3EEE8")
+    assertHex(WorkbenchPalette.appleWarmDark.accent, "#BE5837")
   }
 
   @Test("warm light linkUnderline is non-transparent")
   func warmLightLinkUnderline() {
     #expect(WorkbenchPalette.appleWarmLight.linkUnderline.a > 0)
-    assertAlpha(WorkbenchPalette.appleWarmLight.linkUnderline, expected: 0.35)
+    assertAlpha(WorkbenchPalette.appleWarmLight.linkUnderline, expected: 0.45)
   }
 
   @Test("warm dark linkUnderline is non-transparent")
   func warmDarkLinkUnderline() {
     #expect(WorkbenchPalette.appleWarmDark.linkUnderline.a > 0)
-    assertAlpha(WorkbenchPalette.appleWarmDark.linkUnderline, expected: 0.4)
+    assertAlpha(WorkbenchPalette.appleWarmDark.linkUnderline, expected: 0.5)
   }
 
   // MARK: - Alpha parity
@@ -162,6 +167,11 @@ struct WorkbenchPaletteTests {
       ("secondary on content", p.textSecondary, p.surfaceContent),
       ("tertiary on content", p.textTertiary, p.surfaceContent),
       ("primary on sidebar", p.textPrimary, p.surfaceSidebar),
+      // Sidebar role labels: tertiary on the sidebar, also under a hovered
+      // or selected row (translucent fills over the sidebar).
+      ("tertiary on sidebar", p.textTertiary, p.surfaceSidebar),
+      ("tertiary on sidebar + hover", p.textTertiary, p.surfaceHover.composited(over: p.surfaceSidebar)),
+      ("tertiary on sidebar + selected", p.textTertiary, p.surfaceSelected.composited(over: p.surfaceSidebar)),
     ]
     for (name, fg, bg) in pairs {
       // Composite translucent surfaces over the content panel, as they render.
@@ -205,6 +215,44 @@ struct WorkbenchPaletteTests {
   @Test("WCAG >= 4.5 text pairs (warm dark)")
   func contrastWarmDark() {
     assertTextContrast(.appleWarmDark, label: "warm dark")
+  }
+
+  @Test(
+    "WCAG >= 4.5 for the label on a primary button, at rest and on hover",
+    arguments: ["standard light", "standard dark", "warm light", "warm dark"]
+  )
+  func textOnAccentContrast(label: String) throws {
+    let palettes: [String: WorkbenchPalette] = [
+      "standard light": .appleLight, "standard dark": .appleDark,
+      "warm light": .appleWarmLight, "warm dark": .appleWarmDark,
+    ]
+    let palette = try #require(palettes[label])
+    for (state, fill) in [("rest", palette.accent), ("hover", palette.accentHover)] {
+      let ratio = palette.textOnAccent.contrastRatio(with: fill)
+      #expect(ratio >= 4.5, "\(label) text on accent (\(state)): \(ratio)")
+    }
+  }
+
+  /// The title row's Search field: placeholder text over `surfaceField` on
+  /// the window, with one `surfaceHover` step on top while hovered.
+  @Test(
+    "WCAG >= 4.5 for the Search placeholder over the field, at rest and on hover",
+    arguments: ["standard light", "standard dark", "warm light", "warm dark"]
+  )
+  func searchPlaceholderContrast(label: String) throws {
+    let palettes: [String: WorkbenchPalette] = [
+      "standard light": .appleLight, "standard dark": .appleDark,
+      "warm light": .appleWarmLight, "warm dark": .appleWarmDark,
+    ]
+    let palette = try #require(palettes[label])
+    let rest = palette.surfaceField.composited(over: palette.surfaceWindow)
+    let hover = palette.surfaceHover.composited(over: rest)
+
+    let restRatio = palette.textPlaceholder.contrastRatio(with: rest)
+    #expect(restRatio >= 4.5, "\(label) placeholder on field: \(restRatio)")
+
+    let hoverRatio = palette.textPlaceholder.contrastRatio(with: hover)
+    #expect(hoverRatio >= 4.5, "\(label) placeholder on hovered field: \(hoverRatio)")
   }
 
   @Test("WCAG >= 4.5 status text pairs (standard light)")
@@ -265,7 +313,7 @@ struct WorkbenchPaletteTests {
 
     // After switch, the registry should be warm
     let palette = registry.palette(dark: false)
-    assertHex(palette.surfaceWindow, "#F3F1EC")
+    assertHex(palette.surfaceWindow, "#F0EEE6")
   }
 
   @Test("palette(dark:) returns correct palette for warm")

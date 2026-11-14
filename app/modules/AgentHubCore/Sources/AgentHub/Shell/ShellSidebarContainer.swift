@@ -3,8 +3,9 @@
 //  AgentHub
 //
 //  SIDEBAR SLOT of the new shell. Fixed width (`DesignTokens.Width.sidebar`),
-//  `surfaceSidebar` background, content starts below the 52 pt title bar
-//  where the traffic lights and the sidebar toggle sit.
+//  `surfaceSidebar` background, content starts at the content panel's top
+//  (`ShellLayout.contentTop`), below the title band where the traffic lights
+//  and the sidebar toggle sit.
 //
 //  Contents (P5, `Shell/Sidebar/`): the repo > branch > session tree and
 //  the Open project footer. Reviews, Jira and Linear are tabs in the title
@@ -17,6 +18,7 @@ struct ShellSidebarContainer: View {
   @Environment(\.agentHub) private var agentHub
   @Environment(\.sessionNavigationModel) private var navigationModel
   @Environment(\.sessionsActionCoordinator) private var coordinator
+  @Environment(WorkbenchShellModel.self) private var shellModel
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -24,7 +26,7 @@ struct ShellSidebarContainer: View {
       SidebarTreeOrEmptyState(openProject: openProject)
         .frame(maxHeight: .infinity, alignment: .top)
     }
-    .padding(.top, DesignTokens.Size.titlebar)
+    .padding(.top, ShellLayout.contentTop(titleBar: shellModel.titleBar))
     .padding(.bottom, DesignTokens.Inset.sidebar)
     .frame(width: DesignTokens.Width.sidebar, alignment: .topLeading)
     .frame(maxHeight: .infinity, alignment: .top)

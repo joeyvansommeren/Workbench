@@ -39,11 +39,20 @@ struct WorkbenchAppearanceControllerTests {
     #expect(target.appearance?.name == expected)
   }
 
-  @Test("Nothing stored follows the system")
-  func defaultIsSystem() {
+  @Test("Nothing stored follows the system with the Warm palette")
+  func defaultIsSystemAndWarm() {
     let defaults = makeDefaults()
     #expect(WorkbenchAppearanceController.storedAppearance(defaults: defaults) == .system)
+    #expect(WorkbenchAppearanceController.storedPalette(defaults: defaults) == .warm)
+  }
+
+  @Test("A saved Standard palette still wins over the Warm default")
+  func savedStandardWins() {
+    let defaults = makeDefaults()
+    defaults.set("standard", forKey: AgentHubDefaults.palette)
     #expect(WorkbenchAppearanceController.storedPalette(defaults: defaults) == .standard)
+    defaults.set("bogus", forKey: AgentHubDefaults.palette)
+    #expect(WorkbenchAppearanceController.storedPalette(defaults: defaults) == .warm)
   }
 
   @Test("Selecting an appearance persists it and applies it at once")

@@ -62,14 +62,15 @@ and match the prototype's CSS one to one (`Fixtures/workbench-apple-tokens.css` 
 | `TerminalPalette.swift`, `TerminalPaletteResolver.swift` | Terminal colours |
 
 - **Radius:** container 14 (panel, sheet, popover, palette), row 10, item 8 (button, field, menu item), segment 6, small 5.
-- **Sizes:** title bar 52, control 28, row 30, tab 32. **Widths:** sidebar 288, side panel 400, sheet 560, palette 640.
+- **Sizes:** title band = the system title bar (measured; 32 on macOS 27), control 28 (also the title-band tabs), row 30, tab 32. **Widths:** sidebar 288, side panel 400, sheet 560, palette 640.
 - **Window minimum:** 900. Child minimums must add up to no more than that.
 
 ## 3. Palettes and appearance
 
-- **Palette:** Standard (neutral grey, blue accent) or Warm (warm paper, ink accent). Default Standard.
+- **Palette:** Warm (default) or Standard (neutral grey, blue accent). A saved choice wins over the default.
+- Warm borrows the Claude app's neutrals: ivory and stone in light, soft warm charcoal in dark, quiet hairlines and a sparing clay accent.
 - **Appearance:** System, Light or Dark. Each palette has a light and a dark set.
-- The user switches both live in Settings › Appearance or in the title row.
+- The user switches both live in Settings › Appearance; the palette's "Switch appearance" flips light and dark.
 - The window root applies `.wbRedrawsOnPaletteChange()`, or views stay stale after a switch.
 - WCAG ≥ 4.5 for primary, secondary and tertiary text on content and sidebar, and for each status text on its tint (`WorkbenchPaletteTests`).
 

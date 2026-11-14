@@ -54,7 +54,6 @@ extension DesignTokens {
 
 extension DesignTokens {
   public enum Size {
-    public static let titlebar: CGFloat = 52
     public static let control: CGFloat = 28
     public static let controlSmall: CGFloat = 24
     public static let row: CGFloat = 30
