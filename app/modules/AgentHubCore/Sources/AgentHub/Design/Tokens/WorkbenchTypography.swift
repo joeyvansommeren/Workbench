@@ -35,6 +35,19 @@ public enum WorkbenchTypography {
     static let semiBold = "InterDisplay-SemiBold"
     static let bold = "InterDisplay-Bold"
   }
+
+  /// Inter Display at a size off the type scale, for glyph-like text inside
+  /// fixed shapes (tile letters, avatar initials). Text runs use `.wbText`.
+  public static func uiFont(size: CGFloat, weight: Font.Weight) -> Font {
+    let name: String
+    switch weight {
+    case .bold, .heavy, .black: name = InterDisplay.bold
+    case .semibold:             name = InterDisplay.semiBold
+    case .medium:               name = InterDisplay.medium
+    default:                    name = InterDisplay.regular
+    }
+    return .custom(name, size: size)
+  }
 }
 
 // MARK: - Text style
@@ -135,9 +148,28 @@ extension WorkbenchTextStyle {
     trackingEm * size
   }
 
-  /// Line spacing = lineHeight - size (the leading between lines).
+  /// Extra space between lines, for Inter Display. See `lineSpacing(family:)`.
   public var lineSpacing: CGFloat {
-    lineHeight - size
+    lineSpacing(family: .interDisplay)
+  }
+
+  /// Extra space SwiftUI adds between lines so they land on `lineHeight`.
+  /// `.lineSpacing` adds to the font's own line height (ascender − descender
+  /// + leading, about 1.21 × size for Inter), not to the point size, so
+  /// subtract that. Never negative: a font taller than the token keeps its
+  /// natural height.
+  public func lineSpacing(family: WorkbenchTypography.Family) -> CGFloat {
+    Self.lineSpacing(lineHeight: lineHeight, naturalLineHeight: naturalLineHeight(family: family))
+  }
+
+  /// The font's own line height in points.
+  func naturalLineHeight(family: WorkbenchTypography.Family) -> CGFloat {
+    let font = nsFont(family: family)
+    return font.ascender - font.descender + font.leading
+  }
+
+  static func lineSpacing(lineHeight: CGFloat, naturalLineHeight: CGFloat) -> CGFloat {
+    max(0, lineHeight - naturalLineHeight)
   }
 }
 
@@ -233,8 +265,10 @@ public struct WorkbenchTextModifier: ViewModifier {
   public func body(content: Content) -> some View {
     content
       .font(style.font(family: family))
-      .kerning(style.tracking)
-      .lineSpacing(style.lineSpacing)
+      // `tracking` is letter-spacing (CSS `letter-spacing`); `kerning`
+      // adjusts pair kerning instead.
+      .tracking(style.tracking)
+      .lineSpacing(style.lineSpacing(family: family))
   }
 }
 

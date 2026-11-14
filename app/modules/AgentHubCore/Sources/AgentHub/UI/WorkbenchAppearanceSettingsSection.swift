@@ -31,6 +31,7 @@ struct WorkbenchAppearanceSettingsSection: View {
             get: { AppearancePreference(rawValue: appearanceRaw) ?? .system },
             set: { WorkbenchAppearanceController.selectAppearance($0) }
           ),
+          accessibilityLabel: "Appearance",
           accessibilityIdentifier: "settings.appearance"
         )
         .fixedSize()
@@ -41,6 +42,7 @@ struct WorkbenchAppearanceSettingsSection: View {
             get: { PalettePreference(rawValue: paletteRaw) ?? .standard },
             set: { WorkbenchAppearanceController.selectPalette($0) }
           ),
+          accessibilityLabel: "Palette",
           accessibilityIdentifier: "settings.palette"
         )
         .fixedSize()

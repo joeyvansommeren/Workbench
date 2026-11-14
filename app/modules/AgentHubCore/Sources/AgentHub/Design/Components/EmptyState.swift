@@ -61,7 +61,7 @@ public struct WBEmptyState<Actions: View>: View {
         .frame(width: 40, height: 40)
         .background(
           isError ? Color.wbStatusErrorTint : Color.wbSurfaceField,
-          in: RoundedRectangle(cornerRadius: 12)
+          in: RoundedRectangle(cornerRadius: DesignTokens.Radius.row, style: .continuous)
         )
         .padding(.bottom, DesignTokens.Spacing.xs)
 
