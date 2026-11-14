@@ -89,7 +89,6 @@ private struct SplitLeftStyle: ButtonStyle {
         .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
         .allowsHitTesting(false)
       }
-      .scaleEffect(configuration.isPressed ? 0.97 : 1)
       .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
   }
 }

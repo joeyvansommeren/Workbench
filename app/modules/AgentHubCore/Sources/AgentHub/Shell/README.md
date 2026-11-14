@@ -130,6 +130,7 @@ its checks icon once its detail has loaded (`checksByPullRequestID`).
 Breadcrumbs: `reviews scope: <x>`, `reviews pr: <repo>#<n>`, `reviews filters:
 open`, `reviews agent`, `reviews start review`, `reviews open session`.
 The legacy `GitHubReviewsView` is unchanged for the flag-off path.
+**P13** replaced the list with a table (`ReviewsTableView`, model in `ReviewsTableModel`: fixed column widths, `ViewThatFits` drops columns, sort in `GitHubReviewsViewModel.tableSort`) and the detail with a fixed 400 pt trailing panel (close button / Esc); breadcrumbs `reviews sort: <column>`, `reviews detail: open|close`.
 
 ## P9: Sprint
 

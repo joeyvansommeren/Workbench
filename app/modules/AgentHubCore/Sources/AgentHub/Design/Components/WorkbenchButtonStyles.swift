@@ -3,7 +3,7 @@
 //  AgentHub
 //
 //  Button styles for the new shell: primary, secondary, plain, destructive.
-//  All use scale 0.97 when pressed.
+//  No scale on press (Joey, 2026-11-14): pressed state is a colour change.
 //
 
 import SwiftUI
@@ -31,7 +31,6 @@ public struct WBPrimaryButtonStyle: ButtonStyle {
       }
       .shadow(color: .black.opacity(0.12), radius: 0.75, x: 0, y: 0.5)
       .shadow(color: .black.opacity(0.12), radius: 0.75, x: 0, y: 0.5)
-      .scaleEffect(configuration.isPressed ? 0.97 : 1)
       .opacity(isEnabled ? 1 : 0.45)
       .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
   }
@@ -55,7 +54,6 @@ public struct WBSecondaryButtonStyle: ButtonStyle {
       .background(isHovered ? Color.wbSurfaceControlHover : Color.wbSurfaceControl)
       .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
       .wbElevation(.control)
-      .scaleEffect(configuration.isPressed ? 0.97 : 1)
       .opacity(isEnabled ? 1 : 0.45)
       .onHover { isHovered = $0 }
       .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
@@ -79,7 +77,6 @@ public struct WBPlainButtonStyle: ButtonStyle {
       .frame(height: DesignTokens.Size.control)
       .background(isHovered ? Color.wbSurfaceHover : .clear)
       .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
-      .scaleEffect(configuration.isPressed ? 0.97 : 1)
       .opacity(isEnabled ? 1 : 0.45)
       .onHover { isHovered = $0 }
       .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
@@ -104,7 +101,6 @@ public struct WBDestructiveButtonStyle: ButtonStyle {
       .background(isHovered ? Color.wbSurfaceControlHover : Color.wbSurfaceControl)
       .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.item))
       .wbElevation(.control)
-      .scaleEffect(configuration.isPressed ? 0.97 : 1)
       .opacity(isEnabled ? 1 : 0.45)
       .onHover { isHovered = $0 }
       .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)

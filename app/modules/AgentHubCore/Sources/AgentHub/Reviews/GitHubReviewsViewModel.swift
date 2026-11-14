@@ -60,6 +60,8 @@ public final class GitHubReviewsViewModel {
   // time the user comes back from a session, and @State would reset the order.
   public var searchText = ""
   var tableSortOrder = GitHubReviewTableRow.suggestedSortOrder
+  /// The new shell's table sort; nil is the suggested order.
+  var tableSort: ReviewsTableSort?
   public var selectedPullRequestID: String? {
     didSet {
       guard oldValue != selectedPullRequestID else { return }

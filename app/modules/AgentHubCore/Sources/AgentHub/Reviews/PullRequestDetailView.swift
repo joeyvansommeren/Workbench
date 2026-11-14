@@ -2,10 +2,12 @@
 //  PullRequestDetailView.swift
 //  AgentHub
 //
-//  The detail column of the new shell's Reviews view (`.pr-detail` in the
-//  prototype): title, byline, "Review with <agent>" and "Open on GitHub",
-//  the property card (Checks, Changes, Reviewers, Ticket, Session) and the
-//  Markdown description. The whole column scrolls, so long bodies scroll.
+//  The pull request detail of the new shell's Reviews view: a fixed-width
+//  trailing panel next to the table (`.pr-detail` in the prototype). A header
+//  bar (refresh, open on GitHub, close), then the title, byline and state
+//  chips, "Review with <agent>", the property card (Checks, Changes,
+//  Reviewers, Ticket, Sessions), the checks list, the description and the
+//  conversation. The panel body scrolls.
 //
 
 import AgentHubGitHub
@@ -13,7 +15,7 @@ import AppKit
 import MarkdownUI
 import SwiftUI
 
-/// What the "Review with <agent>" split button needs from its host.
+/// What the "Review with <agent>" controls need from their host.
 struct PullRequestReviewControl {
   var agent: SessionProviderKind
   let templates: [GitHubPromptTemplate]
@@ -36,118 +38,18 @@ struct PullRequestReviewControl {
   }
 }
 
-struct PullRequestDetailView: View {
-  let pullRequest: GitHubProjectPullRequest
-  let detail: GitHubReviewDetail?
-  let isLoadingDetail: Bool
-  let detailError: String?
-  let tileColor: RepositoryTileColor
-  let viewerLogin: String?
-  let sessionLink: GitHubReviewSessionLink?
+/// The follow-ups a linked session can get from the detail.
+enum PullRequestSessionFollowUp {
+  case pullAndReviewAgain
+  case sendCommand
+}
+
+/// The agent and prompt menu, shared by the detail's split button and the
+/// table's per-row "Review" menu.
+struct PullRequestReviewMenuItems: View {
   let review: PullRequestReviewControl
-  let onOpenSession: (GitHubReviewSessionLink) -> Void
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: DesignTokens.Spacing.xl) {
-        header
-        actions
-        if let detailError {
-          ErrorBanner(detailError)
-        }
-        properties
-        description
-      }
-      .padding(.top, DesignTokens.Spacing.xxl)
-      .padding(.horizontal, DesignTokens.Spacing.xxxl)
-      .padding(.bottom, DesignTokens.Spacing.xxxl)
-      // 680 includes the padding, as `.pr-detail-inner` (border-box) does.
-      .frame(maxWidth: 680, alignment: .leading)
-      .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    .accessibilityIdentifier("reviews.detail")
-  }
-
-  // MARK: - Header
-
-  private var header: some View {
-    VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-      Text(pullRequest.title)
-        .wbText(.title2)
-        .foregroundStyle(Color.wbTextPrimary)
-        .fixedSize(horizontal: false, vertical: true)
-        .textSelection(.enabled)
-      byline
-    }
-  }
-
-  private var byline: some View {
-    HStack(spacing: DesignTokens.Spacing.xsPlus) {
-      LetterTile(letter: pullRequest.repositoryName.first ?? "?", color: tileColor)
-      // Verbatim: a localized key would group the number ("#1.843").
-      Text(verbatim: "\(pullRequest.repositoryName) #\(pullRequest.number)")
-        .wbText(.codeSmall)
-        .fixedSize()
-      separator
-      Text(pullRequest.authorLogin ?? "unknown")
-        .wbText(.callout)
-        .lineLimit(1)
-      if let detail {
-        separator
-        Text(verbatim: "\(detail.pullRequest.headRefName) → \(detail.pullRequest.baseRefName)")
-          .wbText(.codeSmall)
-          .lineLimit(1)
-          .truncationMode(.middle)
-      }
-    }
-    .foregroundStyle(Color.wbTextSecondary)
-  }
-
-  private var separator: some View {
-    Text("·").wbText(.callout)
-  }
-
-  // MARK: - Actions
-
-  private var actions: some View {
-    HStack(spacing: DesignTokens.Spacing.sm) {
-      reviewButton
-      Button {
-        guard let url = URL(string: pullRequest.url) else { return }
-        NSWorkspace.shared.open(url)
-      } label: {
-        HStack(spacing: DesignTokens.Spacing.xsPlus) {
-          Text("Open on GitHub")
-          Image(systemName: "arrow.up.right")
-            .font(.system(size: 10, weight: .semibold))
-        }
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.wbPlain)
-      .fixedSize()
-      .accessibilityIdentifier("reviews.openOnGitHub")
-    }
-  }
-
-  private var reviewButton: some View {
-    let agent = review.agent
-    let isAvailable = review.isAgentAvailable(agent)
-    let title =
-      review.isStarting ? "Starting…" : "Review with \(PullRequestReviewControl.displayName(agent))"
-    return SplitButton(title, accessibilityIdentifier: "reviews.startReview") {
-      guard isAvailable, !review.isStarting, let template = review.primaryTemplate else { return }
-      review.onReview(agent, template)
-    } menu: {
-      reviewMenu
-    }
-    .fixedSize()
-    .disabled(review.isStarting)
-    .opacity(isAvailable && !review.isStarting ? 1 : 0.55)
-    .help(isAvailable ? "Start an independent review session" : agent.notInstalledHelp)
-  }
-
-  @ViewBuilder
-  private var reviewMenu: some View {
     Section("Agent") {
       ForEach(SessionProviderKind.allCases, id: \.self) { agent in
         Toggle(
@@ -169,6 +71,183 @@ struct PullRequestDetailView: View {
         .disabled(!review.isAgentAvailable(review.agent))
     }
   }
+}
+
+struct PullRequestDetailView: View {
+  let pullRequest: GitHubProjectPullRequest
+  let detail: GitHubReviewDetail?
+  let isLoadingDetail: Bool
+  let detailError: String?
+  let detailUpdatedAt: Date?
+  let tileColor: RepositoryTileColor
+  let viewerLogin: String?
+  let sessionLinks: [GitHubReviewSessionLink]
+  let sessionFeedback: String?
+  let review: PullRequestReviewControl
+  let onOpenSession: (GitHubReviewSessionLink) -> Void
+  let onFollowUp: (GitHubReviewSessionLink, PullRequestSessionFollowUp) -> Void
+  let onRefresh: () -> Void
+  let onClose: () -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      panelHeader
+      Color.wbBorderHairline.frame(height: 1)
+      ScrollView {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.xl) {
+          header
+          actions
+          if let detailError {
+            ErrorBanner(detailError)
+          }
+          properties
+          if let detail {
+            PullRequestChecksSection(items: PullRequestDetailPresentation.checkItems(detail.pullRequest.statusCheckRollup))
+          }
+          description
+          if let detail {
+            PullRequestConversationSection(
+              entries: PullRequestDetailPresentation.conversation(detail),
+              viewerLogin: viewerLogin
+            )
+          }
+        }
+        .padding(.top, DesignTokens.Spacing.lg)
+        .padding(.horizontal, DesignTokens.Spacing.xl)
+        .padding(.bottom, DesignTokens.Spacing.xxxl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .background(Color.wbSurfaceContent)
+    .accessibilityIdentifier("reviews.detail")
+  }
+
+  // MARK: - Panel header
+
+  private var panelHeader: some View {
+    HStack(spacing: DesignTokens.Spacing.xs) {
+      if let detailUpdatedAt {
+        Text("Refreshed \(detailUpdatedAt.formatted(date: .omitted, time: .shortened))")
+          .wbText(.callout)
+          .foregroundStyle(Color.wbTextTertiary)
+          .lineLimit(1)
+      }
+      Spacer(minLength: DesignTokens.Spacing.sm)
+      if isLoadingDetail {
+        ProgressView().controlSize(.small).frame(width: 24, height: 24)
+      } else {
+        IconButton(
+          systemImage: "arrow.clockwise", isSmall: true,
+          accessibilityLabel: "Refresh status and comments",
+          accessibilityIdentifier: "reviews.detail.refresh", action: onRefresh)
+        .help("Refresh status and comments")
+      }
+      IconButton(
+        systemImage: "arrow.up.right.square", isSmall: true,
+        accessibilityLabel: "Open on GitHub", action: openOnGitHub)
+      .help("Open on GitHub")
+      IconButton(
+        systemImage: "xmark", isSmall: true,
+        accessibilityLabel: "Close pull request details",
+        accessibilityIdentifier: "reviews.detail.close", action: onClose)
+      .help("Close (Esc)")
+    }
+    .padding(.leading, DesignTokens.Spacing.xl)
+    .padding(.trailing, DesignTokens.Spacing.md)
+    .frame(height: 44)
+  }
+
+  // MARK: - Header
+
+  private var header: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+      Text(pullRequest.title)
+        .wbText(.title2)
+        .foregroundStyle(Color.wbTextPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+      byline
+      tags
+    }
+  }
+
+  /// Two lines in the narrow panel: `repo #number · author`, then the branches.
+  private var byline: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+      HStack(spacing: DesignTokens.Spacing.xsPlus) {
+        LetterTile(letter: pullRequest.repositoryName.first ?? "?", color: tileColor)
+        // Verbatim: a localized key would group the number ("#1.843").
+        Text(verbatim: "\(pullRequest.repositoryName) #\(pullRequest.number)")
+          .wbText(.codeSmall)
+          .lineLimit(1)
+          .truncationMode(.middle)
+        Text("·").wbText(.callout)
+        Text(pullRequest.authorLogin ?? "unknown")
+          .wbText(.callout)
+          .lineLimit(1)
+      }
+      if let detail {
+        Text(verbatim: "\(detail.pullRequest.headRefName) → \(detail.pullRequest.baseRefName)")
+          .wbText(.codeSmall)
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .textSelection(.enabled)
+          .help("\(detail.pullRequest.headRefName) → \(detail.pullRequest.baseRefName)")
+      }
+    }
+    .foregroundStyle(Color.wbTextSecondary)
+  }
+
+  private var tags: some View {
+    let all = PullRequestDetailPresentation.headerTags(
+      detail: detail?.pullRequest, pullRequest: pullRequest)
+    // Not fixed-size: with many chips in the narrow panel they truncate
+    // instead of widening the column.
+    return HStack(spacing: DesignTokens.Spacing.xsPlus) {
+      ForEach(all) { ReviewsTagChip(tag: $0) }
+    }
+  }
+
+  // MARK: - Actions
+
+  private var actions: some View {
+    HStack(spacing: DesignTokens.Spacing.sm) {
+      reviewButton
+      Button(action: openOnGitHub) {
+        HStack(spacing: DesignTokens.Spacing.xsPlus) {
+          Text("Open on GitHub")
+          Image(systemName: "arrow.up.right")
+            .font(.system(size: 10, weight: .semibold))
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.wbPlain)
+      .fixedSize()
+      .accessibilityIdentifier("reviews.openOnGitHub")
+    }
+  }
+
+  private func openOnGitHub() {
+    guard let url = URL(string: pullRequest.url) else { return }
+    NSWorkspace.shared.open(url)
+  }
+
+  private var reviewButton: some View {
+    let agent = review.agent
+    let isAvailable = review.isAgentAvailable(agent)
+    let title =
+      review.isStarting ? "Starting…" : "Review with \(PullRequestReviewControl.displayName(agent))"
+    return SplitButton(title, accessibilityIdentifier: "reviews.startReview") {
+      guard isAvailable, !review.isStarting, let template = review.primaryTemplate else { return }
+      review.onReview(agent, template)
+    } menu: {
+      PullRequestReviewMenuItems(review: review)
+    }
+    .fixedSize()
+    .disabled(review.isStarting)
+    .opacity(isAvailable && !review.isStarting ? 1 : 0.55)
+    .help(isAvailable ? "Start an independent review session" : agent.notInstalledHelp)
+  }
 
   // MARK: - Properties
 
@@ -185,7 +264,10 @@ struct PullRequestDetailView: View {
             .textSelection(.enabled)
         }
       }
-      PropertyRow("Session", systemImage: "apple.terminal", showsDivider: false) { sessionValue }
+      PropertyRow(
+        sessionLinks.count > 1 ? "Sessions" : "Session", systemImage: "apple.terminal",
+        showsDivider: false
+      ) { sessionsValue }
     }
   }
 
@@ -235,11 +317,14 @@ struct PullRequestDetailView: View {
         Text("None").foregroundStyle(Color.wbTextSecondary)
       } else {
         HStack(spacing: DesignTokens.Spacing.xsPlus) {
-          ForEach(logins.prefix(3), id: \.self) { login in
+          ForEach(logins.prefix(2), id: \.self) { login in
             PersonChip(initials: login, name: isViewer(login) ? "You" : login)
+              .lineLimit(1)
           }
-          if logins.count > 3 {
-            Text("+\(logins.count - 3)").foregroundStyle(Color.wbTextSecondary)
+          if logins.count > 2 {
+            Text("+\(logins.count - 2)")
+              .foregroundStyle(Color.wbTextSecondary)
+              .help(logins.dropFirst(2).joined(separator: ", "))
           }
         }
       }
@@ -249,25 +334,25 @@ struct PullRequestDetailView: View {
   }
 
   @ViewBuilder
-  private var sessionValue: some View {
-    if let sessionLink {
-      HStack(spacing: DesignTokens.Spacing.sm) {
-        Button {
-          onOpenSession(sessionLink)
-        } label: {
-          Text(sessionLink.displayName)
-            .foregroundStyle(Color.wbAccentText)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Opens the session")
-        StatusChip(status: sessionLink.status, isPending: sessionLink.isPending)
-          .fixedSize()
-      }
-    } else {
+  private var sessionsValue: some View {
+    if sessionLinks.isEmpty {
       Text("None").foregroundStyle(Color.wbTextSecondary)
+    } else {
+      VStack(alignment: .trailing, spacing: DesignTokens.Spacing.xsPlus) {
+        ForEach(sessionLinks) { link in
+          PullRequestSessionLinkRow(
+            link: link,
+            onOpen: { onOpenSession(link) },
+            onFollowUp: { onFollowUp(link, $0) }
+          )
+        }
+        if let sessionFeedback {
+          Text(sessionFeedback)
+            .wbText(.callout)
+            .foregroundStyle(Color.wbTextSecondary)
+        }
+      }
+      .padding(.vertical, DesignTokens.Spacing.xsPlus)
     }
   }
 
@@ -323,6 +408,49 @@ struct PullRequestDetailView: View {
       ?? detail.flatMap {
         GitHubReviewSessionLinker.ticketKeys(inTitle: $0.pullRequest.headRefName).sorted().first
       }
+  }
+}
+
+/// One linked session in the property card: name (opens it), status chip and
+/// the follow-up menu ("Pull & review again", "Send command…").
+private struct PullRequestSessionLinkRow: View {
+  let link: GitHubReviewSessionLink
+  let onOpen: () -> Void
+  let onFollowUp: (PullRequestSessionFollowUp) -> Void
+
+  var body: some View {
+    HStack(spacing: DesignTokens.Spacing.sm) {
+      Button(action: onOpen) {
+        Text(link.displayName)
+          .foregroundStyle(Color.wbAccentText)
+          .lineLimit(1)
+          .truncationMode(.tail)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .help("Open \(link.provider.rawValue) session \(link.displayName)")
+      .accessibilityLabel("Open \(link.provider.rawValue) session \(link.displayName)")
+      StatusChip(status: link.status, isPending: link.isPending)
+        .fixedSize()
+      if GitHubReviewSessionCommandPolicy.canSend(isPending: link.isPending) {
+        Menu {
+          Button("Pull & Review Again") { onFollowUp(.pullAndReviewAgain) }
+          Button("Send Command…") { onFollowUp(.sendCommand) }
+        } label: {
+          Image(systemName: "paperplane")
+            .font(.system(size: 11))
+            .foregroundStyle(Color.wbTextSecondary)
+            .frame(width: DesignTokens.Size.controlSmall, height: DesignTokens.Size.controlSmall)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Send a follow-up command to this session")
+        .accessibilityLabel("Send command to \(link.provider.rawValue) session \(link.displayName)")
+      }
+    }
   }
 }
 

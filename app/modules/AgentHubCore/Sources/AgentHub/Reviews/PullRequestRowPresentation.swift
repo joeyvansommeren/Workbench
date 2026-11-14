@@ -34,6 +34,17 @@ enum PullRequestChecksState: Equatable, Sendable {
     }
   }
 
+  /// Sort rank, shared by the table and the detail's checks list: failing
+  /// first, then pending, passed, and unknown (nil) last.
+  static func sortRank(_ state: PullRequestChecksState?) -> Int {
+    switch state {
+    case .fail: return 0
+    case .pending: return 1
+    case .pass: return 2
+    case nil: return 3
+    }
+  }
+
   var accessibilityLabel: String {
     switch self {
     case .pass: return "Checks passed"
