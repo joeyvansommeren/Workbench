@@ -214,8 +214,8 @@ struct SessionDetailStateModelTests {
 
   @Test("Commit title and prompt name the file count")
   func commitWording() {
-    #expect(CommitChangesAction.title(fileCount: 1) == "Commit 1 file…")
-    #expect(CommitChangesAction.title(fileCount: 3) == "Commit 3 files…")
+    #expect(CommitChangesAction.title(fileCount: 1) == "Commit 1 file")
+    #expect(CommitChangesAction.title(fileCount: 3) == "Commit 3 files")
     #expect(CommitChangesAction.prompt(fileCount: 3).contains("the 3 changed files"))
     #expect(CommitChangesAction.prompt(fileCount: 3).contains("Do not push"))
   }

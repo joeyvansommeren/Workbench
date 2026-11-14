@@ -17,6 +17,9 @@ struct SidePanelRenderedDiff: Equatable, Sendable {
   let hunks: [SidePanelDiffHunk]
   /// Lines in the whole file diff.
   let totalLineCount: Int
+  /// Some lines were longer than `SidePanelDiffModel.lineDisplayLimit` and
+  /// show only their start (minified bundles, lockfiles).
+  var hasShortenedLines = false
 
   var renderedLineCount: Int { hunks.reduce(0) { $0 + $1.lines.count } }
   var isTruncated: Bool { renderedLineCount < totalLineCount }
@@ -37,6 +40,9 @@ enum SidePanelFileDiffState: Equatable {
 final class SidePanelDiffModel {
   /// Lines drawn per file. More lines go to the full diff ("Show full diff").
   nonisolated static let renderedLineLimit = 400
+  /// Characters drawn per diff line. One `Text` lays out its whole string, so
+  /// a minified line of hundreds of KB would block the main thread.
+  nonisolated static let lineDisplayLimit = 1_000
 
   enum ListState: Equatable {
     case loading
@@ -83,7 +89,7 @@ final class SidePanelDiffModel {
 
   /// Loads the file list. While the mode is automatic, the first mode with
   /// changes wins, probed cheap first (`branch → staged → unstaged`, the
-  /// `DiffMode` order): the header diffstat and "Commit N files…" count every
+  /// `DiffMode` order): the header diffstat and "Commit N files" count every
   /// mode, so an empty Branch list under them would read as wrong.
   func refresh() async {
     lastRefreshStart = .now
@@ -192,14 +198,17 @@ final class SidePanelDiffModel {
     do {
       let patch = try await service.unifiedPatch(for: file, at: projectPath, mode: mode, baseBranch: nil)
       // Parsing a large patch (up to 2 MB) stays off the main thread.
+      let path = file.relativePath
       let parsed = await Task.detached(priority: .userInitiated) {
-        SidePanelDiffParser.parse(patch).first
+        SidePanelDiffParser.parse(patch).first.map { parsed in
+          (isBinary: parsed.isBinary, rendered: Self.rendered(path: path, hunks: parsed.hunks))
+        }
       }.value
       guard generation == fileGeneration, selectedPath == file.relativePath else { return }
       if parsed?.isBinary == true {
         fileDiff = .binary
       } else {
-        fileDiff = .loaded(Self.rendered(path: file.relativePath, hunks: parsed?.hunks ?? []))
+        fileDiff = .loaded(parsed?.rendered ?? Self.rendered(path: path, hunks: []))
       }
     } catch is CancellationError {
       return
@@ -215,22 +224,40 @@ final class SidePanelDiffModel {
     }
   }
 
-  /// Keeps whole hunks and cuts the hunk that crosses `limit`.
+  /// Keeps whole hunks and cuts the hunk that crosses `limit`. Lines longer
+  /// than `lineLimit` characters keep their start, followed by "…".
   nonisolated static func rendered(
     path: String,
     hunks: [SidePanelDiffHunk],
-    limit: Int = renderedLineLimit
+    limit: Int = renderedLineLimit,
+    lineLimit: Int = lineDisplayLimit
   ) -> SidePanelRenderedDiff {
     let total = hunks.reduce(0) { $0 + $1.lines.count }
     var kept: [SidePanelDiffHunk] = []
     var budget = limit
+    var hasShortenedLines = false
     for hunk in hunks where budget > 0 {
       var hunk = hunk
       if hunk.lines.count > budget { hunk.lines = Array(hunk.lines.prefix(budget)) }
       budget -= hunk.lines.count
+      for index in hunk.lines.indices {
+        // `utf8.count` is O(1) for native strings; `count` would walk the line.
+        let line = hunk.lines[index]
+        guard line.text.utf8.count > lineLimit, line.text.count > lineLimit else { continue }
+        var shortened = SidePanelDiffLine(
+          kind: line.kind,
+          oldLineNumber: line.oldLineNumber,
+          newLineNumber: line.newLineNumber,
+          text: String(line.text.prefix(lineLimit)) + "…"
+        )
+        shortened.hasNoNewlineAtEnd = line.hasNoNewlineAtEnd
+        hunk.lines[index] = shortened
+        hasShortenedLines = true
+      }
       kept.append(hunk)
     }
-    return SidePanelRenderedDiff(path: path, hunks: kept, totalLineCount: total)
+    return SidePanelRenderedDiff(
+      path: path, hunks: kept, totalLineCount: total, hasShortenedLines: hasShortenedLines)
   }
 }
 
@@ -250,5 +277,25 @@ final class SidePanelDiffModelCache {
     let created = SidePanelDiffModel(projectPath: projectPath, service: makeService())
     model = created
     return created
+  }
+}
+
+/// How many changed files the compact list shows. A branch with hundreds of
+/// files (lockfiles, generated code) would push the selected file's diff far
+/// down, so the list starts short with a "Show all N files" row.
+enum SidePanelFileListWindow {
+  static let collapsedLimit = 8
+
+  /// All rows when expanded, when one more row would fit anyway, or when the
+  /// selection (arrow keys) sits past the cap; else `limit`.
+  static func visibleCount(
+    total: Int,
+    selectedIndex: Int?,
+    isExpanded: Bool,
+    limit: Int = collapsedLimit
+  ) -> Int {
+    if isExpanded || total <= limit + 1 { return total }
+    if let selectedIndex, selectedIndex >= limit { return total }
+    return limit
   }
 }

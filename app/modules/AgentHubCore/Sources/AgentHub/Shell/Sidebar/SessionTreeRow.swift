@@ -109,7 +109,7 @@ struct SessionTreeRow: View, Equatable {
     .contentShape(Rectangle())
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "\(model.title), \(node.providerKind.rawValue) session, \(presentation.word)"
+      "\(model.title), \(node.providerKind.agentDisplayName) session, \(presentation.word)"
         + (model.roleLabel.map { ", \($0)" } ?? ""))
   }
 
@@ -162,21 +162,24 @@ private struct SessionGuideLine: View {
 
 // MARK: - Approve pill
 
-/// The Approve pill with the progress of the last click. Reads the approval
-/// tracker in its own body, so only the pill redraws when the phase changes.
+/// The Approve pill with the progress of the last answer. It opens the
+/// session, whose banner shows the whole command (`SidebarApprovePillText`).
+/// Reads the approval tracker in its own body, so only the pill redraws
+/// when the phase changes.
 private struct SessionApprovePill: View {
   let node: SessionNode
   let actions: SidebarTreeActions
 
   var body: some View {
     let phase = actions.approvalPhase(for: node)
-    let toolName = node.pendingToolName
+    let presentation = actions.approvalPresentation(for: node)
     AttentionPill(
       title: "Approve",
       isBusy: Self.isBusy(phase),
-      help: Self.help(phase, toolName: toolName),
-      accessibilityLabel: toolName.map { "Approve \($0)" } ?? "Approve"
-    ) { actions.approve(node) }
+      help: SidebarApprovePillText.help(phase, presentation: presentation),
+      accessibilityLabel: SidebarApprovePillText.accessibilityLabel(
+        toolName: node.pendingToolName, presentation: presentation)
+    ) { actions.open(node) }
   }
 
   /// Spinner while the key is in flight and while an approved tool runs.
@@ -184,15 +187,6 @@ private struct SessionApprovePill: View {
     switch phase {
     case .sending, .answered: true
     case .checkTerminal, .answerInTerminal, nil: false
-    }
-  }
-
-  private static func help(_ phase: ApprovalResponsePhase?, toolName: String?) -> String {
-    switch phase {
-    case .answerInTerminal: "The app could not confirm Claude's menu. Answer in the terminal."
-    // A click now is refused (already answered) and opens the session.
-    case .checkTerminal: "Sent once. Check the terminal."
-    default: toolName.map { "Allow \($0) once" } ?? "Allow once"
     }
   }
 }

@@ -122,6 +122,18 @@ struct CommandPaletteEntry: Identifiable, Equatable {
   var metaHighlight: Range<String.Index>?
 }
 
+/// The rows to draw, plus how many matches each capped group left out.
+struct CommandPaletteResults: Equatable {
+  let entries: [CommandPaletteEntry]
+  let hiddenCounts: [CommandPaletteGroup: Int]
+
+  /// "12 more, keep typing" under a capped group; nil when nothing is hidden.
+  func moreText(for group: CommandPaletteGroup) -> String? {
+    guard let count = hiddenCounts[group], count > 0 else { return nil }
+    return "\(count) more, keep typing"
+  }
+}
+
 // MARK: - Builder
 
 enum CommandPaletteEntries {
@@ -139,27 +151,53 @@ enum CommandPaletteEntries {
     }
   }
 
+  /// With a typed query, Sessions and Pull requests show at most this many
+  /// rows each; the rest is counted in `CommandPaletteResults.hiddenCounts`.
+  /// A one-letter query over hundreds of sessions then draws a short list.
+  static let typedGroupLimit = 25
+
   static func build(
     query: String,
     sessions: [CommandPaletteSessionInput],
     pullRequests: [CommandPalettePullRequestInput]
   ) -> [CommandPaletteEntry] {
+    results(query: query, sessions: sessions, pullRequests: pullRequests).entries
+  }
+
+  static func results(
+    query: String,
+    sessions: [CommandPaletteSessionInput],
+    pullRequests: [CommandPalettePullRequestInput],
+    groupLimit: Int = typedGroupLimit
+  ) -> CommandPaletteResults {
     let all = allEntries(sessions: sessions, pullRequests: pullRequests)
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
     guard !trimmed.isEmpty else {
-      return Array(all.filter { $0.group == .sessions }.prefix(idleSessionLimit))
-        + all.filter { $0.group == .goTo }
-        + Array(all.filter { $0.group == .commands }.prefix(idleCommandLimit))
+      return CommandPaletteResults(
+        entries: Array(all.filter { $0.group == .sessions }.prefix(idleSessionLimit))
+          + all.filter { $0.group == .goTo }
+          + Array(all.filter { $0.group == .commands }.prefix(idleCommandLimit)),
+        hiddenCounts: [:]
+      )
     }
 
-    return all.compactMap { entry in
-      guard firstMatch(of: trimmed, in: "\(entry.title) \(entry.meta)") != nil else { return nil }
+    var entries: [CommandPaletteEntry] = []
+    var shownCounts: [CommandPaletteGroup: Int] = [:]
+    var hiddenCounts: [CommandPaletteGroup: Int] = [:]
+    for entry in all where firstMatch(of: trimmed, in: "\(entry.title) \(entry.meta)") != nil {
+      let isCapped = entry.group == .sessions || entry.group == .pullRequests
+      if isCapped, shownCounts[entry.group, default: 0] >= groupLimit {
+        hiddenCounts[entry.group, default: 0] += 1
+        continue
+      }
+      shownCounts[entry.group, default: 0] += 1
       var highlighted = entry
       highlighted.titleHighlight = firstMatch(of: trimmed, in: entry.title)
       highlighted.metaHighlight = firstMatch(of: trimmed, in: entry.meta)
-      return highlighted
+      entries.append(highlighted)
     }
+    return CommandPaletteResults(entries: entries, hiddenCounts: hiddenCounts)
   }
 
   /// The highlighted row follows an entry id, not a position, so a live status
