@@ -162,6 +162,22 @@ struct SprintBoardItemsTests {
     #expect(done.assigneeInitials == nil)
   }
 
+  @Test("Cards whose session is starting are marked, so they show Starting…")
+  func startingFlag() {
+    let columns = [
+      JiraSprintViewModel.BoardColumn(
+        status: "To Do", category: "new",
+        tickets: [
+          JiraTicketSnapshot(key: "XFA-1", summary: "A", status: "To Do", statusCategory: "new"),
+          JiraTicketSnapshot(key: "XFA-2", summary: "B", status: "To Do", statusCategory: "new"),
+        ])
+    ]
+    let items = SprintBoardItems.jira(
+      columns: columns, linkedSessions: [:], pullRequests: [:], startingKeys: ["XFA-2"],
+      status: Self.noStatus)
+    #expect(items[0].tickets.map(\.isStarting) == [false, true])
+  }
+
   @Test("A ticket with a session cannot be started again from the card")
   func sessionHidesStart() {
     let item = SprintTicketItem(

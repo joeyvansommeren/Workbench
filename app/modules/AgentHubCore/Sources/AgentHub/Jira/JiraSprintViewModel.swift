@@ -138,6 +138,8 @@ public final class JiraSprintViewModel {
     public let ticketKey: String
     public let text: String
     public let isError: Bool
+    /// A failed refresh: the notice offers Retry.
+    public var canRetry = false
   }
 
   public var searchText = ""
@@ -301,7 +303,12 @@ public final class JiraSprintViewModel {
   // MARK: - Loading
 
   /// Loads account, boards, the sprints of the selected board, and the selected sprint's tickets.
+  /// A refresh that fails while tickets are on screen keeps the board and
+  /// shows the error as a notice with Retry. Only an auth error or a missing
+  /// acli replaces it, because those need Connect or the install command.
   public func load() async {
+    // Fast clicks on Retry or Refresh must not start parallel loads.
+    guard state != .loading else { return }
     state = .loading
     do {
       if account == nil { account = try await service.currentAccount() }
@@ -309,8 +316,19 @@ public final class JiraSprintViewModel {
       if selectedBoard == nil { selectedBoardID = boards.first?.id }
       try await loadSprintsAndTickets()
       state = .loaded
+      if statusNotice?.canRetry == true { statusNotice = nil }
     } catch {
-      fail(with: error)
+      let kind = Self.failureKind(for: error)
+      if !sprintTickets.isEmpty, kind == .network || kind == .other {
+        state = .loaded
+        statusNotice = StatusNotice(
+          ticketKey: "",
+          text: "Could not refresh Jira: \(SprintErrorText.summary(Self.message(for: error)))",
+          isError: true,
+          canRetry: true)
+      } else {
+        fail(with: error)
+      }
     }
   }
 
@@ -372,6 +390,7 @@ public final class JiraSprintViewModel {
 
   /// Runs the Atlassian CLI browser login, then reloads.
   public func connect() async {
+    guard !isConnecting else { return }
     isConnecting = true
     defer { isConnecting = false }
     do {
@@ -400,31 +419,13 @@ public final class JiraSprintViewModel {
     }
   }
 
-  public enum MoveDirection { case up, down, left, right }
+  public typealias MoveDirection = SprintMoveDirection
 
-  /// Keyboard navigation over the visible board: up/down within a column,
-  /// left/right to the nearest non-empty column at the same row.
+  /// Keyboard navigation over the visible board (`SprintBoardNavigation`).
   public func moveSelection(_ direction: MoveDirection) {
-    let columns = self.columns.map(\.tickets).filter { !$0.isEmpty }
-    guard !columns.isEmpty else { return }
-    guard
-      let key = selectedTicketKey,
-      let column = columns.firstIndex(where: { $0.contains { $0.key == key } }),
-      let row = columns[column].firstIndex(where: { $0.key == key })
-    else {
-      openTicket(columns[0][0].key)
-      return
-    }
-    var target = (column: column, row: row)
-    switch direction {
-    case .up: target.row = max(row - 1, 0)
-    case .down: target.row = min(row + 1, columns[column].count - 1)
-    case .left: target.column = max(column - 1, 0)
-    case .right: target.column = min(column + 1, columns.count - 1)
-    }
-    target.row = min(target.row, columns[target.column].count - 1)
-    let next = columns[target.column][target.row].key
-    if next != key { openTicket(next) }
+    let next = SprintBoardNavigation.target(
+      columns: columns.map { $0.tickets.map(\.key) }, selected: selectedTicketKey, direction: direction)
+    if let next { openTicket(next) }
   }
 
   // MARK: - Pull requests
@@ -656,18 +657,53 @@ public final class JiraSprintViewModel {
     return lines.joined(separator: "\n")
   }
 
-  /// True when the last failure was acli itself missing (the runner's exit 127),
-  /// so the error view offers the install command instead of Connect Jira.
-  /// Other acli errors mention "acli" too, so the message can't decide this.
-  public private(set) var isCLIMissing = false
+  /// What went wrong, so the failure screen offers the right fix.
+  public enum FailureKind: Equatable {
+    /// acli itself is missing (the runner's exit 127): show the install command.
+    case cliMissing
+    /// Signed out or the token expired: show Connect Jira.
+    case auth
+    /// Offline, DNS, or a timeout: show Retry.
+    case network
+    /// Anything else: show Retry, and Connect as a fallback.
+    case other
+  }
+
+  /// The kind of the last load failure; nil until one fails.
+  public private(set) var failureKind: FailureKind?
+
+  /// True when the last failure was acli itself missing. Other acli errors
+  /// mention "acli" too, so the message alone can't decide this.
+  public var isCLIMissing: Bool { failureKind == .cliMissing }
 
   private func fail(with error: Error) {
-    if case .commandFailed(let exitCode, _)? = error as? JiraTicketReaderError {
-      isCLIMissing = exitCode == 127
-    } else {
-      isCLIMissing = false
-    }
+    failureKind = Self.failureKind(for: error)
     state = .failed(Self.message(for: error))
+  }
+
+  private static let authHints = [
+    "unauthorized", "unauthenticated", "not authenticated", "not logged in", "auth login",
+    "log in", "login required", "token expired", "expired token",
+  ]
+  private static let networkHints = [
+    "timed out", "timeout", "did not respond", "no such host", "could not resolve",
+    "connection refused", "connection reset", "network is unreachable", "dial tcp",
+    "offline", "no internet",
+  ]
+
+  /// acli reports everything as text on stderr, so this reads the message.
+  static func failureKind(for error: Error) -> FailureKind {
+    if error is URLError { return .network }
+    guard case .commandFailed(let exitCode, let message)? = error as? JiraTicketReaderError else {
+      return .other
+    }
+    if exitCode == 127 { return .cliMissing }
+    // The runner's own timeout.
+    if exitCode == -1 { return .network }
+    let text = message.lowercased()
+    if authHints.contains(where: text.contains) { return .auth }
+    if networkHints.contains(where: text.contains) { return .network }
+    return .other
   }
 
   static func message(for error: Error) -> String {
