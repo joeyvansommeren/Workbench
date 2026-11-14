@@ -24,6 +24,9 @@ public protocol GitHubProjectReviewServiceProtocol: Sendable {
   /// Pull requests whose title or body mentions `text` (e.g. a Jira key), open first.
   func searchPullRequests(mentioning text: String, owner: String?) async throws
     -> [GitHubProjectPullRequest]
+  /// The CI rollup of each pull request (by node ID), for the queue's Checks column.
+  /// Batched GraphQL; never throws: a failure is logged and gives fewer entries.
+  func checkRollups(forPullRequestIDs ids: [String]) async -> [String: CIStatus]
 }
 
 extension GitHubProjectReviewServiceProtocol {
@@ -39,6 +42,7 @@ extension GitHubProjectReviewServiceProtocol {
   public func searchPullRequests(mentioning text: String, owner: String?) async throws
     -> [GitHubProjectPullRequest]
   { [] }
+  public func checkRollups(forPullRequestIDs ids: [String]) async -> [String: CIStatus] { [:] }
 }
 
 public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
@@ -135,6 +139,80 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
       timeout: 45
     )
     return try Self.decodeProjects(json)
+  }
+
+  /// The queue's search (`gh search prs`) has no CI data, so this fetches the
+  /// last commit's rollup state for 50 pull requests per GraphQL call. Calls run
+  /// one after another and stop at the first failure (e.g. a rate limit) instead
+  /// of retrying; the caller shows no icon for pull requests left out.
+  public func checkRollups(forPullRequestIDs ids: [String]) async -> [String: CIStatus] {
+    let query = """
+      query($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on PullRequest {
+            id
+            commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+          }
+        }
+      }
+      """
+    var result: [String: CIStatus] = [:]
+    for batch in Self.batches(ids, size: Self.checkRollupBatchSize) {
+      guard !Task.isCancelled else { break }
+      var arguments = ["api", "graphql", "-f", "query=\(query)"]
+      for id in batch {
+        arguments += ["-F", "ids[]=\(id)"]
+      }
+      do {
+        let json = try await cli.runAuthenticatedCommand(arguments, timeout: 30)
+        result.merge(try Self.decodeCheckRollups(json)) { _, new in new }
+      } catch {
+        GitHubLogger.github.error(
+          "Review queue checks failed for \(batch.count) pull requests: \(error.localizedDescription)")
+        break
+      }
+    }
+    return result
+  }
+
+  static let checkRollupBatchSize = 50
+
+  /// `ids` in order, split into chunks of at most `size`.
+  static func batches(_ ids: [String], size: Int) -> [[String]] {
+    stride(from: 0, to: ids.count, by: size).map {
+      Array(ids[$0..<min($0 + size, ids.count)])
+    }
+  }
+
+  /// Pull request ID → CI state. No rollup (no checks) is `.none`; a missing
+  /// pull request (null node) is left out.
+  static func decodeCheckRollups(_ json: String) throws -> [String: CIStatus] {
+    guard let data = json.data(using: .utf8),
+      let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let dataObject = root["data"] as? [String: Any],
+      let nodes = dataObject["nodes"] as? [Any]
+    else {
+      throw GitHubCLIError.parseError("Invalid checks response")
+    }
+    var states: [String: CIStatus] = [:]
+    for case let node as [String: Any] in nodes {
+      guard let id = node["id"] as? String else { continue }
+      let commits = (node["commits"] as? [String: Any])?["nodes"] as? [[String: Any]]
+      let commit = commits?.last?["commit"] as? [String: Any]
+      let rollup = commit?["statusCheckRollup"] as? [String: Any]
+      states[id] = ciStatus(rollupState: rollup?["state"] as? String)
+    }
+    return states
+  }
+
+  /// GitHub's `StatusState`: SUCCESS, FAILURE, ERROR, PENDING, EXPECTED.
+  static func ciStatus(rollupState: String?) -> CIStatus {
+    switch rollupState?.uppercased() {
+    case "SUCCESS": return .success
+    case "FAILURE", "ERROR": return .failure
+    case "PENDING", "EXPECTED": return .pending
+    default: return .none
+    }
   }
 
   /// Uses GitHub's search API, which has its own quota (30 requests a minute),
