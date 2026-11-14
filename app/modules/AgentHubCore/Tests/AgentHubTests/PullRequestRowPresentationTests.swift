@@ -62,6 +62,10 @@ struct PullRequestRowPresentationTests {
     let pending = try runs(["SUCCESS", "PENDING", "PENDING"])
     expectSummary(pending, text: "2 pending", state: .pending)
 
+    // GitHub's rollup counts skipped and neutral as passing; so does the row.
+    let skipped = try runs(["SKIPPED", "NEUTRAL"])
+    expectSummary(skipped, text: "2 skipped", state: .pass)
+
     expectSummary(nil, text: "No checks", state: nil)
   }
 

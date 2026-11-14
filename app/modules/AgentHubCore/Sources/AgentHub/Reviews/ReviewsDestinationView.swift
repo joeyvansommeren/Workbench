@@ -130,6 +130,8 @@ struct ReviewsDestinationView: View {
     .task {
       agentHub.claudeSessionsViewModel.refreshCLIAvailability()
       agentHub.codexSessionsViewModel.refreshCLIAvailability()
+      // The Checks column: before `load()`, so the first queue fetches them.
+      viewModel.wantsQueueChecks = true
       await viewModel.load()
       await support.recoverAndRestoreSessions()
     }

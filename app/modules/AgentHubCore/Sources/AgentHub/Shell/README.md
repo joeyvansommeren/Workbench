@@ -106,8 +106,12 @@ with project and view and never takes focus on appear. The scope (Requested /
 Mine / All) is `GitHubReviewsViewModel.reviewScope`, saved in
 `AgentHubDefaults.reviewsScope` only when the user picks it (a jump to a
 pull request outside the scope widens to All in memory); the "Review with" agent in
-`AgentHubDefaults.reviewsAgent`. The queue carries no CI data, so a row shows
-its checks icon once its detail has loaded (`checksByPullRequestID`).
+`AgentHubDefaults.reviewsAgent`. The queue carries no CI data, so after each
+queue refresh a batched GraphQL rollup fetch (`checkRollups`, 50 per call)
+fills `checksByPullRequestID`. Only this view turns it on
+(`wantsQueueChecks`); the legacy Reviews makes no checks calls. Rows and the
+detail use GitHub's rollup rule (`CIStatus.rollup`: skipped and neutral count
+as passed), so an icon keeps its meaning when the detail loads.
 Breadcrumbs: `reviews scope: <x>`, `reviews pr: <repo>#<n>`, `reviews filters:
 open`, `reviews agent`, `reviews start review`, `reviews open session`.
 The legacy `GitHubReviewsView` is unchanged for the flag-off path.
@@ -321,12 +325,15 @@ Plan: `Workbench-ui-explorations/apple/MOTION-PLAN.md`.
   in `ShellRoot`, not on the sidebar: tree rows are lazy and the sidebar
   leaves the hierarchy when hidden. `SidebarCIFailureObserver` keeps one
   `SessionGitHubQuickAccessViewModel` per monitored session (key: item id +
-  repository key, as the legacy row's task id) with the legacy row's settings
-  (stagger, no refresh on subscribe) and feeds `GitHubCIFailureNotifier`, so
+  repository key, as the legacy row's task id) with the legacy row's recipe
+  (`SessionCIObservation`: stagger, no refresh on subscribe, shared with
+  `CollapsibleSessionRow`) and feeds `GitHubCIFailureNotifier`, so
   a failure notifies once per (repo, PR, head commit), whichever surface sees
   it first.
 - **View Transcript** in the session row's context menu calls
-  `SessionsActionCoordinator.openSessionFile`; `SessionsPresentationModifier`
+  `SessionsActionCoordinator.openSessionFile`, which reads the file off the
+  main actor and shows "Couldn't read the transcript" when it is missing,
+  unreadable or empty; `SessionsPresentationModifier`
   presents `coordinator.sessionFileSheetItem` with the legacy
   `SessionTranscriptSheetView` (the legacy views never set it). The header
   "…" menu already had it. Breadcrumb `tree: transcript <id>`.
@@ -334,7 +341,8 @@ Plan: `Workbench-ui-explorations/apple/MOTION-PLAN.md`.
   once the launch restore has put the saved repositories in place (or found
   none); it stays off when the saved state can't be read. The sidebar shows
   "No projects" with Open project only when both providers have loaded and
-  nothing is tracked (`SidebarFirstRun`).
+  nothing is tracked (`SidebarFirstRun`); the footer's Open project is hidden
+  then, so there is one button.
 
 ## P16: ticket detail (Jira and Linear)
 
@@ -342,15 +350,17 @@ Plan: `Workbench-ui-explorations/apple/MOTION-PLAN.md`.
 `LinearIssueDetailView` in the shell (both stay for the flag-off path).
 `TicketDetailPresentation` (pure, `TicketDetailPresentationTests`) maps a Jira
 ticket or a Linear issue to one `SprintTicketDetail`. The panel: key and close
-(Esc), title, the status chip (Jira: a menu with the other columns, "Move To";
-Linear issues do not move in the shell), priority, type and label tags,
+(Esc), title, the status chip (a menu with the other columns, "Move To"; Linear
+moves through `LinearViewModel.moveIssue`, optimistic with rollback, as on the
+board), priority, type and label tags,
 "Start session" (`SplitButton`; the primary half uses
 `SprintStartProvider.preferred`, the menu names Claude Code or Codex; same
 start path and starting guard as the card) and "Open in Jira/Linear", a
 `PropertyCard` (Assignee, Sprint or Cycle, Project: the legacy repository
 picker), linked sessions (`StatusGlyph` and word, click opens), pull requests
 (Jira only, with refresh), and the description through the Reviews
-`pullRequestDescription` MarkdownUI theme, capped at 1200 characters with
+`pullRequestDescription` MarkdownUI theme (headings capped below the panel
+title: `DescriptionMarkdownHeading`), capped at 1200 characters with
 "Show all". Jira's plain-text description keeps its line breaks as hard
 breaks. The entrance stays in `SprintDestinationLayout`. Breadcrumbs:
 `sprint ticket: move <key>`, `sprint ticket: project`, `sprint ticket: open

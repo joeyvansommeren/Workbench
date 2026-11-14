@@ -149,6 +149,7 @@ struct GitHubReviewsViewModelTests {
     ]
     service.checkRollups = ["a": .success, "b": .failure, "c": .pending]
     let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    model.wantsQueueChecks = true
 
     await model.load()
     await model.checksTask?.value
@@ -164,6 +165,7 @@ struct GitHubReviewsViewModelTests {
     service.pullRequests = [makePullRequest(id: "a", isDraft: false), makePullRequest(id: "b", isDraft: false)]
     service.checkRollups = ["a": .pending]
     let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    model.wantsQueueChecks = true
     await model.load()
     await model.checksTask?.value
     #expect(model.checksByPullRequestID == ["a": .pending])
@@ -183,12 +185,87 @@ struct GitHubReviewsViewModelTests {
     #expect(service.checkRollupRequests.count == 2)
   }
 
+  @Test("Legacy Reviews (checks not wanted) makes no checks calls")
+  func legacyQueueMakesNoChecksCalls() async {
+    let service = GitHubProjectReviewServiceStub()
+    service.projects = [makeProject()]
+    service.pullRequests = [makePullRequest(id: "a", isDraft: false)]
+    service.checkRollups = ["a": .success]
+    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+
+    await model.load()
+    await model.refreshPullRequests()
+
+    #expect(model.checksTask == nil)
+    #expect(service.checkRollupRequests.isEmpty)
+    #expect(model.checksByPullRequestID.isEmpty)
+  }
+
+  @Test("Turning checks on after the legacy view loaded the queue fetches them once")
+  func checksTurnedOnAfterLoad() async {
+    let service = GitHubProjectReviewServiceStub()
+    service.projects = [makeProject()]
+    service.pullRequests = [makePullRequest(id: "a", isDraft: false)]
+    service.checkRollups = ["a": .failure]
+    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    await model.load()
+    #expect(service.checkRollupRequests.isEmpty)
+
+    model.wantsQueueChecks = true
+    await model.checksTask?.value
+    model.wantsQueueChecks = true
+
+    #expect(service.checkRollupRequests == [["a"]])
+    #expect(model.checksByPullRequestID == ["a": .failure])
+  }
+
+  @Test("cancelRefresh also cancels the checks fetch")
+  func cancelRefreshCancelsChecks() async {
+    let service = GitHubProjectReviewServiceStub()
+    service.projects = [makeProject()]
+    service.pullRequests = [makePullRequest(id: "a", isDraft: false)]
+    service.checkRollups = ["a": .success]
+    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    model.wantsQueueChecks = true
+    await model.load()
+    let task = model.checksTask
+    #expect(task != nil)
+
+    model.cancelRefresh()
+
+    #expect(model.checksTask == nil)
+    #expect(task?.isCancelled == true)
+  }
+
+  @Test("A detail whose checks were all skipped keeps the row's passed icon, as GitHub's rollup does")
+  func detailUsesRollupRule() async throws {
+    let service = GitHubProjectReviewServiceStub()
+    service.projects = [makeProject()]
+    service.pullRequests = [makePullRequest(id: "a", isDraft: false)]
+    service.checkRollups = ["a": .success]
+    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    model.wantsQueueChecks = true
+    await model.load()
+    await model.checksTask?.value
+    #expect(model.checksByPullRequestID["a"] == .success)
+
+    let json = #"{"number":450,"title":"T","state":"OPEN","url":"https://github.com/o/r/pull/450","headRefName":"fix","baseRefName":"main","isDraft":false,"additions":1,"deletions":0,"changedFiles":1,"statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"SKIPPED"},{"name":"docs","status":"COMPLETED","conclusion":"NEUTRAL"}]}"#
+    let pr = try JSONDecoder().decode(GitHubPullRequest.self, from: Data(json.utf8))
+    service.detail = GitHubReviewDetail(pullRequest: pr, reviews: [], inlineComments: [])
+    model.selectedPullRequestID = "a"
+    await model.loadSelectedDetail()
+
+    #expect(model.checksByPullRequestID["a"] == .success)
+    #expect(PullRequestChecksSummary(checks: pr.statusCheckRollup).state == .pass)
+  }
+
   @Test("A failed queue refresh does not fetch checks")
   func failedQueueSkipsChecks() async {
     let service = GitHubProjectReviewServiceStub()
     service.projects = [makeProject()]
     service.pullRequestsError = .commandFailed("offline")
     let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    model.wantsQueueChecks = true
     await model.load()
     #expect(model.checksTask == nil)
     #expect(service.checkRollupRequests.isEmpty)

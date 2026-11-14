@@ -162,6 +162,49 @@ struct LinearViewModelTests {
     #expect(LinearViewModel(userDefaults: defaults).assigneeFilter == .everyone)
   }
 
+  @Test("Move To updates the board at once and calls Linear with the state")
+  func moveIssue() async {
+    let service = MockLinearService()
+    let viewModel = await loadedViewModel(service)
+    viewModel.openIssue("todo-1")
+
+    await viewModel.moveIssue("todo-1", toStateID: "s-doing")
+
+    #expect(await service.transitions == [TransitionCall(issueID: "todo-1", stateID: "s-doing")])
+    #expect(viewModel.issues.first { $0.id == "todo-1" }?.state.id == "s-doing")
+    #expect(viewModel.columns.first { $0.id == "s-doing" }?.issues.map(\.id).contains("todo-1") == true)
+    #expect(viewModel.selectedIssueID == "todo-1")
+    #expect(viewModel.statusNotice == .init(text: "XFA-1 moved to In Progress", isError: false))
+  }
+
+  @Test("A refused Move To rolls the issue back and says why")
+  func moveIssueRollsBack() async {
+    let service = MockLinearService()
+    let viewModel = await loadedViewModel(service)
+    await service.setTransitionError(LinearAPIError.network("offline"))
+
+    await viewModel.moveIssue("todo-1", toStateID: "s-doing")
+
+    #expect(viewModel.issues.first { $0.id == "todo-1" }?.state.id == "s-todo")
+    #expect(viewModel.statusNotice?.isError == true)
+    #expect(viewModel.statusNotice?.text == "Could not move XFA-1 to In Progress: offline")
+    viewModel.dismissStatusNotice()
+    #expect(viewModel.statusNotice == nil)
+  }
+
+  @Test("Moving to the current or an unknown state does nothing")
+  func moveIssueNoOp() async {
+    let service = MockLinearService()
+    let viewModel = await loadedViewModel(service)
+
+    await viewModel.moveIssue("todo-1", toStateID: "s-todo")
+    await viewModel.moveIssue("todo-1", toStateID: "s-missing")
+    await viewModel.moveIssue("missing", toStateID: "s-doing")
+
+    #expect(await service.transitions.isEmpty)
+    #expect(viewModel.statusNotice == nil)
+  }
+
   @Test("Without a key the board asks to connect and never calls Linear")
   func noKey() async {
     let service = MockLinearService()
@@ -230,5 +273,18 @@ private actor MockLinearService: LinearIssueReading, LinearIssueTransitioning {
     throw LinearAPIError.graphQL(["not in mock"])
   }
 
-  func transitionIssue(id: String, stateID: String) async throws {}
+  private(set) var transitions: [TransitionCall] = []
+  private var transitionError: Error?
+
+  func setTransitionError(_ value: Error?) { transitionError = value }
+
+  func transitionIssue(id: String, stateID: String) async throws {
+    if let transitionError { throw transitionError }
+    transitions.append(TransitionCall(issueID: id, stateID: stateID))
+  }
+}
+
+private struct TransitionCall: Equatable, Sendable {
+  let issueID: String
+  let stateID: String
 }

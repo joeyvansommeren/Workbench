@@ -76,6 +76,10 @@ final class SessionsActionCoordinator {
   // MARK: - Presentation State
 
   var sessionFileSheetItem: CoordinatorSessionFileSheetItem?
+  /// Set when View Transcript could not read the session file; shown as an alert.
+  var sessionFileError: String?
+  /// The transcript read in flight. A new request or `clearTransientPresentation` cancels it.
+  @ObservationIgnored private(set) var sessionFileTask: Task<Void, Never>?
   var createWorktreeContext: WorktreeCreateContext?
   var startSessionSheetContext: StartSessionSheetContext?
   var gitHubSheetItem: GitHubSheetItem?
@@ -103,6 +107,9 @@ final class SessionsActionCoordinator {
     gitHubSheetItem = nil
     projectDetailsSheetItem = nil
     sessionFileSheetItem = nil
+    sessionFileTask?.cancel()
+    sessionFileTask = nil
+    sessionFileError = nil
     removeConfirmation = nil
     worktreeModuleDeleteConfirmation = nil
     workspacePendingCloseID = nil
@@ -383,24 +390,42 @@ final class SessionsActionCoordinator {
 
   // MARK: - Session File
 
+  static let sessionFileErrorMessage = "Couldn't read the transcript"
+
+  /// Reads the transcript off the main actor (files can be many MB), then shows
+  /// the sheet, or a short error when the file is missing, unreadable or empty.
   func openSessionFile(
     for session: CLISession,
     viewModel: CLISessionsViewModel
   ) {
-    guard let fileURL = viewModel.sessionFileURL(for: session),
-      let data = FileManager.default.contents(atPath: fileURL.path),
-      let content = String(data: data, encoding: .utf8)
-    else {
-      return
-    }
-
-    if !content.isEmpty {
+    let fileURL = viewModel.sessionFileURL(for: session)
+    sessionFileTask?.cancel()
+    sessionFileTask = Task {
+      let content = await Self.readTranscript(at: fileURL)
+      guard !Task.isCancelled else { return }
+      sessionFileTask = nil
+      guard let fileURL, let content else {
+        sessionFileError = Self.sessionFileErrorMessage
+        return
+      }
       sessionFileSheetItem = CoordinatorSessionFileSheetItem(
         session: session,
         fileName: fileURL.lastPathComponent,
         content: content
       )
     }
+  }
+
+  /// The file's UTF-8 text, or nil when it is missing, unreadable or empty.
+  nonisolated static func readTranscript(at url: URL?) async -> String? {
+    guard let url else { return nil }
+    return await Task.detached(priority: .userInitiated) {
+      guard let data = try? Data(contentsOf: url),
+        let content = String(data: data, encoding: .utf8),
+        !content.isEmpty
+      else { return nil }
+      return content
+    }.value
   }
 
   // MARK: - Workspace Close

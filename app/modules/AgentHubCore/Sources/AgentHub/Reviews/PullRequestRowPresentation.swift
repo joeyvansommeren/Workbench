@@ -91,28 +91,29 @@ struct PullRequestRowPresentation: Equatable {
 }
 
 /// The Checks value in the detail's property card: `14 passed`, `2 failed`,
-/// `3 pending` or `No checks`. The worst state wins, as in `CIStatus`.
+/// `3 pending`, `2 skipped` or `No checks`. The state follows GitHub's rollup
+/// (`CIStatus.rollup`), the same rule as the queue row's icon, so skipped and
+/// neutral checks count as passing.
 struct PullRequestChecksSummary: Equatable {
   let text: String
   let state: PullRequestChecksState?
 
   init(checks: [GitHubCheckRun]?) {
     let runs = checks ?? []
+    state = PullRequestChecksState(CIStatus.rollup(of: runs))
     let failed = runs.filter { $0.ciStatus == .failure }.count
     let pending = runs.filter { $0.ciStatus == .pending }.count
     let passed = runs.filter { $0.ciStatus == .success }.count
     if failed > 0 {
       text = "\(failed) failed"
-      state = .fail
     } else if pending > 0 {
       text = "\(pending) pending"
-      state = .pending
     } else if passed > 0 {
       text = "\(passed) passed"
-      state = .pass
+    } else if !runs.isEmpty {
+      text = "\(runs.count) skipped"
     } else {
       text = "No checks"
-      state = nil
     }
   }
 }

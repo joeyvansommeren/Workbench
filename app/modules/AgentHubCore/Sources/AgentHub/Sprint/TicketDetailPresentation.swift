@@ -224,6 +224,7 @@ enum TicketDetailPresentation {
     cycleName: String?,
     isLoadingDetail: Bool,
     linkedSessions: [LinearLinkedSession],
+    moveStates: [LinearWorkflowState] = [],
     status: (SessionProviderKind, String) -> SessionStatus?,
     now: Date = Date()
   ) -> SprintTicketDetail {
@@ -241,9 +242,12 @@ enum TicketDetailPresentation {
       title: issue.title,
       trackerName: "Linear",
       browseURL: URL(string: issue.url).flatMap { $0.scheme == nil ? nil : $0 },
-      // The shell cannot move Linear issues yet (the board cannot either).
+      // `moveStates` are the board's columns (canceled is hidden there too).
       status: SprintDetailStatus(
-        name: issue.state.name, tone: linearTone(stateType: issue.state.type), moveTargets: []),
+        name: issue.state.name, tone: linearTone(stateType: issue.state.type),
+        moveTargets: moveStates
+          .filter { $0.id != issue.state.id }
+          .map { SprintMoveTarget(id: $0.id, title: $0.name) }),
       assigneeName: issue.assignee?.name,
       tags: tags,
       iterationLabel: "Cycle",

@@ -222,4 +222,119 @@ struct GitHubProjectReviewServiceTests {
     #expect(GitHubProjectReviewService.batches([], size: 50).isEmpty)
     #expect(GitHubProjectReviewService.batches(Array(ids.prefix(50)), size: 50).count == 1)
   }
+
+  // MARK: - Checks batch loop
+
+  @Test("A failed batch stops the loop: batch 2 of 3 fails → 2 calls, batch 1 results, no throw")
+  func checksStopAtFailedBatch() async {
+    let runner = ChecksRunnerStub { call, ids in
+      guard call == 1 else { throw GitHubCLIError.commandFailed("rate limited") }
+      return checksResponse(ids.map { ($0, "SUCCESS") })
+    }
+    let service = GitHubProjectReviewService(runChecksCommand: runner.run)
+    let ids = (1...120).map { "pr-\($0)" }
+
+    let states = await service.checkRollups(forPullRequestIDs: ids)
+
+    #expect(await runner.calls == 2)
+    #expect(Set(states.keys) == Set(ids.prefix(50)))
+    #expect(states.values.allSatisfy { $0 == .success })
+  }
+
+  @Test("A cancelled task makes no gh calls")
+  func checksCancelledMakesNoCalls() async {
+    let runner = ChecksRunnerStub { _, ids in checksResponse(ids.map { ($0, "SUCCESS") }) }
+    let service = GitHubProjectReviewService(runChecksCommand: runner.run)
+
+    let task = Task { () -> [String: CIStatus] in
+      withUnsafeCurrentTask { $0?.cancel() }
+      return await service.checkRollups(forPullRequestIDs: ["a", "b"])
+    }
+    let states = await task.value
+
+    #expect(states.isEmpty)
+    #expect(await runner.calls == 0)
+  }
+
+  @Test("Partial data with an errors array is used, and the next batch still runs")
+  func checksPartialDataContinues() async throws {
+    // What `gh api graphql` prints (exit 1) when one pull request is inaccessible.
+    let partial = #"{"data":{"nodes":[{"id":"pr-1","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE"}}}]}},null]},"errors":[{"type":"NOT_FOUND","path":["nodes",1],"message":"Could not resolve to a node with the global id of 'pr-2'"}]}"#
+    let decoded = try GitHubProjectReviewService.decodeCheckRollups(partial)
+    #expect(decoded == ["pr-1": .failure])
+
+    let runner = ChecksRunnerStub { call, ids in
+      call == 1 ? partial : checksResponse(ids.map { ($0, "PENDING") })
+    }
+    let service = GitHubProjectReviewService(runChecksCommand: runner.run)
+    let ids = (1...60).map { "pr-\($0)" }
+
+    let states = await service.checkRollups(forPullRequestIDs: ids)
+
+    #expect(await runner.calls == 2)
+    #expect(states["pr-1"] == .failure)
+    #expect(states["pr-2"] == nil)
+    #expect(states["pr-51"] == .pending)
+    #expect(states.count == 11)
+  }
+
+  @Test("A response with errors and no data is a failure")
+  func checksErrorsWithoutDataFail() {
+    #expect(throws: GitHubCLIError.self) {
+      try GitHubProjectReviewService.decodeCheckRollups(#"{"data":null,"errors":[{"message":"rate limited"}]}"#)
+    }
+  }
+
+  // MARK: - One CI rule for queue and detail
+
+  @Test("A detail's checks give the same state as GitHub's rollup for that pull request")
+  func detailAgreesWithRollup() throws {
+    func runs(_ json: String) throws -> [GitHubCheckRun] {
+      try JSONDecoder().decode([GitHubCheckRun].self, from: Data(json.utf8))
+    }
+    let cases: [(checks: String, rollupState: String?)] = [
+      (#"[{"name":"a","status":"COMPLETED","conclusion":"SKIPPED"}]"#, "SUCCESS"),
+      (#"[{"name":"a","status":"COMPLETED","conclusion":"NEUTRAL"},{"name":"b","status":"COMPLETED","conclusion":"SKIPPED"}]"#, "SUCCESS"),
+      (#"[{"name":"a","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"b","status":"COMPLETED","conclusion":"SKIPPED"}]"#, "SUCCESS"),
+      (#"[{"name":"a","status":"COMPLETED","conclusion":"SKIPPED"},{"name":"b","status":"IN_PROGRESS"}]"#, "PENDING"),
+      (#"[{"name":"a","status":"COMPLETED","conclusion":"FAILURE"},{"name":"b","status":"IN_PROGRESS"}]"#, "FAILURE"),
+      (#"[{"context":"ci/x","state":"ERROR"}]"#, "ERROR"),
+      ("[]", nil),
+    ]
+    for (checks, rollupState) in cases {
+      let fromDetail = CIStatus.rollup(of: try runs(checks))
+      let fromQueue = GitHubProjectReviewService.ciStatus(rollupState: rollupState)
+      #expect(fromDetail == fromQueue, "\(checks)")
+    }
+    #expect(CIStatus.rollup(of: nil) == CIStatus.none)
+  }
+}
+
+// MARK: - Helpers
+
+/// Stands in for `gh`: counts calls and answers with `respond(callNumber, ids)`.
+private actor ChecksRunnerStub {
+  private(set) var calls = 0
+  private let respond: @Sendable (Int, [String]) throws -> String
+
+  init(_ respond: @escaping @Sendable (Int, [String]) throws -> String) {
+    self.respond = respond
+  }
+
+  nonisolated var run: GitHubProjectReviewService.ChecksCommandRunner {
+    { arguments in try await self.handle(arguments) }
+  }
+
+  private func handle(_ arguments: [String]) throws -> String {
+    calls += 1
+    let ids = arguments.filter { $0.hasPrefix("ids[]=") }.map { String($0.dropFirst("ids[]=".count)) }
+    return try respond(calls, ids)
+  }
+}
+
+private func checksResponse(_ states: [(id: String, state: String)]) -> String {
+  let nodes = states.map {
+    #"{"id":"\#($0.id)","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"\#($0.state)"}}}]}}"#
+  }
+  return #"{"data":{"nodes":["# + nodes.joined(separator: ",") + "]}}"
 }

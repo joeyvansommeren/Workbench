@@ -159,28 +159,22 @@ final class SidebarCIFailureObserver {
     observationService: any GitHubPRObservationServiceProtocol
   ) -> Entry {
     let viewModel = SessionGitHubQuickAccessViewModel()
-    if let notifier {
-      let context = target.context
-      viewModel.onSnapshotApplied = { snapshot in
-        notifier.evaluate(snapshot: snapshot, context: context)
-      }
-    }
     let delay = startupDelay(target)
-    // Same settings as `CollapsibleSessionRow.observeGitHubIfAvailable()`.
+    let notifier = notifier
+    // Same recipe as `CollapsibleSessionRow.observeGitHubIfAvailable()`.
     let task = Task {
-      if target.linkedPullRequests.isEmpty {
-        try? await Task.sleep(for: delay)
-        guard !Task.isCancelled else { return }
-      }
-      await viewModel.load(
-        projectPath: target.projectPath,
-        branchName: target.branchName,
-        linkedPullRequests: target.linkedPullRequests,
-        observationService: observationService,
-        refreshOnSubscribe: false,
-        recordInitialActivity: false,
-        forceRefreshLinkedPullRequest: !target.linkedPullRequests.isEmpty
-      )
+      guard
+        await SessionCIObservation.load(
+          viewModel,
+          context: target.context,
+          linkedPullRequests: target.linkedPullRequests,
+          observationService: observationService,
+          notifier: notifier,
+          startupDelay: delay
+        )
+      else { return }
+      // Stopped while subscribing: `stop` ran before there was a subscription
+      // to end, so end it here.
       guard !Task.isCancelled else {
         viewModel.stopPolling()
         return
@@ -195,13 +189,9 @@ final class SidebarCIFailureObserver {
     entry.viewModel.stopPolling()
   }
 
-  /// The legacy row's per-session stagger: 250 ms plus 0–1.5 s from the id,
-  /// so launch does not subscribe every session at once.
+  /// The legacy row's per-session stagger (`SessionCIObservation.startupDelay`).
   nonisolated static func legacyStartupDelay(_ target: SidebarCIObservationTarget) -> Duration {
-    let bucket = target.sessionID.unicodeScalars.reduce(0) { partialResult, scalar in
-      (partialResult + Int(scalar.value)) % 1_500
-    }
-    return .milliseconds(250 + bucket)
+    SessionCIObservation.startupDelay(sessionID: target.sessionID)
   }
 }
 
@@ -236,6 +226,10 @@ private struct SidebarCIFailureDriver: View {
       .onChange(of: targets, initial: true) { _, newTargets in
         observer.update(targets: newTargets)
       }
+      // `onDisappear` stops everything, and the @State observer survives a
+      // reappear with unchanged targets, which `onChange` would not report.
+      // `update` is idempotent, so the extra call on first appear is free.
+      .onAppear { observer.update(targets: targets) }
       .onDisappear { observer.stopAll() }
       .accessibilityHidden(true)
   }

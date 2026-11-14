@@ -84,10 +84,25 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
     let state: String
   }
 
+  /// Runs one `gh` call for the queue's checks and returns its stdout.
+  typealias ChecksCommandRunner = @Sendable (_ arguments: [String]) async throws -> String
+
   private let cli: GitHubCLIService
+  private let runChecksCommand: ChecksCommandRunner
 
   public init(cli: GitHubCLIService = GitHubCLIService()) {
+    self.init(cli: cli) { arguments in
+      // `gh api graphql` exits 1 when the response has an `errors` array, even
+      // when `data` holds the other pull requests (e.g. one inaccessible PR).
+      // Exit 1 keeps stdout so the decoder can use the partial data.
+      try await cli.runAuthenticatedCommand(arguments, timeout: 30, allowedExitCodes: [0, 1])
+    }
+  }
+
+  /// Test seam: `runChecksCommand` stands in for `gh` in `checkRollups`.
+  init(cli: GitHubCLIService = GitHubCLIService(), runChecksCommand: @escaping ChecksCommandRunner) {
     self.cli = cli
+    self.runChecksCommand = runChecksCommand
   }
 
   public func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws -> GitHubReviewDetail {
@@ -143,8 +158,10 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
 
   /// The queue's search (`gh search prs`) has no CI data, so this fetches the
   /// last commit's rollup state for 50 pull requests per GraphQL call. Calls run
-  /// one after another and stop at the first failure (e.g. a rate limit) instead
-  /// of retrying; the caller shows no icon for pull requests left out.
+  /// one after another and stop at the first failure without data (e.g. a rate
+  /// limit) instead of retrying; a response with partial data (some PRs
+  /// inaccessible) is used and the loop goes on. The caller shows no icon for
+  /// pull requests left out.
   public func checkRollups(forPullRequestIDs ids: [String]) async -> [String: CIStatus] {
     let query = """
       query($ids: [ID!]!) {
@@ -164,7 +181,7 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
         arguments += ["-F", "ids[]=\(id)"]
       }
       do {
-        let json = try await cli.runAuthenticatedCommand(arguments, timeout: 30)
+        let json = try await runChecksCommand(arguments)
         result.merge(try Self.decodeCheckRollups(json)) { _, new in new }
       } catch {
         GitHubLogger.github.error(
@@ -185,7 +202,9 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
   }
 
   /// Pull request ID → CI state. No rollup (no checks) is `.none`; a missing
-  /// pull request (null node) is left out.
+  /// or inaccessible pull request (null node) is left out. A top-level
+  /// `errors` array next to `data` is partial success, not a failure; only a
+  /// response without `data.nodes` throws.
   static func decodeCheckRollups(_ json: String) throws -> [String: CIStatus] {
     guard let data = json.data(using: .utf8),
       let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],

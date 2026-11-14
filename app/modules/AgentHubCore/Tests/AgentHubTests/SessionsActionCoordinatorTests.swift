@@ -261,6 +261,48 @@ struct SessionsActionCoordinatorTests {
 
     #expect(nav.selectedModuleLandingPath == "/tmp/OtherRepo")
   }
+
+  // MARK: - View Transcript
+
+  private func transcriptFile(_ content: String?) throws -> String {
+    let path = FileManager.default.temporaryDirectory
+      .appendingPathComponent("transcript-\(UUID().uuidString).jsonl").path
+    if let content { try Data(content.utf8).write(to: URL(fileURLWithPath: path)) }
+    return path
+  }
+
+  @Test("View Transcript reads the file in the background, then shows the sheet")
+  func openSessionFileShowsSheet() async throws {
+    let coordinator = SessionsActionCoordinator()
+    let path = try transcriptFile(#"{"type":"user"}"#)
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    let session = CLISession(id: "s1", projectPath: "/tmp/Repo", sessionFilePath: path)
+
+    coordinator.openSessionFile(for: session, viewModel: makeTestViewModel())
+    #expect(coordinator.sessionFileSheetItem == nil)
+    await coordinator.sessionFileTask?.value
+
+    #expect(coordinator.sessionFileSheetItem?.content == #"{"type":"user"}"#)
+    #expect(coordinator.sessionFileSheetItem?.fileName == URL(fileURLWithPath: path).lastPathComponent)
+    #expect(coordinator.sessionFileError == nil)
+  }
+
+  @Test("A missing or empty transcript shows a short error instead of nothing", arguments: [nil, ""])
+  func openSessionFileFailure(content: String?) async throws {
+    let coordinator = SessionsActionCoordinator()
+    let path = try transcriptFile(content)
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    let session = CLISession(id: "s1", projectPath: "/tmp/Repo", sessionFilePath: path)
+
+    coordinator.openSessionFile(for: session, viewModel: makeTestViewModel())
+    await coordinator.sessionFileTask?.value
+
+    #expect(coordinator.sessionFileSheetItem == nil)
+    #expect(coordinator.sessionFileError == SessionsActionCoordinator.sessionFileErrorMessage)
+
+    coordinator.clearTransientPresentation()
+    #expect(coordinator.sessionFileError == nil)
+  }
 }
 
 // MARK: - Helpers

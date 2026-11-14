@@ -158,6 +158,12 @@ struct SessionsPresentationModifier: ViewModifier {
       } message: { confirmation in
         worktreeModuleDeleteMessage(confirmation)
       }
+      .alert(
+        coordinator.sessionFileError ?? "",
+        isPresented: sessionFileErrorPresented
+      ) {
+        Button("OK", role: .cancel) { coordinator.sessionFileError = nil }
+      }
       .modifier(RemoveConfirmationAlert(confirmation: $coordinator.removeConfirmation))
       .modifier(
         AgentWorkspaceCloseConfirmationModifier(
@@ -286,6 +292,13 @@ struct SessionsPresentationModifier: ViewModifier {
   }
 
   // MARK: - Worktree Deletion Error
+
+  private var sessionFileErrorPresented: Binding<Bool> {
+    Binding(
+      get: { coordinator.sessionFileError != nil },
+      set: { if !$0 { coordinator.sessionFileError = nil } }
+    )
+  }
 
   private var worktreeDeletionErrorPresented: Binding<Bool> {
     Binding(

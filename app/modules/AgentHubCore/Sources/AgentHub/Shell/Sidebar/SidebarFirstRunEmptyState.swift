@@ -38,8 +38,9 @@ enum SidebarFirstRun {
   }
 }
 
-/// The session tree, or the first-run empty state. Its own view, so the
-/// reads it needs re-render only this switch.
+/// The session tree with the Open project footer, or the first-run empty
+/// state (which has its own Open project button, so no footer). Its own
+/// view, so the reads it needs re-render only this switch.
 struct SidebarTreeOrEmptyState: View {
   let openProject: () -> Void
 
@@ -52,7 +53,11 @@ struct SidebarTreeOrEmptyState: View {
     {
       SidebarFirstRunEmptyState(openProject: openProject)
     } else {
-      SessionTreeView()
+      VStack(alignment: .leading, spacing: 0) {
+        SessionTreeView()
+          .frame(maxHeight: .infinity, alignment: .top)
+        SidebarFooter(openProject: openProject)
+      }
     }
   }
 }

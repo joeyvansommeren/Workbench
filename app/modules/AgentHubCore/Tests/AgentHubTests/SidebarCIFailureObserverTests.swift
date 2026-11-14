@@ -21,10 +21,25 @@ private actor FakeObservationService: GitHubPRObservationServiceProtocol {
   private(set) var activity: [Date] = []
   private var continuations: [UUID: AsyncStream<GitHubPRObservationSnapshot>.Continuation] = [:]
 
+  private var holdsSubscriptions = false
+  private var heldSubscriptions: [CheckedContinuation<Void, Never>] = []
+  private(set) var subscribeCallsStarted = 0
+
+  /// Later `subscribe` calls wait until `releaseSubscriptions()`.
+  func holdSubscriptions() { holdsSubscriptions = true }
+
+  func releaseSubscriptions() {
+    holdsSubscriptions = false
+    heldSubscriptions.forEach { $0.resume() }
+    heldSubscriptions = []
+  }
+
   func subscribe(
     to target: GitHubPRObservationTarget,
     refreshOnSubscribe: Bool
   ) async -> GitHubPRObservationSubscription {
+    subscribeCallsStarted += 1
+    if holdsSubscriptions { await withCheckedContinuation { heldSubscriptions.append($0) } }
     subscribedTargets.append(target)
     let id = UUID()
     let (stream, continuation) = AsyncStream<GitHubPRObservationSnapshot>.makeStream()
@@ -91,13 +106,72 @@ struct SidebarCIFailureObserverTests {
 
   private func makeObserver(
     service: FakeObservationService?,
-    notifier: RecordingNotifier? = nil
+    notifier: RecordingNotifier? = nil,
+    startupDelay: Duration = .zero
   ) -> SidebarCIFailureObserver {
     SidebarCIFailureObserver(
       observationService: service,
       notifier: notifier,
-      startupDelay: { _ in .zero }
+      startupDelay: { _ in startupDelay }
     )
+  }
+
+  @Test("A session removed during its startup delay never subscribes")
+  func removedDuringDelayNeverSubscribes() async throws {
+    let service = FakeObservationService()
+    let observer = makeObserver(service: service, startupDelay: .seconds(60))
+    observer.update(targets: [makeTarget(sessionID: "a")])
+    #expect(observer.observedKeys.count == 1)
+
+    observer.update(targets: [])
+    try await Task.sleep(for: .milliseconds(100))
+
+    #expect(observer.observedKeys.isEmpty)
+    #expect(await service.subscribeCallsStarted == 0)
+    #expect(await service.unsubscribedIDs.isEmpty)
+  }
+
+  @Test("stopAll during the startup delay leaves zero subscriptions")
+  func stopAllDuringDelayNeverSubscribes() async throws {
+    let service = FakeObservationService()
+    let observer = makeObserver(service: service, startupDelay: .seconds(60))
+    observer.update(targets: [makeTarget(sessionID: "a"), makeTarget(sessionID: "b")])
+
+    observer.stopAll()
+    try await Task.sleep(for: .milliseconds(100))
+
+    #expect(await service.subscribeCallsStarted == 0)
+  }
+
+  @Test("Stopped while subscribing: the late subscription is ended")
+  func cancelDuringLoadUnsubscribes() async throws {
+    let service = FakeObservationService()
+    await service.holdSubscriptions()
+    let observer = makeObserver(service: service)
+    observer.update(targets: [makeTarget(sessionID: "a")])
+    try await waitUntil { await service.subscribeCallsStarted == 1 }
+
+    observer.stopAll()
+    await service.releaseSubscriptions()
+
+    try await waitUntil { await service.unsubscribedIDs.count == 1 }
+    #expect(await service.subscribedTargets.count == 1)
+  }
+
+  @Test("After stopAll (shell root disappeared) the same targets observe again")
+  func restartsAfterStopAll() async throws {
+    let service = FakeObservationService()
+    let observer = makeObserver(service: service)
+    let targets = [makeTarget(sessionID: "a")]
+    observer.update(targets: targets)
+    try await waitUntil { await service.subscribedTargets.count == 1 }
+
+    observer.stopAll()
+    observer.update(targets: targets)
+
+    #expect(observer.observedKeys == Set(targets.map(\.observationKey)))
+    try await waitUntil { await service.subscribedTargets.count == 2 }
+    observer.stopAll()
   }
 
   @Test("Observes every monitored session, not just visible rows")
@@ -222,6 +296,10 @@ struct SidebarCIFailureObserverTests {
     let delay = SidebarCIFailureObserver.legacyStartupDelay(makeTarget(sessionID: "abc"))
     #expect(delay >= .milliseconds(250))
     #expect(delay < .milliseconds(1_750))
+    // One formula, shared with `CollapsibleSessionRow`.
+    #expect(delay == SessionCIObservation.startupDelay(sessionID: "abc"))
+    // "abc" = 97 + 98 + 99 = 294 → 250 + 294 ms, as the row computed before.
+    #expect(delay == .milliseconds(544))
   }
 }
 

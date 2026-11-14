@@ -38,6 +38,11 @@ struct LinearSprintDestination: View {
             onRetry: { Task { await viewModel.load(keepsBoardOnFailure: true) } },
             onDismiss: viewModel.dismissRefreshError)
         }
+        if let notice = viewModel.statusNotice {
+          SprintNoticeView(
+            text: notice.text, isError: notice.isError, onRetry: nil,
+            onDismiss: viewModel.dismissStatusNotice)
+        }
         content
       }
     } detail: {
@@ -100,7 +105,10 @@ struct LinearSprintDestination: View {
             onOpenSession(session)
           }
         },
-        onMove: nil,
+        onMove: { id, stateID in
+          MainThreadStallMonitor.breadcrumb("sprint ticket: move \(id)")
+          Task { await viewModel.moveIssue(id, toStateID: stateID) }
+        },
         browseURL: { id in
           viewModel.issues.first { $0.id == id }.flatMap { URL(string: $0.url) }
         }
@@ -166,6 +174,7 @@ struct LinearSprintDestination: View {
           cycleName: viewModel.activeCycle?.displayName,
           isLoadingDetail: viewModel.isLoadingDetail,
           linkedSessions: links,
+          moveStates: viewModel.columns.map(\.state),
           status: sessionStatus
         ),
         repositoryPath: $viewModel.repositoryPath,
@@ -180,8 +189,9 @@ struct LinearSprintDestination: View {
             MainThreadStallMonitor.breadcrumb("sprint ticket: open session")
             onOpenSession(link)
           },
-          // Linear issues do not move in the shell (the board has no Move To either).
-          onMove: { _ in },
+          onMove: { stateID in
+            Task { await viewModel.moveIssue(issue.id, toStateID: stateID) }
+          },
           onRefreshPullRequests: {},
           onClose: close
         )

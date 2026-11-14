@@ -90,7 +90,9 @@ public final class GitHubReviewsViewModel {
       guard !Task.isCancelled, generation == detailGeneration, selectedPullRequestID == request.id else { return }
       selectedDetail = detail
       detailUpdatedAt = Date()
-      checksByPullRequestID[request.id] = detail.pullRequest.ciStatus
+      // GitHub's rollup rule, as the queue's batched fetch reports it, so the
+      // row's icon does not change meaning when the detail loads.
+      checksByPullRequestID[request.id] = detail.pullRequest.rollupCIStatus
     } catch {
       guard !Task.isCancelled, generation == detailGeneration else { return }
       detailError = error.localizedDescription
@@ -109,12 +111,25 @@ public final class GitHubReviewsViewModel {
   public private(set) var checksByPullRequestID: [String: CIStatus] = [:]
   /// The rollup fetch for the latest queue. A new refresh cancels the previous one.
   @ObservationIgnored private(set) var checksTask: Task<Void, Never>?
+  /// Only the new shell's Reviews shows a Checks column, so only it turns this
+  /// on (`ReviewsDestinationView`). Off, a queue refresh makes no checks
+  /// calls: the legacy Reviews keeps its earlier network footprint.
+  @ObservationIgnored var wantsQueueChecks = false {
+    didSet {
+      guard wantsQueueChecks, !oldValue, didLoad, !isLoadingPullRequests, !pullRequests.isEmpty
+      else { return }
+      // The queue was already loaded (by the legacy Reviews before a switch to
+      // the new shell): fetch its checks now. Before the first load, the
+      // queue refresh fetches them.
+      refreshChecks(for: pullRequests.map(\.id))
+    }
+  }
 
   /// Fetches the CI rollup for the queue in the background. Runs once per queue
   /// refresh (no polling); failures are logged by the service and leave icons empty.
   private func refreshChecks(for pullRequestIDs: [String]) {
     checksTask?.cancel()
-    guard !pullRequestIDs.isEmpty else {
+    guard wantsQueueChecks, !pullRequestIDs.isEmpty else {
       checksTask = nil
       return
     }
@@ -321,6 +336,8 @@ public final class GitHubReviewsViewModel {
   }
 
   public func cancelRefresh() {
+    checksTask?.cancel()
+    checksTask = nil
     refreshGeneration += 1
     isLoadingProjects = false
     isLoadingPullRequests = false

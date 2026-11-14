@@ -157,7 +157,20 @@ struct TicketDetailPresentationTests {
 
   // MARK: - Linear
 
-  @Test("A Linear issue maps state tone, priority, labels and cycle, and cannot move")
+  @Test("A Linear issue moves to the other board states")
+  func linearMoveTargets() {
+    let todo = LinearWorkflowState(id: "s-todo", name: "Todo", type: "unstarted", position: 0, color: "")
+    let doing = LinearWorkflowState(id: "s-doing", name: "In Progress", type: "started", position: 1, color: "")
+    let done = LinearWorkflowState(id: "s-done", name: "Done", type: "completed", position: 2, color: "")
+    let detail = TicketDetailPresentation.linear(
+      issue: LinearIssue(id: "i", identifier: "ENG-1", title: "x", state: doing),
+      cycleName: nil, isLoadingDetail: false, linkedSessions: [],
+      moveStates: [todo, doing, done], status: Self.noStatus, now: Self.now)
+    #expect(detail.status?.moveTargets.map(\.id) == ["s-todo", "s-done"])
+    #expect(detail.status?.moveTargets.map(\.title) == ["Todo", "Done"])
+  }
+
+  @Test("A Linear issue maps state tone, priority, labels and cycle; no states, no moves")
   func linearIssue() {
     let state = LinearWorkflowState(id: "s", name: "In Progress", type: "started", position: 1, color: "")
     let issue = LinearIssue(
@@ -196,6 +209,20 @@ struct TicketDetailPresentationTests {
     #expect(detail.browseURL == nil)
     #expect(detail.status?.tone == .neutral)
     #expect(detail.isLoadingDetail)
+  }
+
+  // MARK: - Description headings
+
+  @Test("Description headings never outrank the panel title")
+  func descriptionHeadingsStayBelowTitle() {
+    #expect(DescriptionMarkdownHeading.style(level: 1) == .title3)
+    #expect(DescriptionMarkdownHeading.style(level: 2) == .headline)
+    for level in 3...6 {
+      #expect(DescriptionMarkdownHeading.style(level: level) == .bodyEmphasis)
+    }
+    for level in 1...6 {
+      #expect(DescriptionMarkdownHeading.style(level: level).size < WorkbenchTextStyle.title2.size)
+    }
   }
 
   // MARK: - Description cap
