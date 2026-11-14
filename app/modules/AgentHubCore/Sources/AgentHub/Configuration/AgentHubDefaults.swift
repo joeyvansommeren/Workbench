@@ -464,6 +464,10 @@ public enum AgentHubDefaults {
   /// Selected Linear team ID. Type: String
   public static let linearSelectedTeamID = "\(keyPrefix)linear.selectedTeamID"
 
+  /// The Linear board's project filter, per team: team ID → project ID. A
+  /// team without an entry shows all projects. Type: [String: String]
+  public static let linearSelectedProjectIDs = "\(keyPrefix)linear.selectedProjectIDs"
+
   /// Local repository path that Linear issue sessions start in. Type: String
   public static let linearRepositoryPath = "\(keyPrefix)linear.repositoryPath"
 

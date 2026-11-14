@@ -4,18 +4,25 @@
 //
 //  The row above the Jira and Linear boards (`.list-head`): the sprint or
 //  cycle name with its days-left chip, All | Mine, the people filter (Jira)
-//  and a trailing slot for Refresh and Filters.
+//  or the project menu (Linear), and a trailing slot for Refresh and Filters.
 //
 
 import SwiftUI
 
+/// The filter after All | Mine. Both kinds survive every width.
+enum SprintListHeadFilter<Content: View> {
+  /// Jira's people strip for a visible-avatar limit (`SprintPeopleFilter`).
+  case people((Int) -> Content)
+  /// Linear's project menu: full (false) or icon only (true, `isCompact`).
+  case menu((Bool) -> Content)
+}
+
 struct SprintListHead<People: View, Trailing: View>: View {
-  /// Nil hides the title (Linear without an active cycle).
+  /// Nil hides the title (Linear without an active cycle or project).
   let title: SprintTitle?
   @Binding var scope: SprintAssigneeScope
-  /// The people filter for a visible-avatar limit (`SprintPeopleFilter`).
-  /// Nil when the tracker has no per-person filter (Linear).
-  let people: ((Int) -> People)?
+  /// Nil when the tracker has no filter here.
+  let filter: SprintListHeadFilter<People>?
   @ViewBuilder let trailing: Trailing
 
   init(
@@ -26,7 +33,20 @@ struct SprintListHead<People: View, Trailing: View>: View {
   ) {
     self.title = title
     self._scope = scope
-    self.people = people
+    self.filter = .people(people)
+    self.trailing = trailing()
+  }
+
+  /// A head with a menu filter (Linear's project menu).
+  init(
+    title: SprintTitle?,
+    scope: Binding<SprintAssigneeScope>,
+    @ViewBuilder menu: @escaping (_ isCompact: Bool) -> People,
+    @ViewBuilder trailing: () -> Trailing
+  ) {
+    self.title = title
+    self._scope = scope
+    self.filter = .menu(menu)
     self.trailing = trailing()
   }
 
@@ -37,21 +57,29 @@ struct SprintListHead<People: View, Trailing: View>: View {
     // the only way to pick a person, so with a people filter the last
     // fallback (used even when nothing fits) still has its menu. Fixed avatar
     // counts, picked by `ViewThatFits`; layout-only, no size → state.
+    //
+    // The project menu works the same way: it keeps its full label (name
+    // capped at `SprintProjectMenu.labelMaxWidth`) until only an icon fits.
     ViewThatFits(in: .horizontal) {
-      if people != nil {
-        row(title: title, showsScope: true, peopleLimit: SprintPeopleFilter.wideLimit)
-        row(title: title?.withoutDaysLeft, showsScope: true, peopleLimit: SprintPeopleFilter.wideLimit)
-        row(title: title?.withoutDaysLeft, showsScope: true, peopleLimit: SprintPeopleFilter.narrowLimit)
-        row(title: nil, showsScope: true, peopleLimit: SprintPeopleFilter.narrowLimit)
-        row(title: nil, showsScope: true, peopleLimit: SprintPeopleFilter.menuOnlyLimit)
-        // Tighter gaps: at 900 pt with a ticket open and a search active the
-        // other rows are a few points too wide (Codex review).
-        row(title: nil, showsScope: false, peopleLimit: SprintPeopleFilter.menuOnlyLimit, compact: true)
-      } else {
-        row(title: title, showsScope: true, peopleLimit: nil)
-        row(title: title?.withoutDaysLeft, showsScope: true, peopleLimit: nil)
-        row(title: nil, showsScope: true, peopleLimit: nil)
-        row(title: nil, showsScope: false, peopleLimit: nil)
+      switch filter {
+      case .people(let people):
+        row(title: title, showsScope: true) { people(SprintPeopleFilter.wideLimit) }
+        row(title: title?.withoutDaysLeft, showsScope: true) { people(SprintPeopleFilter.wideLimit) }
+        row(title: title?.withoutDaysLeft, showsScope: true) { people(SprintPeopleFilter.narrowLimit) }
+        row(title: nil, showsScope: true) { people(SprintPeopleFilter.narrowLimit) }
+        row(title: nil, showsScope: true) { people(SprintPeopleFilter.menuOnlyLimit) }
+        SprintListHeadCompactRow { people(SprintPeopleFilter.menuOnlyLimit) } trailing: { trailing }
+      case .menu(let menu):
+        row(title: title, showsScope: true) { menu(false) }
+        row(title: title?.withoutDaysLeft, showsScope: true) { menu(false) }
+        row(title: nil, showsScope: true) { menu(false) }
+        row(title: nil, showsScope: false) { menu(false) }
+        SprintListHeadCompactRow { menu(true) } trailing: { trailing }
+      case nil:
+        row(title: title, showsScope: true) { EmptyView() }
+        row(title: title?.withoutDaysLeft, showsScope: true) { EmptyView() }
+        row(title: nil, showsScope: true) { EmptyView() }
+        row(title: nil, showsScope: false) { EmptyView() }
       }
     }
     .padding(.leading, DesignTokens.Spacing.lg)
@@ -59,8 +87,10 @@ struct SprintListHead<People: View, Trailing: View>: View {
     .frame(height: 56)
   }
 
-  private func row(title: SprintTitle?, showsScope: Bool, peopleLimit: Int?, compact: Bool = false) -> some View {
-    HStack(spacing: compact ? DesignTokens.Spacing.sm : DesignTokens.Spacing.md) {
+  private func row<Filter: View>(
+    title: SprintTitle?, showsScope: Bool, @ViewBuilder filter: () -> Filter
+  ) -> some View {
+    HStack(spacing: DesignTokens.Spacing.md) {
       if let title {
         SprintTitleView(title: title)
       }
@@ -69,9 +99,7 @@ struct SprintListHead<People: View, Trailing: View>: View {
           selection: $scope, accessibilityLabel: "Assignee", accessibilityIdentifier: "sprint.assignee")
           .fixedSize()
       }
-      if let peopleLimit, let people {
-        people(peopleLimit)
-      }
+      filter()
       Spacer(minLength: 0)
       HStack(spacing: DesignTokens.Spacing.xs) {
         trailing
@@ -81,8 +109,29 @@ struct SprintListHead<People: View, Trailing: View>: View {
   }
 }
 
+/// The head's last fallback, used even when nothing fits: the filter's
+/// smallest form and the trailing controls, `Spacing.xs` apart and no spacer
+/// gap. At 900 pt with a ticket open and a search active the head has 195 pt;
+/// this row needs 192 (`SprintProjectMenuTests`). A row with a spacer and
+/// `Spacing.sm` gaps needed 204, so the trailing controls overflowed.
+struct SprintListHeadCompactRow<Filter: View, Trailing: View>: View {
+  @ViewBuilder let filter: Filter
+  @ViewBuilder let trailing: Trailing
+
+  var body: some View {
+    HStack(spacing: DesignTokens.Spacing.xs) {
+      filter
+        .frame(maxWidth: .infinity, alignment: .leading)
+      HStack(spacing: DesignTokens.Spacing.xs) {
+        trailing
+      }
+      .fixedSize()
+    }
+  }
+}
+
 extension SprintListHead where People == EmptyView {
-  /// A head without a people filter (Linear).
+  /// A head without a filter after All | Mine.
   init(
     title: SprintTitle?,
     scope: Binding<SprintAssigneeScope>,
@@ -90,7 +139,7 @@ extension SprintListHead where People == EmptyView {
   ) {
     self.title = title
     self._scope = scope
-    self.people = nil
+    self.filter = nil
     self.trailing = trailing()
   }
 }

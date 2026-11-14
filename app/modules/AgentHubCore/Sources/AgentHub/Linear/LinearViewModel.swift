@@ -3,7 +3,8 @@
 //  AgentHub
 //
 //  Linear board: team's active cycle issues by workflow state, or "My issues"
-//  fallback when there is no cycle. Mirrors JiraSprintViewModel's patterns.
+//  fallback when there is no cycle, or one project's open issues when a
+//  project is picked. Mirrors JiraSprintViewModel's patterns.
 //
 
 import AgentWorkflowLinear
@@ -41,6 +42,11 @@ public final class LinearViewModel {
   public private(set) var teams: [LinearTeam] = []
   public private(set) var selectedTeamID: String?
   public private(set) var activeCycle: LinearCycle?
+  /// The selected team's open projects, by name.
+  public private(set) var projects: [LinearProject] = []
+  /// The project filter. Nil shows all projects: the active cycle, or my
+  /// issues without one. Saved per team (`linearSelectedProjectIDs`).
+  public private(set) var selectedProjectID: String?
   public private(set) var workflowStates: [LinearWorkflowState] = []
   public private(set) var issues: [LinearIssue] = []
   public private(set) var selectedIssueID: String?
@@ -88,6 +94,10 @@ public final class LinearViewModel {
   /// Whether a key is stored. Injected so tests never read the Keychain.
   @ObservationIgnored private let hasAPIKey: () -> Bool
   @ObservationIgnored private var detailTask: Task<Void, Never>?
+  /// Bumped by every team-data load, team or project switch and disconnect.
+  /// A load whose generation is no longer current drops its result, so a
+  /// slow answer for an old team or project never overwrites a newer one.
+  @ObservationIgnored private var loadGeneration = 0
   @ObservationIgnored let sessionLinker = LinearSessionLinker()
 
   /// Names for sessions started from the board, applied once the pending session
@@ -108,11 +118,17 @@ public final class LinearViewModel {
     repositoryPath = userDefaults.string(forKey: AgentHubDefaults.linearRepositoryPath)
     let teamID = userDefaults.string(forKey: AgentHubDefaults.linearSelectedTeamID)
     selectedTeamID = teamID
+    selectedProjectID = teamID.flatMap { Self.storedProjectID(for: $0, in: userDefaults) }
   }
 
   // MARK: - Derived
 
   public var selectedTeam: LinearTeam? { teams.first { $0.id == selectedTeamID } }
+
+  public var selectedProject: LinearProject? {
+    guard let selectedProjectID else { return nil }
+    return projects.first { $0.id == selectedProjectID }
+  }
 
   public var selectedIssue: LinearIssue? {
     if let issueDetail, issueDetail.id == selectedIssueID { return issueDetail }
@@ -163,7 +179,7 @@ public final class LinearViewModel {
 
   /// Whether the board is showing "My issues" fallback (no active cycle).
   public var isMyIssuesFallback: Bool {
-    activeCycle == nil && loadState == .loaded
+    selectedProjectID == nil && activeCycle == nil && loadState == .loaded
   }
 
   private func matchesAssignee(_ issue: LinearIssue) -> Bool {
@@ -190,14 +206,19 @@ public final class LinearViewModel {
       return
     }
     loadState = .loading
+    let generation = nextLoadGeneration()
     do {
       if viewer == nil { viewer = try await service.viewer() }
       if teams.isEmpty { teams = try await service.teams() }
       if selectedTeam == nil { selectedTeamID = teams.first?.id }
-      try await loadTeamData()
+      let teamID = selectedTeamID
+      let data = try await fetchTeamData(teamID: teamID)
+      guard generation == loadGeneration else { return }
+      apply(data, teamID: teamID)
       loadState = .loaded
       refreshError = nil
     } catch {
+      guard generation == loadGeneration else { return }
       let failure = Self.mapError(error)
       let keepsBoard = keepsBoardOnFailure && !issues.isEmpty
       switch failure {
@@ -230,34 +251,105 @@ public final class LinearViewModel {
     selectedTeamID = teamID
     userDefaults.set(teamID, forKey: AgentHubDefaults.linearSelectedTeamID)
     closeIssue()
+    // The old team's projects do not apply; this team's saved project shows
+    // in the head while its data loads.
+    projects = []
+    selectedProjectID = Self.storedProjectID(for: teamID, in: userDefaults)
+    await reloadTeamData()
+  }
+
+  /// Filters the board to one project, or nil for all projects. Saved for
+  /// the selected team. With a project the board shows its open issues in
+  /// this team, whatever the cycle; All | Mine and search still apply.
+  public func selectProject(_ projectID: String?) async {
+    guard projectID != selectedProjectID, let teamID = selectedTeamID else { return }
+    if let projectID, !projects.contains(where: { $0.id == projectID }) { return }
+    selectedProjectID = projectID
+    storeProjectID(projectID, for: teamID)
+    closeIssue()
+    // The old list is not this filter's: show the spinner, not stale cards.
+    issues = []
+    await reloadTeamData()
+  }
+
+  /// Loads the selected team's data after a team or project switch. A
+  /// failure shows its state (as a team switch always did).
+  private func reloadTeamData() async {
     loadState = .loading
+    let generation = nextLoadGeneration()
+    let teamID = selectedTeamID
     do {
-      try await loadTeamData()
+      let data = try await fetchTeamData(teamID: teamID)
+      guard generation == loadGeneration else { return }
+      apply(data, teamID: teamID)
       loadState = .loaded
       refreshError = nil
     } catch {
+      guard generation == loadGeneration else { return }
       refreshError = nil
       loadState = Self.mapError(error)
     }
   }
 
-  private func loadTeamData() async throws {
-    guard let teamID = selectedTeamID else {
-      activeCycle = nil
-      workflowStates = []
-      issues = []
-      return
+  private func nextLoadGeneration() -> Int {
+    loadGeneration += 1
+    return loadGeneration
+  }
+
+  /// One team's board, fetched before any of it is shown.
+  private struct TeamData {
+    var workflowStates: [LinearWorkflowState] = []
+    var projects: [LinearProject] = []
+    /// The saved project when it is still one of `projects`, else nil.
+    var projectID: String?
+    var activeCycle: LinearCycle?
+    var issues: [LinearIssue] = []
+  }
+
+  private func fetchTeamData(teamID: String?) async throws -> TeamData {
+    guard let teamID else { return TeamData() }
+    var data = TeamData()
+    data.workflowStates = try await service.workflowStates(teamID: teamID)
+    data.projects = try await service.projects(teamID: teamID)
+    let storedID = Self.storedProjectID(for: teamID, in: userDefaults)
+    data.projectID = data.projects.contains { $0.id == storedID } ? storedID : nil
+    if let projectID = data.projectID {
+      data.issues = try await service.projectIssues(projectID: projectID, teamID: teamID)
+      return data
     }
-    workflowStates = try await service.workflowStates(teamID: teamID)
-    activeCycle = try await service.activeCycle(teamID: teamID)
-    if let cycle = activeCycle {
-      issues = try await service.cycleIssues(cycleID: cycle.id)
+    data.activeCycle = try await service.activeCycle(teamID: teamID)
+    if let cycle = data.activeCycle {
+      data.issues = try await service.cycleIssues(cycleID: cycle.id)
     } else if let viewerID = viewer?.id {
       // Fallback: my assigned issues not completed.
-      issues = try await service.assignedIssues(userID: viewerID)
-    } else {
-      issues = []
+      data.issues = try await service.assignedIssues(userID: viewerID)
     }
+    return data
+  }
+
+  private func apply(_ data: TeamData, teamID: String?) {
+    workflowStates = data.workflowStates
+    projects = data.projects
+    activeCycle = data.activeCycle
+    issues = data.issues
+    selectedProjectID = data.projectID
+    // A saved project that was completed, canceled or deleted, or left the
+    // team: forget it, so the board stays on all projects.
+    if let teamID, data.projectID == nil, Self.storedProjectID(for: teamID, in: userDefaults) != nil {
+      storeProjectID(nil, for: teamID)
+    }
+  }
+
+  private static func storedProjectID(for teamID: String, in defaults: UserDefaults) -> String? {
+    let stored = defaults.dictionary(forKey: AgentHubDefaults.linearSelectedProjectIDs) as? [String: String]
+    return stored?[teamID]
+  }
+
+  private func storeProjectID(_ projectID: String?, for teamID: String) {
+    var stored =
+      userDefaults.dictionary(forKey: AgentHubDefaults.linearSelectedProjectIDs) as? [String: String] ?? [:]
+    stored[teamID] = projectID
+    userDefaults.set(stored, forKey: AgentHubDefaults.linearSelectedProjectIDs)
   }
 
   /// Saves a new API key and reloads.
@@ -271,11 +363,15 @@ public final class LinearViewModel {
   /// Removes the API key and resets state.
   public func disconnect() {
     LinearKeychainStore.deleteApiKey()
+    // A load still in flight must not fill the board again.
+    _ = nextLoadGeneration()
     viewer = nil
     teams = []
     issues = []
     workflowStates = []
     activeCycle = nil
+    projects = []
+    selectedProjectID = nil
     selectedTeamID = nil
     refreshError = nil
     statusNotice = nil
@@ -458,7 +554,8 @@ public final class LinearViewModel {
       assignee: issue.assignee,
       labels: issue.labels,
       url: issue.url,
-      createdAt: issue.createdAt
+      createdAt: issue.createdAt,
+      project: issue.project
     )
   }
 

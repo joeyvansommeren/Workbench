@@ -85,6 +85,10 @@ private struct LinearTeamSwitcher: View {
 
   private var title: String {
     if let team = viewModel.selectedTeam {
+      // The new shell's project filter is saved per team; say so here too.
+      if let project = viewModel.selectedProject {
+        return project.name
+      }
       if let cycle = viewModel.activeCycle {
         return cycle.displayName
       }
@@ -108,7 +112,7 @@ private struct LinearTeamSwitcher: View {
       case 1: parts.append("1 day left")
       default: parts.append("\(days) days left")
       }
-    } else if viewModel.loadState == .loaded {
+    } else if viewModel.loadState == .loaded && viewModel.selectedProjectID == nil {
       parts.append("no active cycle")
     }
     let count = viewModel.issues.count

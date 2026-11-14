@@ -49,6 +49,14 @@ struct SprintTitle: Equatable {
     )
   }
 
+  /// Linear's head: the project's name when the board is filtered to one
+  /// (no days left; a project is not a time box), else the cycle. Nil hides
+  /// the title (no project and no active cycle).
+  static func linear(project: LinearProject?, cycle: LinearCycle?, now: Date = .now) -> SprintTitle? {
+    if let project { return SprintTitle(title: project.name, daysLeft: nil) }
+    return cycle.map { linear($0, now: now) }
+  }
+
   static func linear(_ cycle: LinearCycle?, now: Date = .now) -> SprintTitle {
     guard let cycle else { return .fallback }
     return SprintTitle(
