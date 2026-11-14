@@ -22,10 +22,11 @@ app/
       Sources/AgentHubGlobalSessionPanel/ # Floating global Sessions panel UI/presenter
       Sources/AgentHub/
         Configuration/         # AgentHubProvider, AgentHubConfiguration, environment keys
-        Design/                # Theme system (ThemeManager, ThemeFileWatcher, YAML themes)
+        Design/                # Tokens/, Components/, Motion/ (new UI); ThemeManager + YAML themes (legacy)
         Intelligence/          # Smart mode / AI orchestration (IntelligenceViewModel)
         Models/                # CLISession, SessionMonitorState, SessionStatus, etc.
         Services/              # File watchers, parsers, git, search, stats, metadata store
+        Shell/                 # The new interface: window root, sidebar, session view, overlays (Shell/README.md)
         UI/                    # All SwiftUI views
         Utils/                 # Helpers, extensions, constants
         ViewModels/            # CLISessionsViewModel, MultiSessionLaunchViewModel, etc.
@@ -212,24 +213,27 @@ struct MonitoringCardView: View {
 
 ### Navigation
 
-`NavigationSplitView` with sidebar + detail. Sidebar shows repository tree with sessions grouped by worktree branch.
+The new interface (`Shell/`, see `Shell/README.md`) is the default. `AgentHubApp` reads `AppleShellLaunchFlag` once at launch: unset or YES gives the shell; an explicit NO (Settings › General › New interface, or `-com.agenthub.features.appleShell NO`) gives the legacy `AgentHubOperationsView`. The legacy shell stays behind the flag until P11b deletes it. Design rules: `DESIGN.md`.
+
+- `ShellFrame` has three slots: sidebar (288 pt), a 52 pt title row, and the detail in an inset content panel. No `NavigationSplitView`.
+- Title row: destination tabs Sessions, Reviews, Jira, Linear (⌘1–⌘4, with counts), then Search, Standard | Warm and light/dark.
+- Sidebar: one repo → branch → session tree (`Shell/Sidebar/`). Workflows are folded into the branch rows; there is no Workflows screen.
+- Per-window state (`WorkbenchShellModel`, `SessionNavigationModel`, `SessionsActionCoordinator`) lives in `ShellRoot`, never in provider singletons.
 
 ### Hub Layouts
 
-Four monitoring panel layouts: Single, List, 2-Column, 3-Column grid. Persisted via `@AppStorage`.
+The shell shows one session: the sidebar's selection (`SessionDetailStateModel`). The four monitoring layouts (Single, List, 2-Column, 3-Column) exist only in the legacy UI.
 
 ### Session Cards
 
-Each `MonitoringCardView` shows:
-- Status indicator (thinking/executing/waiting/idle)
-- Context window usage bar
-- Tool activity feed
-- Toggle between Monitor mode (live readout) and Terminal mode (embedded PTY via SwiftTerm)
-- Can be maximized to full panel (Escape to restore)
+In the shell, `SessionDetailView` shows:
+- `SessionHeaderView`: title, status glyph and word, actions
+- `MonitoringCardContentArea` (shared with the legacy `MonitoringCardView`): Terminal, Chat, Files or Diffs
+- For Claude, an approval banner over the terminal (Approve ⌘↩, Deny). It is an overlay, never a sibling, so the PTY never resizes
 
 ### Side Panels
 
-In Single layout, a side panel can show: `GitDiffView` (split-pane diff), `PlanView` (markdown), `WebPreviewView` (WKWebView), `PendingChangesView`.
+`SessionSidePanel` is a trailing panel in a `ResizablePanelContainer` (400 pt, 320–520), toggled with ⌥⌘0. `SidePanelSegments` decides which segments show (Diff, Plan, Edits, Preview or Storybook, GitHub, MCP apps, Measurements, Studio, Artifact, Simulator, …); they render through the shared `SidePanelContentView`. Diff is the compact `SidePanelDiffView`; "Show full diff" opens the legacy `GitDiffView`.
 
 ### Web Preview Precedence
 
@@ -309,11 +313,11 @@ Artifacts and design canvases an agent renders during a session (`agenthub_artif
 
 ### Command Palette
 
-`CommandPaletteView` — Cmd+K for quick session/repository/action access.
+`WorkbenchCommandPalette` (`Shell/Overlays/`, 640 pt) opens on ⌘K or the title-row Search field: sessions, destinations and actions. Rows come from `UI/CommandPaletteEntries.swift`. The legacy UI keeps `CommandPaletteView`.
 
 ### Keyboard Shortcuts
 
-Cmd+K (palette), Cmd+N (new session), Cmd+B (sidebar), Cmd+[/] (navigate sessions), Cmd+\ (toggle focus mode), Escape (dismiss).
+New interface (one table, `Shell/ShellShortcuts.swift`, bound by `ShellCommands` and shown in the palette): ⌘K (palette), ⌘N (new session sheet), ⌘1–⌘4 (Sessions, Reviews, Jira, Linear), ⌃⌘S (sidebar), ⌥⌘0 (side panel), ⇧⌘R (resume session by ID), ⌥⌘A (archive current session), ⌘↩ (approve while the banner shows), Escape (dismiss). Legacy UI only: Cmd+B (sidebar), Cmd+[/] (navigate sessions), Cmd+\ (focus mode).
 
 ## Dependencies
 
@@ -340,7 +344,7 @@ The embedded terminal uses a fork of SwiftTerm (`jamesrochabrun/SwiftTerm`, bran
 | **Search** | `Cmd+F` | Built-in find bar with regex, case-sensitive, whole-word toggles |
 | **Cmd+Click URLs** | `Cmd+Click` | Opens plain URLs in browser (no OSC 8 required) |
 | **Cmd+Click file paths** | `Cmd+Click` | Opens file in inline Files panel (configurable: AgentHub / VS Code / Xcode) |
-| **Theme integration** | Automatic | Terminal background and cursor follow active YAML theme (dark mode) |
+| **Theme integration** | Automatic | New interface: follows the Workbench palette and appearance (`TerminalPaletteResolver`). Legacy: background and cursor follow the YAML theme |
 | **OSC 133 tracking** | — | Semantic prompt boundary tracking (foundation for future features) |
 
 ### Fork Architecture
@@ -429,6 +433,16 @@ The short version: GitHub observation is a shared actor service in `AgentHubGitH
 - **Capture the culprit:** attach before opening Reviews: `lldb -b -p $(pgrep -x Workbench) -o "command script import scripts/capture_layout_loop.py" -o "capture_loop /tmp/layout-loop-capture.txt" -o continue`. When AppKit throws, the script writes the backtrace and every view that is still dirty (class, frame, parent), then detaches. The class names of the `NSHostingView<…>` entries name the SwiftUI content that loops. It is read-only; the app still quits afterwards.
 - **Next time:** `MainThreadStallMonitor` logs the last 20 breadcrumbs with the freeze: tabs, review selection, double-clicks with the view hit, and window resize, zoom, display and full-screen changes (`UIEventBreadcrumbs`). Read them with `/usr/bin/log show --last 2h --predicate 'process == "Workbench" AND (category == "Performance" OR eventMessage CONTAINS "Update Constraints" OR eventMessage CONTAINS "has continued for")'`. Call `/usr/bin/log` by its full path, because a shell function named `log` can hide it and return nothing. At the limit, AppKit also writes `[com.apple.AppKit:DisplayCycle]` lines with the window frame.
 - When you add a navigation or selection surface, add a `MainThreadStallMonitor.breadcrumb(...)` for it.
+
+### Rules for new UI work (shell)
+
+- **No split views** in the shell path: no `NavigationSplitView`, `HSplitView`, `VSplitView`, `NSSplitView` or `.inspector`. Use a plain `HStack` with fixed widths, or `ResizablePanelContainer`. Trailing panels (side panel, Reviews and Sprint detail) are fixed-width `HStack` children.
+- **One fixed `NSToolbar` item.** The sidebar toggle (`ShellTitlebarToolbar`) is the window's only toolbar item. It gives the 52 pt title bar and the centred traffic lights. Never add, remove or swap toolbar items, and never toggle toolbar or title visibility at runtime. `ShellWindowChrome` turns off toolbar customization; `ShellCommands` removes Show/Hide Toolbar.
+- **The top safe area is ignored once, in `ShellFrame`.** Layout starts at the window's top edge and never reads the inset. No other content ignores the top safe area; only backgrounds may.
+- **No `GeometryReader` widths.** No size read from geometry may feed the frame of an ancestor or sibling. If one is needed, use `onGeometryChange` with rounding, an equality check and hysteresis.
+- **Narrow widths use `ViewThatFits`**, not measured widths: the destination tabs fall back to icon + count, then icon only; the Reviews table drops columns.
+- **Animations inside chrome** run in a fixed `.fixedSize()` frame with no intrinsic-size change. No `matchedGeometryEffect` in the title row.
+- **Minimum widths** add up to no more than `ShellLayout.windowMinWidth` (900): sidebar 288 + panel inset + the destination's content minimum (`ReviewsLayoutTests`, `SessionDetailReviewTests`).
 
 ## Git Commits
 
