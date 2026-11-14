@@ -2,7 +2,7 @@
 //  LinearSprintDestination.swift
 //  AgentHub
 //
-//  The Linear side of the shell's Sprint destination: the team's active cycle
+//  The shell's Linear destination: the team's active cycle
 //  (or your open issues when there is none) on the shared Sprint board.
 //
 
@@ -11,7 +11,6 @@ import SwiftUI
 
 struct LinearSprintDestination: View {
   @Bindable var viewModel: LinearViewModel
-  @Binding var tracker: SprintTracker
   let repositories: [SelectedRepository]
   let linkedSessions: [String: [LinearLinkedSession]]
   let isClaudeAvailable: Bool
@@ -25,7 +24,7 @@ struct LinearSprintDestination: View {
 
   var body: some View {
     SprintDestinationLayout(isDetailVisible: viewModel.selectedIssueID != nil) {
-      SprintListHead(tracker: $tracker, scope: scope) {
+      SprintListHead(title: viewModel.activeCycle.map { SprintTitle.linear($0) }, scope: scope) {
         if viewModel.loadState == .loaded || viewModel.loadState == .loading {
           refreshButton
           filtersButton

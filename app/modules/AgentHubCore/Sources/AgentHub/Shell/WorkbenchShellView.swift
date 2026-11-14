@@ -7,12 +7,13 @@
 //
 //  Three slots, each its own view so later phases replace only their slot:
 //  - sidebar: `ShellSidebarContainer` (P5)
-//  - toolbar: `ShellToolbar` (P6 tabs, P8/P9 titles)
-//  - detail:  `ShellDetailSlot` (P6 Sessions, P8 Reviews, P9 Sprint)
+//  - toolbar: `ShellToolbar` (P12: destination tabs, search, appearance)
+//  - detail:  `ShellDetailSlot` (P6 Sessions, P8 Reviews, P9 Jira and Linear)
 //
 //  Layout-loop rules (implementation plan, section 4): no split views, no
-//  geometry-driven widths, only backgrounds ignore the top safe area, and the
-//  sidebar collapses as a plain `HStack` child.
+//  geometry-driven widths, and the sidebar collapses as a plain `HStack`
+//  child. The frame ignores the top safe area so its layout never depends on
+//  the title bar's inset (see `ShellFrame`).
 //
 
 import SwiftUI
@@ -39,7 +40,7 @@ private struct ShellRoot: View {
   @State private var shellModel = WorkbenchShellModel()
   @State private var sessionNavigationModel = SessionNavigationModel()
   @State private var sessionsActionCoordinator = SessionsActionCoordinator()
-  @State private var sessionTabsModel = SessionTabsModel()
+  @State private var sessionDetailState = SessionDetailStateModel()
   @State private var isResumingByID = false
   @State private var overlays = ShellOverlayModel()
 
@@ -56,7 +57,7 @@ private struct ShellRoot: View {
   }
 
   var body: some View {
-    ShellFrame(onNewSession: startNewSession)
+    ShellFrame()
       // Keyed on the palette revision; the per-window models above live
       // outside the keyed subtree, so a palette switch keeps them.
       .wbRedrawsOnPaletteChange()
@@ -65,7 +66,11 @@ private struct ShellRoot: View {
       .environment(overlays)
       .environment(\.sessionNavigationModel, sessionNavigationModel)
       .environment(\.sessionsActionCoordinator, sessionsActionCoordinator)
-      .environment(sessionTabsModel)
+      .environment(sessionDetailState)
+      // The sidebar toggle as the window's one toolbar item: a 52 pt unified
+      // title bar, so the real traffic lights centre in the title row.
+      // Applied once, never toggled.
+      .modifier(ShellTitlebarToolbar(shellModel: shellModel))
       .modifier(
         SessionsPresentationModifier(
           coordinator: sessionsActionCoordinator,
@@ -78,8 +83,8 @@ private struct ShellRoot: View {
         )
       )
       .modifier(
-        SessionTabsSync(
-          tabsModel: sessionTabsModel,
+        ShownSessionSync(
+          stateModel: sessionDetailState,
           navigationModel: sessionNavigationModel,
           claude: agentHub.claudeSessionsViewModel,
           codex: agentHub.codexSessionsViewModel
@@ -189,10 +194,10 @@ private struct ShellRootEffects: ViewModifier {
 extension ShellFrame
 where Sidebar == ShellSidebarContainer, Toolbar == ShellToolbar, Detail == ShellDetailSlot {
   /// The production frame with the three real slots.
-  init(onNewSession: @escaping () -> Void) {
+  init() {
     self.init(
       sidebar: { ShellSidebarContainer() },
-      toolbar: { ShellToolbar(onNewSession: onNewSession) },
+      toolbar: { ShellToolbar() },
       detail: { ShellDetailSlot() }
     )
   }
@@ -201,6 +206,12 @@ where Sidebar == ShellSidebarContainer, Toolbar == ShellToolbar, Detail == Shell
 /// The window frame: `surfaceWindow` behind everything, the sidebar column,
 /// and the main column (title row over the content panel). Generic over its
 /// three slots so each phase swaps one slot and previews/tests can stub them.
+///
+/// The frame ignores the top safe area. With `ShellTitlebarToolbar` AppKit
+/// reports a 52 pt inset (without it, under `.hiddenTitleBar`, 0). The frame
+/// draws its own 52 pt title row in that band either way, so it lays out from
+/// the window's top edge and never reads the inset: a change of inset (full
+/// screen, toolbar) cannot feed back into the layout.
 struct ShellFrame<Sidebar: View, Toolbar: View, Detail: View>: View {
   @Environment(WorkbenchShellModel.self) private var shellModel
   @ViewBuilder let sidebar: Sidebar
@@ -223,10 +234,8 @@ struct ShellFrame<Sidebar: View, Toolbar: View, Detail: View>: View {
         }
       }
     }
-    .overlay(alignment: .topLeading) {
-      ShellWindowControls()
-    }
     .animation(.wbAnimation(DesignTokens.Motion.medium), value: shellModel.sidebarVisible)
+    .ignoresSafeArea(.container, edges: .top)
     .background(Color.wbSurfaceWindow.ignoresSafeArea())
   }
 }

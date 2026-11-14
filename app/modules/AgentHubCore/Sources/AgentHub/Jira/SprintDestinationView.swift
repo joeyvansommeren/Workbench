@@ -2,68 +2,73 @@
 //  SprintDestinationView.swift
 //  AgentHub
 //
-//  The new shell's Sprint destination (`SprintBoardView` in the prototype):
-//  Jira | Linear, All | Mine, Filters, and a board of equal columns. The
-//  legacy `JiraSprintView` and `LinearBoardView` stay for the flag-off path.
+//  The new shell's Jira and Linear destinations (`SprintBoardView` in the
+//  prototype): a list head (sprint name, All | Mine, Filters) and a board of
+//  equal columns. Each tracker is its own tab. The legacy `JiraSprintView` and
+//  `LinearBoardView` stay for the flag-off path.
 //
 
 import AgentWorkflowJiraCLI
 import SwiftUI
 
-struct SprintDestinationView: View {
+/// What both tracker destinations read from the provider.
+@MainActor
+private struct TrackerDestinationContext {
   let agentHub: AgentHubProvider
-  let actions: WorkspaceLaunchActions
 
-  @Environment(WorkbenchShellModel.self) private var shellModel
-
-  private var tracker: Binding<SprintTracker> {
-    Binding(get: { shellModel.sprintTracker }, set: { shellModel.setSprintTracker($0) })
-  }
-
-  private var repositories: [SelectedRepository] {
+  var repositories: [SelectedRepository] {
     ShellSessionItems.repositories(
       claude: agentHub.claudeSessionsViewModel,
       codex: agentHub.codexSessionsViewModel
     )
   }
 
-  private func sessionStatus(_ provider: SessionProviderKind, _ sessionID: String) -> SessionStatus? {
+  func sessionStatus(_ provider: SessionProviderKind, _ sessionID: String) -> SessionStatus? {
     let viewModel =
       provider == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
     return viewModel.sessionStatus(for: sessionID)
   }
+}
+
+struct JiraDestinationView: View {
+  let agentHub: AgentHubProvider
+  let actions: WorkspaceLaunchActions
 
   var body: some View {
-    switch shellModel.sprintTracker {
-    case .jira:
-      JiraSprintDestination(
-        viewModel: agentHub.jiraSprintViewModel,
-        tracker: tracker,
-        repositories: repositories,
-        linkedSessions: agentHub.jiraLinkedSessions(),
-        isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
-        isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
-        sessionStatus: sessionStatus,
-        onStart: { ticket, provider, repositoryPath in
-          await actions.startJiraTicket(ticket, provider: provider, repositoryPath: repositoryPath)
-        },
-        onOpenSession: { agentHub.showSession($0) }
-      )
-    case .linear:
-      LinearSprintDestination(
-        viewModel: agentHub.linearViewModel,
-        tracker: tracker,
-        repositories: repositories,
-        linkedSessions: agentHub.linearLinkedSessions(),
-        isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
-        isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
-        sessionStatus: sessionStatus,
-        onStart: { issue, provider, repositoryPath in
-          await actions.startLinearIssue(issue, provider: provider, repositoryPath: repositoryPath)
-        },
-        onOpenSession: { agentHub.showLinearSession($0) }
-      )
-    }
+    let context = TrackerDestinationContext(agentHub: agentHub)
+    JiraSprintDestination(
+      viewModel: agentHub.jiraSprintViewModel,
+      repositories: context.repositories,
+      linkedSessions: agentHub.jiraLinkedSessions(),
+      isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
+      isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
+      sessionStatus: context.sessionStatus,
+      onStart: { ticket, provider, repositoryPath in
+        await actions.startJiraTicket(ticket, provider: provider, repositoryPath: repositoryPath)
+      },
+      onOpenSession: { agentHub.showSession($0) }
+    )
+  }
+}
+
+struct LinearDestinationView: View {
+  let agentHub: AgentHubProvider
+  let actions: WorkspaceLaunchActions
+
+  var body: some View {
+    let context = TrackerDestinationContext(agentHub: agentHub)
+    LinearSprintDestination(
+      viewModel: agentHub.linearViewModel,
+      repositories: context.repositories,
+      linkedSessions: agentHub.linearLinkedSessions(),
+      isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
+      isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
+      sessionStatus: context.sessionStatus,
+      onStart: { issue, provider, repositoryPath in
+        await actions.startLinearIssue(issue, provider: provider, repositoryPath: repositoryPath)
+      },
+      onOpenSession: { agentHub.showLinearSession($0) }
+    )
   }
 }
 
@@ -71,7 +76,6 @@ struct SprintDestinationView: View {
 
 struct JiraSprintDestination: View {
   @Bindable var viewModel: JiraSprintViewModel
-  @Binding var tracker: SprintTracker
   let repositories: [SelectedRepository]
   let linkedSessions: [String: [JiraLinkedSession]]
   let isClaudeAvailable: Bool
@@ -85,7 +89,7 @@ struct JiraSprintDestination: View {
 
   var body: some View {
     SprintDestinationLayout(isDetailVisible: viewModel.selectedTicketKey != nil) {
-      SprintListHead(tracker: $tracker, scope: scope) {
+      SprintListHead(title: listHeadTitle, scope: scope) {
         if !isFailed {
           refreshButton
           filtersButton
@@ -214,6 +218,11 @@ struct JiraSprintDestination: View {
   }
 
   // MARK: List head
+
+  /// The sprint name and days left, once a sprint is loaded.
+  private var listHeadTitle: SprintTitle? {
+    viewModel.selectedSprint.map { SprintTitle.jira($0) }
+  }
 
   private var scope: Binding<SprintAssigneeScope> {
     SprintAssigneeScope.binding(

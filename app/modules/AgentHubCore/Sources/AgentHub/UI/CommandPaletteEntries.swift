@@ -242,7 +242,7 @@ enum CommandPaletteEntries {
     switch destination {
     case .sessions: return .symbol("terminal")
     case .reviews: return .pullRequestGlyph
-    case .sprint: return .symbol("rectangle.split.3x1")
+    case .jira, .linear: return .symbol("rectangle.split.3x1")
     }
   }
 

@@ -280,11 +280,6 @@ public enum AgentHubDefaults {
   /// Type: Bool (default: false)
   public static let appleShellEnabled = "\(keyPrefix)features.appleShell"
 
-  /// Which tracker the new shell's Sprint destination shows: `jira` or `linear`.
-  /// A UI preference, not session state.
-  /// Type: String (default: "jira")
-  public static let sprintTracker = "\(keyPrefix)sprintTracker"
-
   /// Which scope the new shell's Reviews list shows: `requested`, `mine` or `all`.
   /// A UI preference, not session state.
   /// Type: String (default: "requested")
