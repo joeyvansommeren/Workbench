@@ -8,6 +8,7 @@
 //  so all three stay in step.
 //
 
+import AppKit
 import SwiftUI
 
 struct ShellPaletteSwitch: View {
@@ -19,7 +20,10 @@ struct ShellPaletteSwitch: View {
         get: { PalettePreference(rawValue: paletteRaw) ?? .standard },
         set: { palette in
           MainThreadStallMonitor.breadcrumb("palette: \(palette.rawValue)")
-          WorkbenchAppearanceController.selectPalette(palette)
+          // One window crossfade instead of a repaint cut (motion plan item 13).
+          ThemeCrossfade.perform(in: NSApp.keyWindow) {
+            WorkbenchAppearanceController.selectPalette(palette)
+          }
         }
       ),
       accessibilityIdentifier: "shell.palette"
@@ -45,7 +49,10 @@ struct ShellAppearanceButton: View {
     ) {
       let next = WorkbenchAppearanceController.toggledAppearance(currentlyDark: isDark)
       MainThreadStallMonitor.breadcrumb("appearance: \(next.rawValue)")
-      WorkbenchAppearanceController.selectAppearance(next)
+      // One window crossfade instead of a brightness cut (motion plan item 13).
+      ThemeCrossfade.perform(in: NSApp.keyWindow) {
+        WorkbenchAppearanceController.selectAppearance(next)
+      }
     }
     .help(label)
   }

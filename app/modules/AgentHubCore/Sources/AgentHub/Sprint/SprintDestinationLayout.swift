@@ -34,6 +34,8 @@ struct SprintDestinationLayout<ListHead: View, Content: View, Detail: View>: Vie
           .fill(Color.wbBorderHairline)
           .frame(width: 1)
         detail
+          // Contents only; the hairline and the width appear at once.
+          .wbPanelEntrance()
           .frame(width: SprintLayout.detailWidth)
           .frame(maxHeight: .infinity)
       }

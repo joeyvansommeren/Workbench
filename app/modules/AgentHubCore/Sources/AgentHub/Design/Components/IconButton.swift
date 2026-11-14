@@ -51,21 +51,35 @@ public struct IconButton: View {
         .frame(width: size, height: size)
         .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
-    .foregroundStyle(isHovered || isToggled ? Color.wbTextPrimary : Color.wbTextSecondary)
-    .background(backgroundColor, in: RoundedRectangle(cornerRadius: cornerRadius))
+    .buttonStyle(IconButtonStyle(isToggled: isToggled, isHovered: isHovered, cornerRadius: cornerRadius))
     .onHover { isHovered = $0 }
     .accessibilityLabel(accessibilityLabel)
     .accessibilityIdentifier(accessibilityIdentifier ?? "")
   }
 
-  private var backgroundColor: Color {
-    if isToggled { return .wbSurfaceSelected }
-    if isHovered { return .wbSurfaceHover }
-    return .clear
-  }
-
   private var cornerRadius: CGFloat {
     isSmall ? DesignTokens.Radius.segment : DesignTokens.Radius.item
+  }
+}
+
+/// Reads `isPressed` for the icon button. Colour only, instant (no scale).
+/// Order: toggled > pressed > hover > clear (prototype `.icon-button:active`).
+private struct IconButtonStyle: ButtonStyle {
+  let isToggled: Bool
+  let isHovered: Bool
+  let cornerRadius: CGFloat
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .foregroundStyle(isHovered || isToggled || configuration.isPressed ? Color.wbTextPrimary : Color.wbTextSecondary)
+      .background(fill(isPressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: cornerRadius))
+  }
+
+  @MainActor
+  private func fill(isPressed: Bool) -> Color {
+    if isToggled { return .wbSurfaceSelected }
+    if isPressed { return .wbSurfacePressed }
+    if isHovered { return .wbSurfaceHover }
+    return .clear
   }
 }

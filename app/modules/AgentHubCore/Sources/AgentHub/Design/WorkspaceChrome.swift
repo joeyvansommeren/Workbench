@@ -156,7 +156,9 @@ struct WorkspaceSearchField: View {
           isFocused ? Color.brandPrimary(from: runtimeTheme).opacity(0.7) : Color.primary.opacity(0.08),
           lineWidth: 1)
     )
-    .animation(.easeOut(duration: 0.15), value: isFocused)
+    // No focus fade: fill and border change instantly, like a native focus
+    // ring. The fade was the only animation running when the Reviews layout
+    // loop started (CLAUDE.md "Layout-Loop Crash").
     .background(
       Button("") { isFocused = true }
         .keyboardShortcut("f", modifiers: .command)
@@ -213,7 +215,6 @@ private struct ProviderActionButtonBody: View {
   let provider: SessionProviderKind
   let isEnabled: Bool
   @State private var isHovered = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     let tint = Color.brandPrimary(for: provider)
@@ -233,11 +234,7 @@ private struct ProviderActionButtonBody: View {
           .strokeBorder((isEnabled ? tint : Color.primary).opacity(0.25), lineWidth: 1)
       )
       .contentShape(Rectangle())
-      .scaleEffect(
-        isEnabled && !reduceMotion && configuration.isPressed ? 0.96 : 1.0
-      )
+      // Colour-only hover and press, instant: no scale (Joey's rule).
       .onHover { isHovered = $0 }
-      .animation(.easeOut(duration: 0.15), value: isHovered)
-      .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
   }
 }

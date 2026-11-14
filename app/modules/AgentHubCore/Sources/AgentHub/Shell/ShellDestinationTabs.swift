@@ -96,6 +96,9 @@ struct ShellDestinationTab: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    // Fixed intrinsic size: the sidebar animation moves the tabs, it never
+    // truncates or resizes them (motion plan item 7).
+    .fixedSize()
     .foregroundStyle(isSelected || isHovered ? Color.wbTextPrimary : Color.wbTextSecondary)
     .background { background }
     .onHover { isHovered = $0 }

@@ -82,12 +82,29 @@ extension DesignTokens {
 
 extension DesignTokens {
   public enum Motion {
-    /// Standard critically-damped spring (response 0.3 s, damping 1.0).
+    // Every spring is critically damped (damping 1.0): no bounce, anywhere.
+    // Always apply through `.wbAnimation(_:)`, which returns nil under Reduce
+    // Motion. Hover, press, selection, ⌘K-style keyboard toggles and
+    // destination changes do not animate at all (see the motion plan).
+
+    /// Transient notices (Jira status notice). Response 0.3 s.
     public static let standard: Animation = .spring(response: 0.3, dampingFraction: 1)
-    /// Fast interaction feedback.
+    /// About 120 ms (prototype `--duration-fast`): crossfades, small state
+    /// swaps (approval phase, Approve pill, palette fade), exits, the repo
+    /// chevron, "Load more" rows, drop-target highlight.
     public static let fast: Animation = .spring(response: 0.12, dampingFraction: 1)
-    /// Medium transition (sidebar toggle, panel resize).
+    /// About 240 ms (prototype `--duration-medium`): panel content and
+    /// approval banner entrances, the sidebar toggle.
     public static let medium: Animation = .spring(response: 0.24, dampingFraction: 1)
+
+    /// The window crossfade when the user switches Standard | Warm or light |
+    /// dark in the title row. Core Animation, not SwiftUI, so it is not a
+    /// spring: 0.24 s on `themeCrossfadeTimingControlPoints`. It also runs
+    /// under Reduce Motion (opacity only; it softens a brightness jump).
+    public static let themeCrossfadeDuration: CFTimeInterval = 0.24
+    /// `cubic-bezier(0.25, 1, 0.5, 1)`, the prototype's `--ease-standard`
+    /// (ease-out). Feed to `CAMediaTimingFunction(controlPoints:)`.
+    public static let themeCrossfadeTimingControlPoints: (Float, Float, Float, Float) = (0.25, 1, 0.5, 1)
   }
 }
 

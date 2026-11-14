@@ -27,6 +27,10 @@ final class WorkbenchShellModel {
   /// From the window's full-screen notifications (`ShellWindowChrome`). The
   /// traffic lights hide in full screen, so the title row needs less room.
   private(set) var isFullScreen = false
+  /// Set when the side panel opens, consumed when it appears: only that
+  /// appearance fades in (motion plan item 6). Not observed: reading or
+  /// consuming it must not re-render anything.
+  @ObservationIgnored var sidePanelEntrance = PanelEntranceGate()
 
   init() {}
 
@@ -53,6 +57,11 @@ final class WorkbenchShellModel {
 
   func toggleSidePanel() {
     sidePanelVisible.toggle()
+    if sidePanelVisible {
+      sidePanelEntrance.panelOpened()
+    } else {
+      sidePanelEntrance.panelClosed()
+    }
     MainThreadStallMonitor.breadcrumb("side panel: \(sidePanelVisible ? "shown" : "hidden")")
   }
 }

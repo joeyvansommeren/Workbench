@@ -331,17 +331,22 @@ struct GitHubReviewsView: View {
       }
       .layoutPriority(1)
       Spacer()
-      if let sessionCommandFeedback {
-        Label(
-          sessionCommandFeedback.message,
-          systemImage: sessionCommandFeedback.isError
-            ? "exclamationmark.triangle" : "paperplane.fill"
-        )
-        .font(.secondaryCaption)
-        .foregroundStyle(sessionCommandFeedback.isError ? .red : .secondary)
-        .lineLimit(1)
-        .transition(.opacity)
-      }
+        // An overlay, not a sibling: the label never pushes the buttons, so
+        // its fade cannot animate the header layout.
+        .overlay(alignment: .trailing) {
+          if let sessionCommandFeedback {
+            Label(
+              sessionCommandFeedback.message,
+              systemImage: sessionCommandFeedback.isError
+                ? "exclamationmark.triangle" : "paperplane.fill"
+            )
+            .font(.secondaryCaption)
+            .foregroundStyle(sessionCommandFeedback.isError ? .red : .secondary)
+            .lineLimit(1)
+            .fixedSize()
+            .transition(.opacity)
+          }
+        }
       followUpButton(.reReview, rows: rows)
       followUpButton(.resolveComments, rows: rows)
       bulkLaunchMenu(rows: rows)
@@ -996,7 +1001,7 @@ struct GitHubReviewsView: View {
 
   private func showSessionCommandFeedback(_ message: String, isError: Bool) {
     sessionCommandFeedbackTask?.cancel()
-    withAnimation(.easeInOut(duration: 0.15)) {
+    withAnimation(.wbAnimation(DesignTokens.Motion.fast)) {
       sessionCommandFeedback = GitHubReviewSessionCommandFeedback(
         message: message,
         isError: isError
@@ -1005,7 +1010,7 @@ struct GitHubReviewsView: View {
     sessionCommandFeedbackTask = Task { @MainActor in
       try? await Task.sleep(for: .seconds(4))
       guard !Task.isCancelled else { return }
-      withAnimation(.easeInOut(duration: 0.15)) {
+      withAnimation(.wbAnimation(DesignTokens.Motion.fast)) {
         sessionCommandFeedback = nil
       }
     }

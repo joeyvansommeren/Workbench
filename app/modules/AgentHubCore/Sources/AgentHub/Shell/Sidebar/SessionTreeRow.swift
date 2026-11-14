@@ -54,14 +54,27 @@ struct SessionTreeRow: View, Equatable {
     }
     .onHover { isHovered = $0 }
     .task(id: isHovered) {
-      // Hover preview after a short rest, like a tooltip.
+      // Hover preview after a short rest, like a tooltip; warm after the first.
       guard isHovered else {
         showsPreview = false
         return
       }
-      try? await Task.sleep(for: .milliseconds(700))
+      let delay = actions.hoverPreview.delay(at: .now)
+      if delay > .zero {
+        try? await Task.sleep(for: delay)
+      }
       guard !Task.isCancelled else { return }
       showsPreview = true
+    }
+    .onChange(of: showsPreview) { _, isShown in
+      if isShown {
+        actions.hoverPreview.previewOpened()
+      } else {
+        actions.hoverPreview.previewClosed(at: .now)
+      }
+    }
+    .onDisappear {
+      if showsPreview { actions.hoverPreview.previewClosed(at: .now) }
     }
     .popover(isPresented: $showsPreview, arrowEdge: .trailing) {
       SessionTreeHoverPreview(node: node, title: model.title)
@@ -213,19 +226,42 @@ struct AttentionPill: View {
         .padding(.horizontal, DesignTokens.Spacing.sm)
         .frame(height: DesignTokens.Size.controlSmall)
         .contentShape(Capsule())
+        // Title ↔ spinner crossfade confirms the click. The width never
+        // changes: the title is hidden by opacity, not removed.
+        .animation(.wbAnimation(DesignTokens.Motion.fast), value: isBusy)
     }
-    .buttonStyle(.plain)
-    .background(Color.wbStatusAttentionTint, in: Capsule())
-    .overlay {
-      Capsule()
-        .strokeBorder(Color.wbStatusAttentionFill, lineWidth: 1)
-        .opacity(isHovered && !isBusy ? 1 : 0)
-    }
+    .buttonStyle(AttentionPillStyle(isHovered: isHovered, isBusy: isBusy))
     .onHover { isHovered = $0 }
     .fixedSize()
     .help(help)
     .accessibilityLabel(accessibilityLabel)
     .accessibilityValue(isBusy ? "Sending" : "")
+  }
+}
+
+/// Colour-only hover and press for `AttentionPill`, instant: hover shows the
+/// attention stroke; press keeps the stroke and adds a `wbSurfacePressed` fill.
+/// No press effect while busy.
+private struct AttentionPillStyle: ButtonStyle {
+  let isHovered: Bool
+  let isBusy: Bool
+
+  func makeBody(configuration: Configuration) -> some View {
+    let isPressed = configuration.isPressed && !isBusy
+    configuration.label
+      .background {
+        ZStack {
+          Capsule().fill(Color.wbStatusAttentionTint)
+          if isPressed {
+            Capsule().fill(Color.wbSurfacePressed)
+          }
+        }
+      }
+      .overlay {
+        Capsule()
+          .strokeBorder(Color.wbStatusAttentionFill, lineWidth: 1)
+          .opacity((isHovered || isPressed) && !isBusy ? 1 : 0)
+      }
   }
 }
 

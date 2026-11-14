@@ -14,6 +14,8 @@ public struct SplitButton<MenuContent: View>: View {
   let action: () -> Void
   @ViewBuilder let menu: () -> MenuContent
 
+  @State private var isChevronHovered = false
+
   public init(
     _ title: String,
     accessibilityIdentifier: String? = nil,
@@ -48,7 +50,8 @@ public struct SplitButton<MenuContent: View>: View {
       .buttonStyle(.plain)
       .menuIndicator(.hidden)
       .frame(width: 28, height: DesignTokens.Size.control)
-      .background(Color.wbAccent)
+      .background(WBSplitChevronFill(isHovered: isChevronHovered))
+      .onHover { isChevronHovered = $0 }
       .foregroundStyle(Color.wbTextOnAccent)
       .clipShape(
         UnevenRoundedRectangle(
@@ -66,29 +69,55 @@ public struct SplitButton<MenuContent: View>: View {
 
 private struct SplitLeftStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
+    WBSplitLeftBody(configuration: configuration, leadingPadding: DesignTokens.Spacing.md, trailingPadding: DesignTokens.Spacing.md)
+  }
+}
+
+/// The accent half of a split button. Hover and press change colour only, on
+/// the first frame: hover `wbAccentHover`, press `wbAccentHover` plus a
+/// `wbSurfacePressed` layer. Shared with the Approve split button.
+struct WBSplitLeftBody: View {
+  let configuration: ButtonStyleConfiguration
+  let leadingPadding: CGFloat
+  let trailingPadding: CGFloat
+
+  @State private var isHovered = false
+
+  var body: some View {
+    let shape = UnevenRoundedRectangle(
+      topLeadingRadius: DesignTokens.Radius.item,
+      bottomLeadingRadius: DesignTokens.Radius.item,
+      bottomTrailingRadius: 0,
+      topTrailingRadius: 0
+    )
     configuration.label
       .foregroundStyle(Color.wbTextOnAccent)
-      .padding(.horizontal, DesignTokens.Spacing.md)
+      .padding(.leading, leadingPadding)
+      .padding(.trailing, trailingPadding)
       .frame(height: DesignTokens.Size.control)
-      .background(configuration.isPressed ? Color.wbAccentHover : Color.wbAccent)
-      .clipShape(
-        UnevenRoundedRectangle(
-          topLeadingRadius: DesignTokens.Radius.item,
-          bottomLeadingRadius: DesignTokens.Radius.item,
-          bottomTrailingRadius: 0,
-          topTrailingRadius: 0
-        )
-      )
-      .overlay {
-        UnevenRoundedRectangle(
-          topLeadingRadius: DesignTokens.Radius.item,
-          bottomLeadingRadius: DesignTokens.Radius.item,
-          bottomTrailingRadius: 0,
-          topTrailingRadius: 0
-        )
-        .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
-        .allowsHitTesting(false)
+      .background {
+        ZStack {
+          isHovered || configuration.isPressed ? Color.wbAccentHover : Color.wbAccent
+          if configuration.isPressed {
+            Color.wbSurfacePressed
+          }
+        }
       }
-      .animation(.spring(response: 0.12, dampingFraction: 1), value: configuration.isPressed)
+      .clipShape(shape)
+      .overlay {
+        shape.strokeBorder(.white.opacity(0.18), lineWidth: 0.5).allowsHitTesting(false)
+      }
+      .onHover { isHovered = $0 }
+  }
+}
+
+/// Fill behind the chevron half of a split button: accent, `wbAccentHover` on
+/// hover. A `Menu` does not expose its pressed state; AppKit opens the menu on
+/// mouse-down, which is its own feedback.
+struct WBSplitChevronFill: View {
+  let isHovered: Bool
+
+  var body: some View {
+    isHovered ? Color.wbAccentHover : Color.wbAccent
   }
 }

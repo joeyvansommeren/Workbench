@@ -275,3 +275,35 @@ GeometryReader.
   untouched; ordered union across windows via `OpenSessionTabsAggregate`; the
   first window takes it back via `claimRestoredOpenSessionTabIds`).
 - **Sidebar** starts with the repo → branch → session tree at 52 pt.
+
+## P14: motion pass
+
+Plan: `Workbench-ui-explorations/apple/MOTION-PLAN.md`.
+
+- **Hover and press change colour only**, on the first frame. No scale
+  anywhere. Press = hover fill + `wbSurfacePressed` (darker in light, lighter
+  in dark). The four button styles share `WBButtonBody`; the split buttons
+  share `WBSplitLeftBody`; `IconButton` and `AttentionPill` read `isPressed`
+  through private styles.
+- **Springs** are critically damped and always go through `.wbAnimation(_:)`
+  (nil under Reduce Motion). `scripts/check-motion.sh` (run by
+  `scripts/test.sh`, also in `packages`, so CI runs it) fails on press/hover
+  scale and bouncy springs in new-shell code.
+- **Instant:** selection, hover, destination change, ⌘1–4, tabs, counts, field
+  focus. Destination tabs are `.fixedSize()`, so the sidebar animation moves
+  them and never resizes them.
+- **Animated:** approval banner (rises 8 pt on `medium`, fades out on
+  `fast`), banner phase and banner ↔ chip crossfades and the Approve pill
+  title ↔ spinner (`fast`), palette and scrim (opacity only, `fast`), repo
+  chevron (`fast`), "Load more" rows (fade, `fast`), sidebar toggle
+  (`medium`, unchanged), Jira notice (`standard`, no bounce).
+- **Trailing panels** (side panel, Reviews detail, Sprint detail): the width
+  appears at once; only the contents fade and slide 8 pt
+  (`wbPanelEntrance()`, `Design/Motion/PanelEntrance.swift`). The session side
+  panel animates only when it is opened (`WorkbenchShellModel.sidePanelEntrance`),
+  not when a session switch remounts it.
+- **Theme switch** from the title row: one window crossfade of a `CALayer`
+  snapshot (`Design/Motion/ThemeCrossfade.swift`, 0.24 s ease-out). It also
+  runs under Reduce Motion.
+- **Hover preview:** 700 ms for the first, then at once while one is open or
+  for 1 s after (`HoverPreviewTiming` on `SidebarTreeActions`).

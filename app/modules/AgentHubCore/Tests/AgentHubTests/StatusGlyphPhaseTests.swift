@@ -66,11 +66,31 @@ struct StatusGlyphPhaseTests {
     #expect(abs(opacity - 0.35) < 0.01, "Expected opacity near 0.35, got \(opacity)")
   }
 
-  @Test("halo at half-period is near maximum scale, minimum opacity")
+  @Test("halo peaks at half a cycle (0.8 s): maximum scale, minimum opacity")
   func haloAtPeak() {
-    let date = Date(timeIntervalSinceReferenceDate: 1.6)
+    let date = Date(timeIntervalSinceReferenceDate: 0.8)
     let (scale, opacity) = StatusGlyphPhase.halo(at: date)
     #expect(abs(scale - 1.15) < 0.01, "Expected scale near 1.15, got \(scale)")
     #expect(abs(opacity - 0.12) < 0.01, "Expected opacity near 0.12, got \(opacity)")
+  }
+
+  @Test("one full breath every 1.6 s, as the prototype's status-breathe")
+  func haloCycleIsPrototypeRhythm() {
+    #expect(StatusGlyphPhase.haloCycle == 1.6)
+    for offset in [0.0, 0.3, 0.8, 1.1] {
+      let first = StatusGlyphPhase.halo(at: Date(timeIntervalSinceReferenceDate: offset))
+      let next = StatusGlyphPhase.halo(at: Date(timeIntervalSinceReferenceDate: offset + 1.6))
+      #expect(abs(first.scale - next.scale) < 0.0001)
+    }
+    let back = StatusGlyphPhase.halo(at: Date(timeIntervalSinceReferenceDate: 1.6))
+    #expect(abs(back.scale - 0.75) < 0.01, "Back at rest after one cycle, got \(back.scale)")
+  }
+
+  @Test("the peak maps to the frame edge, so the breath has no flat plateau")
+  func haloPeakFitsFrame() {
+    let peak = StatusGlyphPhase.halo(at: Date(timeIntervalSinceReferenceDate: 0.8)).scale
+    #expect(abs(peak / StatusGlyphPhase.haloMaxScale - 1) < 0.01)
+    let nearPeak = StatusGlyphPhase.halo(at: Date(timeIntervalSinceReferenceDate: 0.7)).scale
+    #expect(nearPeak < peak, "Scale still rises just before the peak")
   }
 }

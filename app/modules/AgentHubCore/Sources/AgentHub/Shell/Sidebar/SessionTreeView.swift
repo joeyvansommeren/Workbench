@@ -68,7 +68,11 @@ private struct SessionTreeContent: View {
       lastWorkspaceOpen: $lastWorkspaceOpen,
       onLoadMore: { model in
         MainThreadStallMonitor.breadcrumb("tree: load more \(model.repositoryName)")
-        loadedPages[model.branchID, default: 1] += 1
+        // The only animated tree change: the new rows fade in where they
+        // land (motion plan item 9). Expand, collapse and selection stay instant.
+        withAnimation(.wbAnimation(DesignTokens.Motion.fast)) {
+          loadedPages[model.branchID, default: 1] += 1
+        }
       }
     )
   }
@@ -228,6 +232,8 @@ struct SessionTreeList: View {
       )
       .equatable()
       .simultaneousGesture(TapGesture().onEnded { isFocused = true })
+      // Only runs inside an animated transaction ("Load more"); never slides.
+      .transition(.opacity)
     case .loadMore(let model):
       LoadMoreRow(model: model, action: { onLoadMore(model) })
         .equatable()

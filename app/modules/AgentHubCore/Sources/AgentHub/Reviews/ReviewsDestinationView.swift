@@ -99,6 +99,9 @@ struct ReviewsDestinationView: View {
           Color.wbBorderHairline
             .frame(width: ReviewsLayout.hairlineWidth)
           detail(detailPullRequest, links: links[detailPullRequest.id] ?? [], tileColors: tileColors)
+            // Outside the detail's `.id`: the entrance runs when the panel
+            // opens, not on every row change (selection is instant).
+            .wbPanelEntrance()
             .frame(width: ReviewsLayout.detailWidth)
             .frame(maxHeight: .infinity)
             .clipped()
