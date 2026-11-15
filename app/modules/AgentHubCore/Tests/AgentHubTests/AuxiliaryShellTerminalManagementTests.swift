@@ -41,7 +41,8 @@ private func makeAuxiliaryShellViewModel(
   terminalBackend: EmbeddedTerminalBackend = .storedPreference,
   terminalWorkspaceStore: (any TerminalWorkspaceStoreProtocol)? = nil,
   sessionRelationshipStore: (any SessionRelationshipStoreProtocol)? = nil,
-  accessorySessionDetectionService: any AccessorySessionDetectionServiceProtocol = AccessorySessionDetectionService()
+  accessorySessionDetectionService: any AccessorySessionDetectionServiceProtocol =
+    InertAccessoryDetectionService()
 ) -> CLISessionsViewModel {
   CLISessionsViewModel(
     monitorService: AuxiliaryShellStubMonitorService(),
@@ -288,8 +289,7 @@ private final class RecordingSessionRelationshipStore: SessionRelationshipStoreP
   }
 }
 
-private struct ImmediateAccessoryDetectionService: AccessorySessionDetectionServiceProtocol {
-  let result: AccessorySessionDetectionResult
+private struct InertAccessoryDetectionService: AccessorySessionDetectionServiceProtocol {
 
   func makeBaseline(
     provider: SessionProviderKind,
@@ -308,6 +308,24 @@ private struct ImmediateAccessoryDetectionService: AccessorySessionDetectionServ
     provider: SessionProviderKind,
     projectPath: String,
     startedAt: Date,
+    baseline: AccessorySessionDetectionBaseline
+  ) -> AccessorySessionDetectionResult? {
+    nil
+  }
+}
+
+private struct ImmediateAccessoryDetectionService: AccessorySessionDetectionServiceProtocol {
+  let result: AccessorySessionDetectionResult
+
+  func makeBaseline(provider: SessionProviderKind, projectPath: String, startedAt: Date)
+    -> AccessorySessionDetectionBaseline
+  {
+    InertAccessoryDetectionService().makeBaseline(
+      provider: provider, projectPath: projectPath, startedAt: startedAt)
+  }
+
+  func detectNewSession(
+    provider: SessionProviderKind, projectPath: String, startedAt: Date,
     baseline: AccessorySessionDetectionBaseline
   ) -> AccessorySessionDetectionResult? {
     result.provider == provider ? result : nil
