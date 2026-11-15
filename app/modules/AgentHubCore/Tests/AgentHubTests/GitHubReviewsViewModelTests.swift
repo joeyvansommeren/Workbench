@@ -559,6 +559,31 @@ struct GitHubReviewsViewModelTests {
     #expect(restored.pullRequests.map(\.id) == ["cached"])
     #expect(restored.isShowingCachedPullRequests)
     #expect(restored.recoveryIssue?.kind == .authenticationRequired)
+    #expect(restored.recoveryIssue?.primaryAction == .signIn)
+    restored.searchText = cachedPullRequest.title
+    #expect(restored.visiblePullRequests.map(\.id) == ["cached"])
+  }
+
+  @Test("A failed pull request refresh preserves the selected searchable queue and named recovery")
+  func failedPullRequestRefreshPreservesQueue() async {
+    let service = GitHubProjectReviewServiceStub()
+    service.projects = [makeProject()]
+    let cached = makePullRequest(id: "saved", isDraft: false)
+    service.pullRequests = [cached]
+    let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
+    await model.load()
+    model.selectedPullRequestID = cached.id
+    model.searchText = cached.title
+    service.pullRequestsError = .notAuthenticated
+
+    await model.refreshPullRequests()
+
+    #expect(model.pullRequests.map(\.id) == [cached.id])
+    #expect(model.visiblePullRequests.map(\.id) == [cached.id])
+    #expect(model.selectedPullRequestID == cached.id)
+    #expect(model.isShowingCachedPullRequests)
+    #expect(model.recoveryIssue?.primaryAction == .signIn)
+    #expect(model.recoveryIssue?.secondaryAction == .retry)
   }
 
   @Test("Review prompt carries Project context and stays read-only")

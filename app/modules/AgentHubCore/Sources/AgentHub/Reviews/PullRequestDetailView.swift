@@ -15,7 +15,7 @@ import AppKit
 import MarkdownUI
 import SwiftUI
 
-/// What the "Review with <agent>" controls need from their host.
+/// What the agent review controls need from their host.
 struct PullRequestReviewControl {
   var agent: SessionProviderKind
   let templates: [GitHubPromptTemplate]
@@ -36,11 +36,38 @@ struct PullRequestReviewControl {
     isAgentAvailable(agent) && !isStarting && primaryTemplate != nil
   }
 
+  func startPrimaryReview() {
+    guard isPrimaryEnabled, let template = primaryTemplate else { return }
+    onReview(agent, template)
+  }
+
   static func displayName(_ agent: SessionProviderKind) -> String {
     switch agent {
     case .claude: return "Claude Code"
     case .codex: return "Codex"
     }
+  }
+}
+
+/// Human review opens the exact pull request's changed files, never an agent session.
+struct PullRequestChangesButton: View {
+  let pullRequestURL: String
+  @Environment(\.openURL) private var openURL
+
+  var body: some View {
+    Button {
+      Self.openChanges(pullRequestURL: pullRequestURL) { openURL($0) }
+    } label: {
+      Label("Review changes", systemImage: "arrow.up.right")
+    }
+    .help("Review changed files on GitHub")
+    .accessibilityLabel("Review changes on GitHub")
+    .accessibilityIdentifier("reviews.reviewChanges")
+  }
+
+  static func openChanges(pullRequestURL: String, open: (URL) -> Void) {
+    guard let url = URL(string: pullRequestURL) else { return }
+    open(url.appendingPathComponent("files"))
   }
 }
 
@@ -94,6 +121,8 @@ struct PullRequestDetailView: View {
   let onFollowUp: (GitHubReviewSessionLink, PullRequestSessionFollowUp) -> Void
   let onRefresh: () -> Void
   let onClose: () -> Void
+
+  @Environment(\.openURL) private var openURL
 
   var body: some View {
     VStack(spacing: 0) {
@@ -216,7 +245,8 @@ struct PullRequestDetailView: View {
   private var actions: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
       HStack(spacing: DesignTokens.Spacing.sm) {
-        reviewButton
+        PullRequestChangesButton(pullRequestURL: pullRequest.url)
+          .buttonStyle(.wbSecondary)
         Button(action: openOnGitHub) {
           HStack(spacing: DesignTokens.Spacing.xsPlus) {
             Text("Open on GitHub")
@@ -229,8 +259,9 @@ struct PullRequestDetailView: View {
         .fixedSize()
         .accessibilityIdentifier("reviews.openOnGitHub")
       }
+      reviewButton
       if !review.isAgentAvailable(review.agent) {
-        Text("Install \(PullRequestReviewControl.displayName(review.agent)) to review")
+        Text("Install \(PullRequestReviewControl.displayName(review.agent)) to ask for a review")
           .wbText(.callout)
           .foregroundStyle(Color.wbTextSecondary)
       }
@@ -239,30 +270,31 @@ struct PullRequestDetailView: View {
 
   private func openOnGitHub() {
     guard let url = URL(string: pullRequest.url) else { return }
-    NSWorkspace.shared.open(url)
+    openURL(url)
   }
 
   private var reviewButton: some View {
     let agent = review.agent
     let isAvailable = review.isAgentAvailable(agent)
     let title =
-      review.isStarting ? "Starting…" : "Review with \(PullRequestReviewControl.displayName(agent))"
+      review.isStarting ? "Starting review…" : "Ask agent to review"
     // Only the primary half disables (agent missing, no prompt), so the menu
     // stays open for picking another agent. While a review starts, both do.
     return SplitButton(
-      title,
       accessibilityIdentifier: "reviews.startReview",
       isPrimaryEnabled: review.isPrimaryEnabled,
-      menuAccessibilityLabel: "Choose agent and prompt"
+      menuAccessibilityLabel: "Choose agent and prompt",
+      primaryAccessibilityLabel: "Ask \(PullRequestReviewControl.displayName(agent)) to review",
+      primaryHelp: isAvailable ? "Ask \(PullRequestReviewControl.displayName(agent)) to review in a new session" : agent.notInstalledHelp
     ) {
-      guard review.isPrimaryEnabled, let template = review.primaryTemplate else { return }
-      review.onReview(agent, template)
+      review.startPrimaryReview()
+    } label: {
+      Text(title)
     } menu: {
       PullRequestReviewMenuItems(review: review)
     }
     .disabled(review.isStarting)
     .fixedSize()
-    .help(isAvailable ? "Start an independent review session" : agent.notInstalledHelp)
   }
 
   // MARK: - Properties

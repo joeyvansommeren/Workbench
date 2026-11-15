@@ -133,6 +133,40 @@ struct ReviewsPolishTests {
     #expect(!control(available: true, starting: false, templates: []).isPrimaryEnabled)
   }
 
+  @Test("Agent review dispatches its chosen provider and independent template only when enabled")
+  func primaryReviewDispatch() {
+    let independent = GitHubPromptTemplate(
+      id: "independent", name: "Independent review", prompt: "Review this change", builtInKind: .independentReview)
+    var requests: [(SessionProviderKind, String)] = []
+    var available = true
+    let review = PullRequestReviewControl(
+      agent: .codex, templates: [template, independent], isStarting: false,
+      isAgentAvailable: { _ in available }, onSelectAgent: { _ in },
+      onReview: { requests.append(($0, $1.id)) }, onWriteOwnMessage: { _ in })
+    review.startPrimaryReview()
+    #expect(requests.count == 1)
+    #expect(requests.first?.0 == .codex)
+    #expect(requests.first?.1 == "independent")
+    available = false
+    review.startPrimaryReview()
+    #expect(requests.count == 1)
+  }
+
+  @Test("Human review opens changed files for its own pull request")
+  func humanReviewDestination() {
+    var opened: [URL] = []
+    for url in [
+      "https://github.com/example/workspace/pull/42",
+      "https://github.example.test/team/other/pull/7",
+    ] {
+      PullRequestChangesButton.openChanges(pullRequestURL: url) { opened.append($0) }
+    }
+    #expect(opened.map(\.absoluteString) == [
+      "https://github.com/example/workspace/pull/42/files",
+      "https://github.example.test/team/other/pull/7/files",
+    ])
+  }
+
   // MARK: - Link cache
 
   @Test("The link cache recomputes only when the key changes")
