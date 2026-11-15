@@ -31,6 +31,31 @@ struct SessionResultTests {
 }
 
 struct ProjectLaunchRecipeTests {
+  @Test func existingRecipeDecodesWithoutNativeTarget() throws {
+    let json = #"{"repositoryPath":"/tmp/main","workingSubdirectory":"web","executable":"bun","arguments":["run","dev"],"destination":"http://localhost:3000/settings?mode=edit#dialog","expectedState":"Log in first"}"#
+    let recipe = try JSONDecoder().decode(ProjectLaunchRecipe.self, from: Data(json.utf8))
+    #expect(recipe.nativeTarget == nil)
+    #expect(recipe.expectedState == "Log in first")
+    #expect(try JSONDecoder().decode(ProjectLaunchRecipe.self, from: JSONEncoder().encode(recipe)) == recipe)
+  }
+
+  @Test func missingNativeBuildIsActionable() {
+    let recipe = ProjectLaunchRecipe(repositoryPath: "/tmp/main")
+    #expect(throws: ResultLaunchError.missingFile) {
+      try recipe.nativeBuildURL(in: "/tmp/work", destination: "missing.app")
+    }
+  }
+
+  @Test func workingDirectoryResolvesRelativePathsWithoutRestrictingTheWorktree() throws {
+    let relative = try ProjectLaunchRecipe.destinationURL("result.html", projectPath: "/tmp/work", relativeTo: "/tmp/work/web")
+    #expect(relative.path.hasSuffix("/work/web/result.html"))
+    let absolute = try ProjectLaunchRecipe.destinationURL("/tmp/work/docs/result.html", projectPath: "/tmp/work", relativeTo: "/tmp/work/web")
+    #expect(absolute.path.hasSuffix("/work/docs/result.html"))
+    #expect(throws: ResultLaunchError.outsideWorkspace) {
+      try ProjectLaunchRecipe.destinationURL("../../secret.txt", projectPath: "/tmp/work", relativeTo: "/tmp/work/web")
+    }
+  }
+
   @Test func worktreeRecipeUsesItsActualRoot() throws {
     let recipe = ProjectLaunchRecipe(repositoryPath: "/tmp/main", workingSubdirectory: "app")
     #expect(try recipe.workingPath(in: "/tmp/worktree") == "/private/tmp/worktree/app"
@@ -60,6 +85,20 @@ struct ProjectLaunchRecipeTests {
 
 
 struct SessionResultDraftTests {
+  @Test func savedNativeRecipeProvidesTheNextSessionsTargetAndState() {
+    let recipe = ProjectLaunchRecipe(repositoryPath: "/tmp/main", expectedState: "Open the saved document",
+      nativeTarget: "build/Example.app")
+    let draft = SessionResultDraft.make(provider: .codex, sessionID: "a", projectPath: "/tmp/work",
+      state: nil, recipe: recipe)
+    #expect(draft.kind == .native)
+    #expect(draft.destination == "build/Example.app")
+    #expect(draft.expectedState == "Open the saved document")
+    let webDraft = SessionResultDraft.make(provider: .codex, sessionID: "b", projectPath: "/tmp/work",
+      state: SessionMonitorState(detectedLocalhostURL: URL(string: "http://localhost:3000/route")), recipe: recipe)
+    #expect(webDraft.kind == .smallTweak)
+    #expect(webDraft.destination == "http://localhost:3000/route")
+  }
+
   @Test func observedReportAndExactAgentRouteAreReusedWithoutAcceptance() {
     let state = SessionMonitorState(lastAssistantMessage: "Changed the label.",
       detectedLocalhostURL: URL(string: "http://localhost:3000/profile?tab=details"))

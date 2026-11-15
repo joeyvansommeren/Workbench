@@ -167,11 +167,13 @@ struct ResultServerStarter: ResultServerStarting {
 @MainActor
 protocol ResultDestinationOpening {
   func open(_ url: URL) -> Bool
+  func reveal(_ url: URL)
 }
 
 @MainActor
 struct ResultDestinationOpener: ResultDestinationOpening {
   func open(_ url: URL) -> Bool { NSWorkspace.shared.open(url) }
+  func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
 }
 
 /// Only inputs that change the launched process belong in this identity; a URL route does not.

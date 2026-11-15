@@ -9,6 +9,10 @@ enum SessionResultDraft {
     let paths = state?.recentActivities.compactMap { $0.toolInput?.filePath } ?? []
     result.affectedTargets = Array(Set(paths)).sorted().joined(separator: "\n")
     result.destination = state?.detectedLocalhostURL?.absoluteString ?? recipe?.destination ?? ""
+    if state?.detectedLocalhostURL == nil, let target = recipe?.nativeTarget, !target.isEmpty {
+      result.kind = .native
+      result.destination = target
+    }
     result.expectedState = recipe?.expectedState ?? ""
     return result
   }
