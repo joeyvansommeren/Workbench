@@ -29,6 +29,7 @@ public final class DevServerManager {
 
   /// Server state per project path (observed by WebPreviewView)
   private(set) var servers: [String: DevServerState] = [:]
+  private(set) var serverProjectPaths: [String: String] = [:]
 
   // MARK: - Internal Tracking
 
@@ -37,6 +38,7 @@ public final class DevServerManager {
   private var readinessTasks: [String: Task<Void, Never>] = [:]
   private var assignedPorts: [String: Int] = [:]
   private var externalServers: Set<String> = []
+  private var resultRecipes: [String: ResultServerRecipeIdentity] = [:]
 
   // MARK: - Public API
 
@@ -59,6 +61,7 @@ public final class DevServerManager {
     }
     AppLogger.devServer.info("[DevServerManager] Connecting key=\(key) to agent's server at \(normalizedURL.absoluteString)")
     externalServers.insert(key)
+    serverProjectPaths.removeValue(forKey: key)
     servers[key] = .ready(url: normalizedURL)
   }
 
@@ -74,7 +77,7 @@ public final class DevServerManager {
   }
 
   /// Internal overload that allows bypassing framework auto-detection (used for Storybook).
-  func startServer(for key: String, projectPath: String, forceFramework: ProjectFramework?) async {
+  func startServer(for key: String, projectPath: String, forceFramework: ProjectFramework?, recipe: DetectedProject? = nil) async {
     // Guard: already in an active state
     switch servers[key] {
     case .ready, .starting, .waitingForReady, .detecting:
@@ -83,10 +86,12 @@ public final class DevServerManager {
       break
     }
 
+    serverProjectPaths[key] = WorktreeModuleResolver.normalizedDirectoryPath(projectPath)
     servers[key] = .detecting
 
     // 1. Detect project type (off main thread for file I/O)
-    let detected = await Task.detached { [projectPath, forceFramework] in
+    let detected = await Task.detached { [projectPath, forceFramework, recipe] in
+      if let recipe { return recipe }
       if let framework = forceFramework {
         return DevServerManager.detectProject(at: projectPath, framework: framework)
       }
@@ -110,7 +115,8 @@ public final class DevServerManager {
     // placeholder we can fill — otherwise the dev server's bind port is fixed
     // by its own config (e.g. an npm script that pins `-p 6006`) and scanning
     // would just desync our tracked port from the actual one.
-    let canOverridePort = detected.arguments.last == "-p" || detected.arguments.last == "--port"
+    let canOverridePort = detected.allowsPortInjection
+      && (detected.arguments.last == "-p" || detected.arguments.last == "--port")
     let port: Int
     if canOverridePort {
       port = await Task.detached {
@@ -167,6 +173,67 @@ public final class DevServerManager {
     }
   }
 
+  /// A changed recipe needs an explicit restart. Unknown/external servers are never stopped here.
+  func validateRecipe(for key: String, identity: ResultServerRecipeIdentity) throws {
+    _ = try recipeAction(for: key, identity: identity, restart: false)
+  }
+
+  private func recipeAction(for key: String, identity: ResultServerRecipeIdentity,
+    restart: Bool) throws -> ResultServerRecipeAction {
+    try Self.resultRecipeAction(state: servers[key] ?? .idle, active: resultRecipes[key],
+      requested: identity, ownsProcess: processes[key] != nil && !externalServers.contains(key), restart: restart)
+  }
+
+  /// The same gate drives validation and start/restart, including after an async health check.
+  static func resultRecipeAction(state: DevServerState, active: ResultServerRecipeIdentity?,
+    requested: ResultServerRecipeIdentity, ownsProcess: Bool, restart: Bool) throws -> ResultServerRecipeAction {
+    switch state {
+    case .idle, .failed:
+      if ownsProcess {
+        guard active != nil else { throw ResultRecipeError.notOwned }
+        guard restart else { throw ResultRecipeError.changed }
+        return .restart
+      }
+      guard !restart else { throw ResultRecipeError.notOwned }
+      return .start
+    case .detecting where active == requested && !restart:
+      return .reuse
+    case .ready, .starting, .waitingForReady, .detecting:
+      guard ownsProcess, let active else { throw ResultRecipeError.notOwned }
+      if restart { return .restart }
+      guard active == requested else { throw ResultRecipeError.changed }
+      return .reuse
+    default:
+      throw ResultRecipeError.notOwned
+    }
+  }
+
+  /// Explicit saved recipes share the same lifecycle and managed-process registry.
+  func startRecipe(for key: String, projectPath: String, executable: String, arguments: [String],
+    port: Int, restart: Bool = false) async throws {
+    let identity = ResultServerRecipeIdentity(projectPath: projectPath, executable: executable,
+      arguments: arguments, port: port)
+    let action = try recipeAction(for: key, identity: identity, restart: restart)
+    if action == .reuse { return }
+    if action == .restart {
+      let previous = processes[key]
+      stopServer(for: key)
+      // Let the old listener release its port before the replacement starts.
+      servers[key] = .stopping
+      for _ in 0..<30 {
+        guard previous?.isRunning == true else { break }
+        try await Task.sleep(for: .milliseconds(100))
+      }
+      guard previous?.isRunning != true, servers[key] == .stopping,
+        !externalServers.contains(key) else { throw ResultRecipeError.notOwned }
+      servers[key] = .idle
+    }
+    resultRecipes[key] = identity
+    let recipe = DetectedProject(framework: .unknown, command: executable, arguments: arguments,
+      defaultPort: port, readinessPatterns: [], allowsPortInjection: false)
+    await startServer(for: key, projectPath: projectPath, forceFramework: nil, recipe: recipe)
+  }
+
   /// Stops the server for a given key (session ID or project path).
   public func stopServer(for key: String) {
     // External servers (started by agent) — just reset state, no process to kill
@@ -217,6 +284,7 @@ public final class DevServerManager {
     finalState: DevServerState,
     logAction: String
   ) {
+    resultRecipes.removeValue(forKey: key)
     readinessTasks[key]?.cancel()
     readinessTasks.removeValue(forKey: key)
 
@@ -238,7 +306,7 @@ public final class DevServerManager {
     AppLogger.devServer.info("[DevServerManager] \(logAction) server for key=\(key) (PID: \(pid))")
 
     // SIGTERM to process group, then escalate
-    if killpg(pid, SIGTERM) != 0 {
+    if process.isRunning, killpg(pid, SIGTERM) != 0 {
       kill(pid, SIGTERM)
     }
 
@@ -457,9 +525,9 @@ public final class DevServerManager {
 
     // Build arguments: inject port based on framework conventions
     var args = detected.arguments
-    if args.last == "--port" || args.last == "-p" {
+    if detected.allowsPortInjection && (args.last == "--port" || args.last == "-p") {
       args.append(String(port))
-    } else if detected.framework == .staticHTML {
+    } else if detected.allowsPortInjection && detected.framework == .staticHTML {
       // python3 -m http.server requires port as positional arg before --bind
       if let bindIndex = args.firstIndex(of: "--bind") {
         args.insert(String(port), at: bindIndex)
@@ -557,7 +625,7 @@ public final class DevServerManager {
     // Process termination handler
     process.terminationHandler = { [weak self] proc in
       Task { @MainActor [weak self] in
-        guard let self else { return }
+        guard let self, self.processes[key] === proc else { return }
         // Only handle if we're still waiting
         switch self.servers[key] {
         case .waitingForReady, .starting:
@@ -573,6 +641,7 @@ public final class DevServerManager {
     // Timeout: if not ready after 30 seconds, assume ready on expected port
     try? await Task.sleep(for: .seconds(30))
 
+    guard !Task.isCancelled, processes[key] === process else { return }
     if case .waitingForReady = servers[key] {
       if process.isRunning {
         AppLogger.devServer.info("[DevServerManager] Timeout reached for key=\(key), assuming server is ready on port \(port)")

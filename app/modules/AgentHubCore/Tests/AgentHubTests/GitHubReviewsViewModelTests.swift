@@ -732,7 +732,8 @@ struct GitHubReviewsViewModelTests {
 
     #expect(links.map(\.session.id) == ["codex-new", "claude-review"])
     #expect(links.first?.displayName == "PR 450 review")
-    #expect(links.first?.statusText == "Ready")
+    #expect(links.first?.statusText == "Waiting for you")
+    #expect(links.last?.statusText == "Status unknown")
     #expect(!links.contains { $0.session.id == "implementation" })
   }
 
@@ -829,7 +830,7 @@ struct GitHubReviewsViewModelTests {
     #expect(resolvedLinks.count == 1)
     #expect(!resolvedLinks[0].isPending)
     #expect(resolvedLinks[0].session.id == resolvedSession.id)
-    #expect(resolvedLinks[0].statusText == "Working")
+    #expect(resolvedLinks[0].statusText == "Thinking")
   }
 
   @Test("Persists a resolved review session and restores it in a new view model")

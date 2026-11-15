@@ -218,6 +218,17 @@ public final class MultiSessionLaunchViewModel {
   // MARK: - Callbacks
 
   public var onLaunchCompleted: (() -> Void)?
+  /// Emitted only when this exact launch call creates a pending terminal.
+  var onSessionCreated: ((SessionProviderKind, UUID) -> Void)?
+  var onLaunchPresentationCancelled: (() -> Void)?
+  var waitsForCreatedSession = false
+  private(set) var createdSessionCount = 0
+
+  func recordCreatedSession(previous: UUID?, current: UUID?, provider: SessionProviderKind) {
+    guard let current, previous != current else { return }
+    createdSessionCount += 1
+    onSessionCreated?(provider, current)
+  }
 
   // MARK: - Computed
 
@@ -693,6 +704,7 @@ public final class MultiSessionLaunchViewModel {
   }
 
   public func cancelLaunch() {
+    onLaunchPresentationCancelled?()
     guard isLaunching || smartPhase == .planning || smartPhase == .launching || activeLaunchTask != nil else { return }
     AppLogger.intelligence.info("\(Self.aiWorktreeLogPrefix, privacy: .public) Launcher cancellation requested by user")
     intelligenceViewModel?.cancelRequest()
@@ -717,6 +729,7 @@ public final class MultiSessionLaunchViewModel {
   // MARK: - Manual Mode
 
   private func launchManualMode() async throws {
+    let sessionCountBeforeLaunch = createdSessionCount
     guard let repo = selectedRepository else { return }
     let workModeName = workMode.rawValue
     let providerNames = selectedProviders.map(\.rawValue).joined(separator: ",")
@@ -842,6 +855,10 @@ public final class MultiSessionLaunchViewModel {
 
     try Task.checkCancellation()
     isLaunching = false
+    guard createdSessionCount > sessionCountBeforeLaunch else {
+      if launchError == nil { launchError = "No session started. Check the agent and project, then try again." }
+      return
+    }
     onLaunchCompleted?()
     reset()
   }
@@ -1009,17 +1026,21 @@ public final class MultiSessionLaunchViewModel {
         try await Task.sleep(for: .milliseconds(500))
         try Task.checkCancellation()
 
-        let worktree = await viewModel.registerCreatedWorktree(
+        let worktree = try await SessionLaunchRegistration.register(
+          using: viewModel,
           name: session.branchName,
           path: worktreePath,
           parentRepositoryPath: repoPath
         )
+        try Task.checkCancellation()
+        let pendingBeforeLaunch = viewModel.lastCreatedPendingId
         viewModel.startNewSessionInHub(
           worktree,
           initialPrompt: session.prompt,
           dangerouslySkipPermissions: dangerouslySkipPermissions,
           permissionModePlan: permissionModePlan
         )
+        recordCreatedSession(previous: pendingBeforeLaunch, current: viewModel.lastCreatedPendingId, provider: viewModel.providerKind)
         viewModel.refresh()
 
         AppLogger.intelligence.info("Smart plan: session launched at \(worktreePath)")
@@ -1089,17 +1110,21 @@ public final class MultiSessionLaunchViewModel {
       try await Task.sleep(for: .milliseconds(500))
       try Task.checkCancellation()
 
-      let worktree = await viewModel.registerCreatedWorktree(
+      let worktree = try await SessionLaunchRegistration.register(
+        using: viewModel,
         name: branchName,
         path: worktreePath,
         parentRepositoryPath: repoPath
       )
+      try Task.checkCancellation()
+      let pendingBeforeLaunch = viewModel.lastCreatedPendingId
       viewModel.startNewSessionInHub(
         worktree,
         initialPrompt: initialPrompt,
         dangerouslySkipPermissions: dangerouslySkipPermissions,
         permissionModePlan: permissionModePlan
       )
+      recordCreatedSession(previous: pendingBeforeLaunch, current: viewModel.lastCreatedPendingId, provider: viewModel.providerKind)
       viewModel.refresh()
 
       AppLogger.intelligence.info("Smart plan: fallback session launched at \(worktreePath)")
@@ -1227,6 +1252,8 @@ public final class MultiSessionLaunchViewModel {
       claudeViewModel.refresh()
       try await Task.sleep(for: .milliseconds(300))
       try Task.checkCancellation()
+      try Task.checkCancellation()
+      let pendingBeforeLaunch = claudeViewModel.lastCreatedPendingId
       claudeViewModel.startNewSessionInHub(
         worktree,
         initialPrompt: initialPrompt,
@@ -1236,6 +1263,7 @@ public final class MultiSessionLaunchViewModel {
         permissionModePlan: isPlanModeEnabled,
         worktreeName: claudeWorktreeOption
       )
+      recordCreatedSession(previous: pendingBeforeLaunch, current: claudeViewModel.lastCreatedPendingId, provider: claudeViewModel.providerKind)
     }
 
     if providers.contains(.codex) {
@@ -1244,6 +1272,8 @@ public final class MultiSessionLaunchViewModel {
       codexViewModel.refresh()
       try await Task.sleep(for: .milliseconds(300))
       try Task.checkCancellation()
+      try Task.checkCancellation()
+      let pendingBeforeLaunch = codexViewModel.lastCreatedPendingId
       codexViewModel.startNewSessionInHub(
         worktree,
         initialPrompt: initialPrompt,
@@ -1251,6 +1281,7 @@ public final class MultiSessionLaunchViewModel {
         contextBlock: contextBlock,
         permissionModePlan: isPlanModeEnabled
       )
+      recordCreatedSession(previous: pendingBeforeLaunch, current: codexViewModel.lastCreatedPendingId, provider: codexViewModel.providerKind)
     }
 
     claudeViewModel.refresh()
@@ -1331,11 +1362,14 @@ public final class MultiSessionLaunchViewModel {
     try Task.checkCancellation()
 
     if let path = claudeWorktreePath {
-      let worktree = await claudeViewModel.registerCreatedWorktree(
+      let worktree = try await SessionLaunchRegistration.register(
+        using: claudeViewModel,
         name: claudeBranchName,
         path: path,
         parentRepositoryPath: repoPath
       )
+      try Task.checkCancellation()
+      let pendingBeforeLaunch = claudeViewModel.lastCreatedPendingId
       claudeViewModel.startNewSessionInHub(
         worktree,
         initialPrompt: initialPrompt,
@@ -1344,17 +1378,21 @@ public final class MultiSessionLaunchViewModel {
         dangerouslySkipPermissions: claudeMode.dangerouslySkipPermissions,
         permissionModePlan: isPlanModeEnabled
       )
+      recordCreatedSession(previous: pendingBeforeLaunch, current: claudeViewModel.lastCreatedPendingId, provider: claudeViewModel.providerKind)
     }
 
     try await Task.sleep(for: .milliseconds(800))
     try Task.checkCancellation()
 
     if let path = codexWorktreePath {
-      let worktree = await codexViewModel.registerCreatedWorktree(
+      let worktree = try await SessionLaunchRegistration.register(
+        using: codexViewModel,
         name: codexBranchName,
         path: path,
         parentRepositoryPath: repoPath
       )
+      try Task.checkCancellation()
+      let pendingBeforeLaunch = codexViewModel.lastCreatedPendingId
       codexViewModel.startNewSessionInHub(
         worktree,
         initialPrompt: initialPrompt,
@@ -1362,6 +1400,7 @@ public final class MultiSessionLaunchViewModel {
         contextBlock: contextBlock,
         permissionModePlan: isPlanModeEnabled
       )
+      recordCreatedSession(previous: pendingBeforeLaunch, current: codexViewModel.lastCreatedPendingId, provider: codexViewModel.providerKind)
     }
 
     claudeViewModel.refresh()
@@ -1410,11 +1449,14 @@ public final class MultiSessionLaunchViewModel {
     try await Task.sleep(for: .milliseconds(500))
     try Task.checkCancellation()
 
-    let worktree = await viewModel.registerCreatedWorktree(
+    let worktree = try await SessionLaunchRegistration.register(
+      using: viewModel,
       name: branchName,
       path: path,
       parentRepositoryPath: repoPath
     )
+    try Task.checkCancellation()
+    let pendingBeforeLaunch = viewModel.lastCreatedPendingId
     viewModel.startNewSessionInHub(
       worktree,
       initialPrompt: initialPrompt,
@@ -1423,6 +1465,7 @@ public final class MultiSessionLaunchViewModel {
       dangerouslySkipPermissions: dangerouslySkipPermissions,
       permissionModePlan: permissionModePlan
     )
+    recordCreatedSession(previous: pendingBeforeLaunch, current: viewModel.lastCreatedPendingId, provider: viewModel.providerKind)
     viewModel.refresh()
   }
 

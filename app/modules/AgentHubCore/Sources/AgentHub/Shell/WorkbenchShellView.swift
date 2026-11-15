@@ -133,13 +133,17 @@ private struct ShellRoot: View {
           startNewSession: startNewSession,
           resumeSessionByID: { isResumingByID = true },
           togglePalette: { overlays.togglePalette() },
-          archiveCurrentSession: { sessionActions.archiveCurrentSession() }
+          archiveCurrentSession: { sessionActions.archiveCurrentSession() },
+          nextAttention: {
+            agentHub.sessionAttentionModel.openNext(agentHub: agentHub,
+              navigationModel: sessionNavigationModel, shellModel: shellModel,
+              coordinator: sessionsActionCoordinator, detailState: sessionDetailState)
+          }
         )
       )
   }
 
   private func startNewSession() {
-    shellModel.select(.sessions)
     sessionActions.startFocusedSession()
   }
 }
@@ -184,6 +188,10 @@ private struct ShellRootEffects: ViewModifier {
         launchActions.handleResolvedPendingSessions(resolutions, provider: .codex)
       }
       .task { await agentHub.gitHubReviewsViewModel.loadSessionAssociations() }
+      .task {
+        await agentHub.workflowDashboardViewModel.configureFinishArchiving(
+          store: agentHub.metadataStore, observationService: agentHub.gitHubPRObservationService)
+      }
       .task { agentHub.startWorktreeLaunchRequestMonitoring() }
       // Appearance (System / Light / Dark) is a new-shell setting; the legacy
       // root keeps following the system.

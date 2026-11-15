@@ -8,8 +8,10 @@ import AppKit
 public final class EmbeddedTerminalHostView: NSView {
   public private(set) var mountedTerminalKey: String?
   private weak var mountedTerminalView: NSView?
+  private weak var mountedSurface: (any EmbeddedTerminalSurface)?
 
   public func mount(_ terminal: any EmbeddedTerminalSurface, key: String) {
+    mountedSurface = terminal
     mountView(terminal.view, key: key)
   }
 
@@ -41,9 +43,23 @@ public final class EmbeddedTerminalHostView: NSView {
     mountedTerminalKey = key
   }
 
+  /// Conceal the native host without unmounting or terminating its terminal.
+  func setConcealed(_ concealed: Bool) {
+    if concealed {
+      // A terminal can move to another host; an old host must not clear its new owner's shortcut.
+      if mountedTerminalView?.superview === self { mountedSurface?.approvalShortcutHandler = nil }
+      if let responder = window?.firstResponder as? NSView,
+        responder === self || responder.isDescendant(of: self) {
+        window?.makeFirstResponder(nil)
+      }
+    }
+    isHidden = concealed
+  }
+
   public func unmountTerminal() {
     mountedTerminalView?.removeFromSuperview()
     mountedTerminalView = nil
+    mountedSurface = nil
     mountedTerminalKey = nil
   }
 }

@@ -1,4 +1,6 @@
+import AgentHubGitHub
 import AppKit
+import SwiftTerm
 import Canvas
 import Combine
 import Foundation
@@ -39,7 +41,8 @@ private func makeAuxiliaryShellViewModel(
   terminalBackend: EmbeddedTerminalBackend = .storedPreference,
   terminalWorkspaceStore: (any TerminalWorkspaceStoreProtocol)? = nil,
   sessionRelationshipStore: (any SessionRelationshipStoreProtocol)? = nil,
-  accessorySessionDetectionService: any AccessorySessionDetectionServiceProtocol = AccessorySessionDetectionService()
+  accessorySessionDetectionService: any AccessorySessionDetectionServiceProtocol =
+    InertAccessoryDetectionService()
 ) -> CLISessionsViewModel {
   CLISessionsViewModel(
     monitorService: AuxiliaryShellStubMonitorService(),
@@ -60,6 +63,8 @@ private func makeAuxiliaryShellViewModel(
 private final class TestTerminalSurface: NSView, EmbeddedTerminalSurface {
   var view: NSView { self }
   var currentProcessPID: Int32?
+  var confirmedProcessExitAt: Date?
+  var processIDsForExitVerification: [Int32]?
   var onUserInteraction: (() -> Void)?
   var onRequestShowEditor: (() -> Void)?
   var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)?
@@ -284,8 +289,7 @@ private final class RecordingSessionRelationshipStore: SessionRelationshipStoreP
   }
 }
 
-private struct ImmediateAccessoryDetectionService: AccessorySessionDetectionServiceProtocol {
-  let result: AccessorySessionDetectionResult
+private struct InertAccessoryDetectionService: AccessorySessionDetectionServiceProtocol {
 
   func makeBaseline(
     provider: SessionProviderKind,
@@ -304,6 +308,24 @@ private struct ImmediateAccessoryDetectionService: AccessorySessionDetectionServ
     provider: SessionProviderKind,
     projectPath: String,
     startedAt: Date,
+    baseline: AccessorySessionDetectionBaseline
+  ) -> AccessorySessionDetectionResult? {
+    nil
+  }
+}
+
+private struct ImmediateAccessoryDetectionService: AccessorySessionDetectionServiceProtocol {
+  let result: AccessorySessionDetectionResult
+
+  func makeBaseline(provider: SessionProviderKind, projectPath: String, startedAt: Date)
+    -> AccessorySessionDetectionBaseline
+  {
+    InertAccessoryDetectionService().makeBaseline(
+      provider: provider, projectPath: projectPath, startedAt: startedAt)
+  }
+
+  func detectNewSession(
+    provider: SessionProviderKind, projectPath: String, startedAt: Date,
     baseline: AccessorySessionDetectionBaseline
   ) -> AccessorySessionDetectionResult? {
     result.provider == provider ? result : nil
@@ -578,6 +600,103 @@ struct AuxiliaryShellTerminalManagementTests {
     #expect(keys.contains("session-123"))
     #expect(keys.contains("shell:session-123"))
     #expect(keys.count == 2)
+  }
+
+  @Test("Confirmed backend exit produces a safe stopped session and survives explicit close")
+  @MainActor
+  func confirmedExitProducesStoppedEvidence() {
+    let backend = ManagedLocalProcessTerminalView(frame: .zero)
+    #expect(backend.confirmedProcessExitAt == nil)
+    // Drive the actual backend's lifecycle callback without starting any process.
+    backend.processTerminated(LocalProcess(delegate: backend), exitCode: 0)
+    let exitAt = backend.confirmedProcessExitAt
+    #expect(exitAt != nil)
+    let vm = makeAuxiliaryShellViewModel()
+    let surface = TestTerminalSurface()
+    surface.confirmedProcessExitAt = exitAt
+    surface.activeWorkingDirectoryResult = "/tmp/repo-feature"
+    vm.activeTerminals["finished-session"] = surface
+    let session = CLISession(id: "finished-session", projectPath: "/tmp/repo-feature", branchName: "TES-1-feature",
+      isWorktree: true, lastActivityAt: Date(timeIntervalSinceNow: -3_600), isActive: false,
+      firstMessage: "Implement TES-1")
+    let repositories = [SelectedRepository(path: "/tmp/repo", name: "Repo",
+      worktrees: [WorktreeBranch(name: "TES-1-feature", path: "/tmp/repo-feature", isWorktree: true)])]
+    let produced = FinishRuntimeInventory.resource(session: session, provider: .claude,
+      repositories: repositories, status: .waitingForUser, terminals: vm.finishRuntimeInventory.terminals)
+    #expect(produced.processState == .stopped)
+    let assignment = DetectedAgentSession(session: session, provider: .claude,
+      role: .implementer, roleConfidence: .high, roleReason: "Test")
+    let branch = DetectedBranchWorkflow(id: "one", ticketKey: "TES-1", repositoryPath: "/tmp/repo",
+      repositoryName: "Repo", branchName: "TES-1-feature", implementerSessions: [assignment],
+      reviewerSessions: [], linkedPullRequests: [], pullRequest: DetectedPullRequest(number: 1,
+        title: "Feature", url: "https://github.com/example/repo/pull/1", state: .merged,
+        headBranch: "TES-1-feature", headSHA: "head"), lastActivityAt: session.lastActivityAt)
+    #expect(WorkflowFinishRuntimePolicy.canArchive(workflowID: "TES-1", branches: [branch],
+      inventory: FinishRuntimeInventory(isComplete: true, sessions: [produced], terminals: vm.finishRuntimeInventory.terminals)))
+    vm.removeTerminal(forKey: "finished-session")
+    let closed = FinishRuntimeInventory.resource(session: session, provider: .claude,
+      repositories: repositories, status: .waitingForUser, terminals: vm.finishRuntimeInventory.terminals)
+    #expect(closed.processState == .stopped)
+    var resumedElsewhere = session
+    resumedElsewhere.lastActivityAt = Date().addingTimeInterval(1)
+    let newer = FinishRuntimeInventory.resource(session: resumedElsewhere, provider: .claude,
+      repositories: repositories, status: .waitingForUser, terminals: vm.finishRuntimeInventory.terminals)
+    #expect(newer.processState == .unknown)
+  }
+
+  @Test("Explicit close retains verifiable PID exit without a backend exit callback")
+  @MainActor
+  func explicitCloseRetainsPIDExitEvidence() {
+    let vm = makeAuxiliaryShellViewModel()
+    let surface = TestTerminalSurface()
+    // Darwin cannot allocate this PID. The read-only kernel probe proves exit;
+    // nil current PID or an unsupported backend callback is never the proof.
+    surface.currentProcessPID = Int32.max
+    surface.processIDsForExitVerification = [Int32.max]
+    surface.activeWorkingDirectoryResult = "/tmp/closed-worktree"
+    #expect(surface.confirmedProcessExitAt == nil)
+    vm.activeTerminals["closed-session"] = surface
+    vm.removeTerminal(forKey: "closed-session")
+    let evidence = vm.finishRuntimeInventory.terminals.first { $0.key == "closed-session" }
+    #expect(evidence?.processID == Int32.max)
+    #expect(evidence?.processState == .stopped)
+    #expect(evidence?.closedAt != nil)
+  }
+
+  @Test("Closing a multi-pane terminal waits for every captured PTY root")
+  @MainActor
+  func explicitCloseProtectsSecondaryPane() {
+    let vm = makeAuxiliaryShellViewModel()
+    let surface = TestTerminalSurface()
+    surface.currentProcessPID = Int32.max
+    surface.processIDsForExitVerification = [Int32.max, Int32(ProcessInfo.processInfo.processIdentifier)]
+    surface.activeWorkingDirectoryResult = "/tmp/multi-pane-worktree"
+    vm.activeTerminals["multi-session"] = surface
+    vm.removeTerminal(forKey: "multi-session")
+    #expect(vm.finishRuntimeInventory.terminals.first?.processState == .running)
+    let unknown = TestTerminalSurface()
+    unknown.currentProcessPID = Int32.max
+    unknown.activeWorkingDirectoryResult = "/tmp/unknown-backend"
+    #expect(unknown.processIDsForExitVerification == nil)
+    vm.activeTerminals["unknown-backend"] = unknown
+    vm.removeTerminal(forKey: "unknown-backend")
+    #expect(vm.finishRuntimeInventory.terminals.first { $0.key == "unknown-backend" }?.processState == .unknown)
+  }
+
+  @Test("Finish inventory reads live terminal PIDs rather than transcript age")
+  @MainActor
+  func finishInventoryUsesManagedPID() {
+    let vm = makeAuxiliaryShellViewModel()
+    let surface = TestTerminalSurface()
+    surface.currentProcessPID = Int32(ProcessInfo.processInfo.processIdentifier)
+    surface.activeWorkingDirectoryResult = "/tmp/quiet-worktree"
+    vm.activeTerminals["quiet-session"] = surface
+    let terminal = vm.finishRuntimeInventory.terminals.first
+    #expect(terminal?.projectPath == "/tmp/quiet-worktree")
+    #expect(terminal?.processState == .running)
+    #expect(terminal?.processID == surface.currentProcessPID)
+    surface.currentProcessPID = nil
+    #expect(vm.finishRuntimeInventory.terminals.first?.processState == .unknown)
   }
 
   @Test("Duplicate terminal focus requests are coalesced while layout settles")

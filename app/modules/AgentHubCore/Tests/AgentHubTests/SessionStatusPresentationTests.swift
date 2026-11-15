@@ -1,149 +1,109 @@
-//
-//  SessionStatusPresentationTests.swift
-//  AgentHubTests
-//
-
 import Testing
 @testable import AgentHubCore
 
 @Suite("SessionStatusPresentation")
 struct SessionStatusPresentationTests {
-
-  // MARK: - Shape mapping
-
-  @Test("thinking maps to breathingDot / working")
-  func thinkingShape() {
-    let p = SessionStatusPresentation(status: .thinking)
-    #expect(p.shape == .breathingDot)
-    #expect(p.category == .working)
-    #expect(p.word == "Thinking")
-  }
-
-  @Test("executingTool maps to spinningArc / working")
-  func executingToolShape() {
-    let p = SessionStatusPresentation(status: .executingTool(name: "Bash"))
-    #expect(p.shape == .spinningArc)
-    #expect(p.category == .working)
-    #expect(p.word == "Running Bash")
-  }
-
-  @Test("waitingForUser maps to filledCheck / ready")
-  func waitingForUserShape() {
-    let p = SessionStatusPresentation(status: .waitingForUser)
-    #expect(p.shape == .filledCheck)
-    #expect(p.category == .ready)
-    #expect(p.word == "Your turn")
-  }
-
-  @Test("awaitingApproval maps to filledBang / attention")
-  func awaitingApprovalShape() {
-    let p = SessionStatusPresentation(status: .awaitingApproval(tool: "Bash"))
-    #expect(p.shape == .filledBang)
-    #expect(p.category == .attention)
-    #expect(p.word == "Needs approval")
-  }
-
-  @Test("interactive input tool maps to filledBang with 'Needs input'")
-  func interactiveInputShape() {
-    let p = SessionStatusPresentation(status: .awaitingApproval(tool: "request_user_input"))
-    #expect(p.shape == .filledBang)
-    #expect(p.category == .attention)
-    #expect(p.word == "Needs input")
-  }
-
-  @Test("AskUserQuestion also matches interactive input")
-  func askUserQuestionShape() {
-    let p = SessionStatusPresentation(status: .awaitingApproval(tool: "AskUserQuestion"))
-    #expect(p.shape == .filledBang)
-    #expect(p.category == .attention)
-    #expect(p.word == "Needs input")
-  }
-
-  @Test("idle maps to ring / idle")
-  func idleShape() {
-    let p = SessionStatusPresentation(status: .idle)
-    #expect(p.shape == .ring)
-    #expect(p.category == .idle)
-    #expect(p.word == "Idle")
-  }
-
-  @Test("nil maps to ring / idle")
-  func nilShape() {
-    let p = SessionStatusPresentation(status: nil)
-    #expect(p.shape == .ring)
-    #expect(p.category == .idle)
-    #expect(p.word == "Idle")
-  }
-
-  @Test("pending session maps to breathingDot / working / Starting")
-  func pendingShape() {
-    let p = SessionStatusPresentation(status: nil, isPending: true)
-    #expect(p.shape == .breathingDot)
-    #expect(p.category == .working)
-    #expect(p.word == "Starting")
-  }
-
-  @Test("pending with idle status still shows Starting")
-  func pendingIdleShape() {
-    let p = SessionStatusPresentation(status: .idle, isPending: true)
-    #expect(p.shape == .breathingDot)
-    #expect(p.category == .working)
-    #expect(p.word == "Starting")
-  }
-
-  @Test("pending with active status uses the active status")
-  func pendingActiveShape() {
-    let p = SessionStatusPresentation(status: .thinking, isPending: true)
-    #expect(p.shape == .breathingDot)
-    #expect(p.category == .working)
-    #expect(p.word == "Thinking")
-  }
-
-  // MARK: - Category matches StatusGroupCategory
-
-  @Test("category matches StatusGroupCategory.category(for:)")
-  func categoryMatchesStatusGroupCategory() {
-    let cases: [(SessionStatus?, StatusGroupCategory)] = [
-      (.thinking, .working),
-      (.executingTool(name: "Bash"), .working),
-      (.waitingForUser, .ready),
-      (.awaitingApproval(tool: "Bash"), .needsAttention),
-      (.idle, .idle),
-      (nil, .idle),
+  @Test("Provider activity never implies acceptance or completion")
+  func activityIsIndependentOfOutcome() {
+    let cases: [(SessionStatus?, SessionActivity, String)] = [
+      (.thinking, .running, "Thinking"),
+      (.executingTool(name: "Bash"), .running, "Running Bash"),
+      (.waitingForUser, .waiting, "Waiting for you"),
+      (.idle, .inactive, "Inactive"),
+      (nil, .unknown, "Status unknown"),
     ]
-
-    for (status, expectedGroup) in cases {
+    for (status, activity, word) in cases {
       let presentation = SessionStatusPresentation(status: status)
-      let actualGroup = StatusGroupCategory.category(for: status)
-
-      let mappedCategory: StatusGroupCategory
-      switch presentation.category {
-      case .working:   mappedCategory = .working
-      case .ready:     mappedCategory = .ready
-      case .attention: mappedCategory = .needsAttention
-      case .idle:      mappedCategory = .idle
-      }
-
-      #expect(mappedCategory == actualGroup,
-        "Status \(String(describing: status)): expected \(expectedGroup), got \(mappedCategory)")
-      #expect(actualGroup == expectedGroup)
+      #expect(presentation.activity == activity)
+      #expect(presentation.outcome == .unknown)
+      #expect(presentation.word == word)
+      #expect(presentation.shape != .filledCheck)
+      #expect(presentation.category != .ready)
+      #expect(presentation.accessibilityLabel.contains("outcome unknown"))
     }
   }
 
-  // MARK: - Accessibility labels (pinned)
+  @Test("Working glyphs retain the difference between thinking and tool execution")
+  func workingGlyphs() {
+    #expect(SessionStatusPresentation(status: .thinking).shape == .breathingDot)
+    #expect(SessionStatusPresentation(status: .executingTool(name: "Bash")).shape == .spinningArc)
+  }
 
-  @Test("exact accessibility label for each status")
-  func pinnedAccessibilityLabels() {
-    #expect(SessionStatusPresentation(status: .thinking).accessibilityLabel == "Thinking")
-    #expect(SessionStatusPresentation(status: .executingTool(name: "Bash")).accessibilityLabel == "Running tool Bash")
-    #expect(SessionStatusPresentation(status: .waitingForUser).accessibilityLabel == "Your turn")
-    #expect(SessionStatusPresentation(status: .awaitingApproval(tool: "Bash")).accessibilityLabel == "Needs approval")
-    #expect(SessionStatusPresentation(status: .awaitingApproval(tool: "request_user_input")).accessibilityLabel == "Needs input")
-    #expect(SessionStatusPresentation(status: .awaitingApproval(tool: "AskUserQuestion")).accessibilityLabel == "Needs input")
-    #expect(SessionStatusPresentation(status: .idle).accessibilityLabel == "Idle")
-    #expect(SessionStatusPresentation(status: nil).accessibilityLabel == "Idle")
-    #expect(SessionStatusPresentation(status: nil, isPending: true).accessibilityLabel == "Starting")
-    #expect(SessionStatusPresentation(status: .idle, isPending: true).accessibilityLabel == "Starting")
-    #expect(SessionStatusPresentation(status: .thinking, isPending: true).accessibilityLabel == "Thinking")
+  @Test("Pending launch is Starting only until an active status is observed")
+  func pendingLaunch() {
+    for status in [nil, SessionStatus.idle] {
+      let presentation = SessionStatusPresentation(status: status, isPending: true)
+      #expect(presentation.activity == .starting)
+      #expect(presentation.outcome == .unknown)
+      #expect(presentation.word == "Starting")
+      #expect(presentation.shape == .breathingDot)
+    }
+    #expect(SessionStatusPresentation(status: .thinking, isPending: true).word == "Thinking")
+  }
+
+  @Test("Explicit questions and permission requests have different outcomes")
+  func requestOutcomes() {
+    for tool in ["AskUserQuestion", "request_user_input"] {
+      let presentation = SessionStatusPresentation(status: .awaitingApproval(tool: tool))
+      #expect(presentation.activity == .waiting)
+      #expect(presentation.outcome == .needsInput)
+      #expect(presentation.word == "Needs input")
+      #expect(presentation.shape == .filledBang)
+      #expect(presentation.category == .attention)
+    }
+    let permission = SessionStatusPresentation(status: .awaitingApproval(tool: "Bash"))
+    #expect(permission.outcome == .needsApproval)
+    #expect(permission.word == "Needs approval")
+  }
+
+  @Test("Only an explicit successful outcome has a success glyph")
+  func explicitOutcome() {
+    for outcome in [SessionOutcome.accepted, .finished] {
+      let presentation = SessionStatusPresentation(status: .idle, outcome: outcome)
+      #expect(presentation.activity == .inactive)
+      #expect(presentation.outcome == outcome)
+      #expect(presentation.shape == .filledCheck)
+      #expect(presentation.category == .ready)
+      #expect(presentation.accessibilityLabel == outcome.displayName)
+    }
+    let ready = SessionStatusPresentation(status: .waitingForUser, outcome: .readyToInspect)
+    #expect(ready.activity == .waiting)
+    #expect(ready.outcome == .readyToInspect)
+    #expect(ready.word == "Ready to inspect")
+    #expect(ready.shape != .filledCheck)
+    #expect(ready.category != .ready)
+    let changes = SessionStatusPresentation(status: .idle, outcome: .changesRequested)
+    #expect(changes.word == "Changes requested")
+    #expect(changes.category == .attention)
+  }
+
+  @Test("New activity and live requests cannot retain an older acceptance")
+  func newActivityOverridesOldOutcome() {
+    let running = SessionStatusPresentation(status: .thinking, outcome: .accepted)
+    #expect(running.activity == .running)
+    #expect(running.outcome == .unknown)
+    #expect(running.word == "Thinking")
+    #expect(running.category == .working)
+    let request = SessionStatusPresentation(
+      status: .awaitingApproval(tool: "Bash"), outcome: .finished)
+    #expect(request.outcome == .needsApproval)
+    #expect(request.word == "Needs approval")
+  }
+
+  @Test("Unknown is a separate sidebar group and waiting never says Ready")
+  func honestStatusGroups() {
+    #expect(StatusGroupCategory.category(for: nil) == .unknown)
+    #expect(StatusGroupCategory.category(for: .idle) == .idle)
+    #expect(StatusGroupCategory.category(for: .waitingForUser).rawValue == "Waiting for you")
+    #expect(StatusGroupCategory.category(for: .thinking) == .working)
+    #expect(StatusGroupCategory.category(for: .awaitingApproval(tool: "Bash")) == .needsAttention)
+  }
+
+  @Test("Legacy status text and icons do not present quiet work as success")
+  func legacyStatusIsHonest() {
+    #expect(SessionStatus.waitingForUser.displayName == "Waiting for you")
+    #expect(SessionStatus.waitingForUser.icon == "pause.circle")
+    #expect(SessionStatus.waitingForUser.color != "green")
+    #expect(SessionStatus.idle.displayName == "Inactive")
   }
 }

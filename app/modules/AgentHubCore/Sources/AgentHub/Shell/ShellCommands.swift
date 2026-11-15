@@ -20,6 +20,7 @@ struct ShellCommandTarget {
   let resumeSessionByID: () -> Void
   let togglePalette: () -> Void
   let archiveCurrentSession: () -> Void
+  let nextAttention: () -> Void
 }
 
 extension FocusedValues {
@@ -53,7 +54,6 @@ public struct ShellCommands: Commands {
     // ⌘N starts a session, as it did in the legacy Sessions view.
     CommandGroup(replacing: .newItem) {
       Button("New Session…") {
-        shell?.model.select(.sessions)
         shell?.startNewSession()
       }
       .keyboardShortcut(ShellShortcut.newSession)
@@ -66,6 +66,12 @@ public struct ShellCommands: Commands {
       }
 
       Divider()
+
+      Button("Next session that needs you") {
+        shell?.nextAttention()
+      }
+      .keyboardShortcut(ShellShortcut.nextAttention)
+      .disabled(shell == nil)
 
       Button("Search…") {
         shell?.togglePalette()

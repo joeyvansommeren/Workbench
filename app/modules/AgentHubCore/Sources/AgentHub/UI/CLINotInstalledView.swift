@@ -72,14 +72,8 @@ public struct CLINotInstalledView: View {
     }
   }
 
-  private var installationURL: URL {
-    switch provider {
-    case .claude:
-      return URL(string: "https://docs.anthropic.com/en/docs/claude-code/overview")!
-    case .codex:
-      return URL(string: "https://github.com/openai/codex")!
-    }
-  }
+  private var installationURL: URL { provider.installationGuideURL }
+
 }
 
 #Preview("Claude Not Installed") {

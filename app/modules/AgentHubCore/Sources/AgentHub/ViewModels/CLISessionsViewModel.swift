@@ -942,6 +942,18 @@ public final class CLISessionsViewModel {
     return outcome
   }
 
+  /// Exact live provider option for disclosure only. Never infer scope from
+  /// the pending tool's input or this session's project directory.
+  func approvalPersistenceOption(sessionId: String, terminalKey: String) -> String? {
+    guard providerKind == .claude,
+      let pending = monitorStates[sessionId]?.pendingToolUse,
+      pending.isApprovablePermission(providerKind: providerKind),
+      let terminal = activeTerminals[terminalKey], terminal.canReadAgentScreen,
+      let tail = terminal.agentScreenTail(maxRows: ClaudePermissionMenu.tailRows)
+    else { return nil }
+    return ClaudePermissionMenu.persistentOption(in: tail)
+  }
+
   /// Whether the agent tab still shows Claude's permission menu; nil when the
   /// backend or the scroll position doesn't allow reading it.
   private func agentPermissionMenuVisible(forKey key: String) -> Bool? {
@@ -1846,6 +1858,7 @@ public final class CLISessionsViewModel {
   public func removeTerminal(forKey key: String) {
     cancelAccessoryDetectionTasks(parentTerminalKey: key)
     if let terminal = activeTerminals[key] {
+      rememberClosingTerminalForFinish(key: key)
       persistCurrentWorkspaceIfNeeded(for: terminal, key: key, sessionId: key, debounce: false)
       terminal.terminateProcess()
     }
@@ -1879,6 +1892,7 @@ public final class CLISessionsViewModel {
   /// Removes the auxiliary shell terminal for a given key and terminates its process.
   public func removeAuxiliaryShellTerminal(forKey key: String) {
     if let terminal = auxiliaryShellTerminals[key] {
+      rememberClosingTerminalForFinish(key: "shell:" + key)
       terminal.terminateProcess()
     }
     auxiliaryShellTerminals.removeValue(forKey: key)
@@ -2004,6 +2018,7 @@ public final class CLISessionsViewModel {
   public var activeTerminals: [String: any EmbeddedTerminalSurface] = [:]
   @ObservationIgnored private var activeTerminalDescriptors: [String: TerminalSurfaceDescriptor] =
     [:]
+  @ObservationIgnored private var finishClosedTerminalEvidence: [String: FinishTerminalResource] = [:]
 
   /// Latest workspace layout per terminal key (tabs, active tab, linked child
   /// sessions). Lets the chat say when the terminal is on a child session.
@@ -2018,6 +2033,71 @@ public final class CLISessionsViewModel {
   public var managedTerminalEntries: [(key: String, terminal: any EmbeddedTerminalSurface)] {
     activeTerminals.map { ($0.key, $0.value) }
       + auxiliaryShellTerminals.map { ("shell:\($0.key)", $0.value) }
+  }
+
+  /// Complete loaded session/pending inventory plus the actual managed terminal PID evidence.
+  /// Transcript recency is deliberately not used to infer process exit.
+  var finishRuntimeInventory: FinishRuntimeInventory {
+    let provider = providerKind
+    let repositories = selectedRepositories
+    var sessions = allSessions
+    var seen = Set(sessions.map(\.id))
+    for session in monitoredCLISessions where seen.insert(session.id).inserted { sessions.append(session) }
+    var terminals = managedTerminalEntries.map { entry -> FinishTerminalResource in
+      let isShell = entry.key.hasPrefix("shell:")
+      let rawKey = isShell ? String(entry.key.dropFirst("shell:".count)) : entry.key
+      let descriptor = isShell ? auxiliaryShellTerminalDescriptors[rawKey] : activeTerminalDescriptors[rawKey]
+      let describedPath: String?
+      switch descriptor {
+      case .cli(_, let path, _, _, _, _, _, _, _, _)?: describedPath = path
+      case .shell(let path, _, _)?: describedPath = path
+      case nil: describedPath = nil
+      }
+      let path = describedPath ?? sessions.first(where: { $0.id == rawKey })?.projectPath
+        ?? pendingHubSessions.first(where: { "pending-\($0.id.uuidString)" == rawKey })?.projectPath
+        ?? entry.terminal.activeWorkingDirectory()
+      let pid = entry.terminal.currentProcessPID
+      let allPIDs = entry.terminal.processIDsForExitVerification
+      let exitAt = entry.terminal.confirmedProcessExitAt
+      let state: FinishProcessState
+      if exitAt != nil && (allPIDs?.isEmpty ?? true) { state = .stopped }
+      else if allPIDs != nil { state = FinishRuntimeInventory.processState(forProcesses: allPIDs) }
+      else { state = FinishRuntimeInventory.processState(for: pid) == .running ? .running : .unknown }
+      return FinishTerminalResource(provider: provider, key: entry.key,
+        projectPath: path.map(WorktreeModuleResolver.normalizedDirectoryPath),
+        processID: pid, processState: state, processIDs: allPIDs, confirmedExitAt: exitAt)
+    }
+    let activeKeys = Set(terminals.map(\.key))
+    for (key, saved) in finishClosedTerminalEvidence where !activeKeys.contains(key) {
+      var saved = saved
+      if let pids = saved.processIDs, !pids.isEmpty {
+        saved.processState = FinishRuntimeInventory.processState(forProcesses: pids)
+      } else if saved.confirmedExitAt == nil { saved.processState = .unknown }
+      terminals.append(saved)
+    }
+    func repositoryPath(for path: String) -> String? {
+      WorktreeModuleResolver.bestMatch(for: path, repositories: repositories)?.repository.path
+    }
+    var resources = sessions.map { session in
+      FinishRuntimeInventory.resource(session: session, provider: provider, repositories: repositories,
+        status: sessionStatus(for: session.id), terminals: terminals, name: displayName(for: session))
+    }
+    for pending in pendingHubSessions {
+      var resource = FinishSessionResource(id: "\(provider.rawValue):pending-\(pending.id.uuidString)",
+        name: "Starting session", path: pending.projectPath, branchName: pending.worktree.name,
+        isPending: true, isActive: true, status: nil)
+      resource.processState = .unknown
+      resource.repositoryPath = repositoryPath(for: pending.projectPath)
+      resources.append(resource)
+    }
+    return FinishRuntimeInventory(isComplete: hasLoadedRepositories && browseSessionsLoadState.isLoaded,
+      sessions: resources, terminals: terminals)
+  }
+
+  private func rememberClosingTerminalForFinish(key: String) {
+    guard var evidence = finishRuntimeInventory.terminals.first(where: { $0.key == key }) else { return }
+    evidence.closedAt = Date()
+    finishClosedTerminalEvidence[key] = evidence
   }
 
   // MARK: - Monitoring State

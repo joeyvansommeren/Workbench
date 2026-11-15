@@ -370,6 +370,36 @@ struct SessionNavigationModelTests {
     #expect(router.selectionRequest != nil)
   }
 
+  @Test("Explicit terminal focus reveals Result and Files; ordinary selection retains Result")
+  func terminalIntentRevealsBeforeSelectionCompletes() {
+    for startsInFiles in [false, true] {
+      let model = SessionNavigationModel()
+      let detail = SessionDetailStateModel()
+      let router = GlobalSessionSelectionRouter(defaults: .init(suiteName: "focus-route-\(UUID())")!)
+      let id = "claude-s1"
+      if startsInFiles {
+        detail.setShowsResult(false, for: id)
+        detail.setContentMode(.editor, for: id, defaultProjectPath: "/tmp/Repo")
+      }
+      router.select(providerKind: .claude, sessionId: "s1", projectPath: "/tmp/Repo", focusesTerminal: true)
+      let consumed = model.consumeGlobalSessionSelectionIfNeeded(router: router,
+        claudeViewModel: makeTestViewModel(), codexViewModel: makeTestViewModel(),
+        workspaceViewModel: makeTestWorkspaceViewModel(),
+        selectedSessionItems: { [SessionItemSnapshot(id: id, providerKind: .claude, sessionId: "s1", isPending: false)] },
+        colorScheme: .dark, setAuxiliaryShellVisible: { _ in }, selectedProviderRawSetter: { _ in },
+        revealTerminal: { detail.revealTerminal(for: $0) })
+      #expect(consumed && model.primarySessionId == id)
+      #expect(!detail.showsResult(for: id))
+      #expect(detail.contentMode(for: id) == .terminal)
+      #expect(detail.showsResult(for: "claude-other"))
+    }
+    let detail = SessionDetailStateModel()
+    let router = GlobalSessionSelectionRouter()
+    router.select(providerKind: .claude, sessionId: "s1", projectPath: "/tmp/Repo")
+    #expect(router.selectionRequest?.focusesTerminal == false)
+    #expect(detail.showsResult(for: "claude-s1"))
+  }
+
   // MARK: - Consume Global Workflow Comparison
 
   @Test("Consume workflow comparison routes and marks consumed")

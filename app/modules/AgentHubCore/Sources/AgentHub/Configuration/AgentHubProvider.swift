@@ -143,6 +143,11 @@ public final class AgentHubProvider {
     SimulatorStreamService.shared
 
   /// Session metadata store for user-provided session names
+  let commitChangesService: any CommitChangesServiceProtocol = CommitChangesService()
+
+  private(set) lazy var sessionResultLibrary = SessionResultLibrary(store: metadataStore)
+  private(set) lazy var sessionAttentionModel = SessionAttentionModel()
+
   public private(set) lazy var metadataStore: SessionMetadataStore? = {
     if let metadataStoreOverride {
       return metadataStoreOverride

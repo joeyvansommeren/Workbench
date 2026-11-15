@@ -23,6 +23,10 @@ struct ProjectDetailsSessionItem: Identifiable {
   var displayName: String {
     customName ?? session.displayName
   }
+
+  var statusPresentation: SessionStatusPresentation {
+    SessionStatusPresentation(status: status, isPending: isPending)
+  }
 }
 
 // MARK: - ProjectDetailsTab
@@ -408,10 +412,11 @@ private struct ProjectSessionGridCard: View {
     Button(action: onSelect) {
       HStack(alignment: .top, spacing: 10) {
         Circle()
-          .fill(statusColor)
+          .fill(item.statusPresentation.fillColor)
           .frame(width: 8, height: 8)
-          // Glow removed — state is shown by tone and text.
+          // The text below names the state for visual and VoiceOver users.
           .padding(.top, 5)
+          .accessibilityHidden(true)
 
         VStack(alignment: .leading, spacing: 5) {
           topLine
@@ -465,10 +470,11 @@ private struct ProjectSessionGridCard: View {
 
   private var detailLine: some View {
     HStack(spacing: 6) {
-      Text(statusText)
+      Text(item.statusPresentation.word)
         .font(.secondarySmall)
-        .foregroundStyle(statusColor)
+        .foregroundStyle(item.statusPresentation.textColor)
         .lineLimit(1)
+        .accessibilityLabel(item.statusPresentation.accessibilityLabel)
 
       Text("·")
         .font(.secondaryCaption)
@@ -520,38 +526,6 @@ private struct ProjectSessionGridCard: View {
     if case .thinking = item.status { return true }
     if case .executingTool = item.status { return true }
     return false
-  }
-
-  private var statusText: String {
-    if item.isPending { return "starting" }
-    guard let status = item.status else { return item.session.isActive ? "active" : "idle" }
-    switch status {
-    case .thinking:
-      return "working"
-    case .executingTool(let name):
-      return name.lowercased()
-    case .waitingForUser:
-      return "ready"
-    case .awaitingApproval(let tool):
-      return "approval: \(tool.lowercased())"
-    case .idle:
-      return "idle"
-    }
-  }
-
-  private var statusColor: Color {
-    if item.isPending { return .orange }
-    guard let status = item.status else { return .secondary }
-    switch status {
-    case .thinking, .executingTool:
-      return .blue
-    case .waitingForUser:
-      return .green
-    case .awaitingApproval:
-      return .yellow
-    case .idle:
-      return .secondary
-    }
   }
 }
 

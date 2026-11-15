@@ -33,8 +33,8 @@ extension StatusGroupCategory {
     switch self {
     case .needsAttention: return .yellow
     case .working: return .blue
-    case .ready: return .green
-    case .idle: return .gray
+    case .ready: return .yellow
+    case .idle, .unknown: return .gray
     }
   }
 }
@@ -3101,6 +3101,7 @@ struct StartSessionSheet: View {
           .font(.heading)
         Spacer()
         Button {
+          launchViewModel.cancelLaunch()
           onDismiss()
         } label: {
           Image(systemName: "xmark.circle.fill")
@@ -3127,7 +3128,10 @@ struct StartSessionSheet: View {
     }
     .frame(minWidth: 480, idealWidth: 520)
     .background(colorScheme == .dark ? Color.black : Color(nsColor: .windowBackgroundColor))
+    .interactiveDismissDisabled(launchViewModel.isLaunching)
     .onChange(of: launchViewModel.isLaunching) { wasLaunching, isLaunching in
+      // Shell requests route only after this launch creates a terminal.
+      if launchViewModel.waitsForCreatedSession { return }
       if !wasLaunching, isLaunching {
         // Launch started: manual launches hand progress off to the top bar and
         // close immediately. Smart (interactive) launches stay open to review

@@ -114,6 +114,49 @@ struct DevServerManagerTests {
     #expect(appState == .idle)
   }
 
+  @Test("Production recipe gate preserves idempotence and requires an explicit owned restart")
+  func recipeChangesRequireOwnedRestart() throws {
+    let original = ResultServerRecipeIdentity(projectPath: "/tmp/recipe", executable: "bun", arguments: ["dev"], port: 3000)
+    let changed = ResultServerRecipeIdentity(projectPath: "/tmp/recipe", executable: "bun", arguments: ["dev", "--new"], port: 3001)
+    #expect(try DevServerManager.resultRecipeAction(state: .waitingForReady, active: original,
+      requested: original, ownsProcess: true, restart: false) == .reuse)
+    #expect(try DevServerManager.resultRecipeAction(state: .detecting, active: original,
+      requested: original, ownsProcess: false, restart: false) == .reuse)
+    #expect(throws: ResultRecipeError.self) {
+      try DevServerManager.resultRecipeAction(state: .waitingForReady, active: original,
+        requested: changed, ownsProcess: true, restart: false)
+    }
+    #expect(try DevServerManager.resultRecipeAction(state: .waitingForReady, active: original,
+      requested: changed, ownsProcess: true, restart: true) == .restart)
+    #expect(throws: ResultRecipeError.self) {
+      try DevServerManager.resultRecipeAction(state: .waitingForReady, active: nil,
+        requested: changed, ownsProcess: true, restart: true)
+    }
+    #expect(throws: ResultRecipeError.self) {
+      try DevServerManager.resultRecipeAction(state: .waitingForReady, active: original,
+        requested: changed, ownsProcess: false, restart: true)
+    }
+  }
+
+  @Test("Production start and restart leave an external result server untouched")
+  func recipeCannotReplaceExternalServer() async throws {
+    let key = "test-\(UUID()):result"
+    let url = URL(string: "http://localhost:3000")!
+    let manager = DevServerManager.shared
+    manager.connectToExistingServer(for: key, url: url)
+    defer { manager.stopServer(for: key) }
+    for restart in [false, true] {
+      do {
+        try await manager.startRecipe(for: key, projectPath: "/tmp/recipe", executable: "must-not-run",
+          arguments: [], port: 3001, restart: restart)
+        Issue.record("External server should refuse recipe process operations")
+      } catch { #expect(error is ResultRecipeError) }
+      let state: DevServerState = manager.state(for: key)
+      #expect(state == .ready(url: url))
+      #expect(manager.isExternalServer(for: key))
+    }
+  }
+
   private func makeProjectFixture(packageJSON: String) throws -> URL {
     let rootURL = FileManager.default.temporaryDirectory
       .appendingPathComponent("DevServerManagerTests-\(UUID().uuidString)", isDirectory: true)

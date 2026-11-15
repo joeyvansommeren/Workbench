@@ -10,11 +10,14 @@ import GRDB
 
 /// Actor-based service for persisting session metadata to SQLite
 /// Uses GRDB for database operations with async/await support
-public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspaceStoreProtocol {
+public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspaceStoreProtocol,
+  SessionResultRecipeStoreProtocol, ProjectLaunchRecipeStoreProtocol, WorkflowFinishArchiveStoring
+{
 
   // MARK: - Properties
 
   enum MigrationID {
+    static let createResultReview = "v19_create_result_review"
     static let createSessionMetadata = "v1_create_session_metadata"
     static let createSessionRepoMapping = "v2_create_session_repo_mapping"
     static let createAIConfig = "v3_create_ai_config"
@@ -65,6 +68,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     MigrationID.createGitHubReviewSessions,
     MigrationID.addArchivedSessionIds,
     MigrationID.addOpenSessionTabIds,
+    MigrationID.createResultReview,
   ]
 
   private let dbQueue: DatabaseQueue
@@ -419,7 +423,72 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
       }
     }
 
+    migrator.registerMigration(MigrationID.createResultReview) { db in
+      for table in ["session_results", "project_launch_recipes", "workflow_finish_archives"] {
+        try db.create(table: table) { t in
+          t.column("recordKey", .text).primaryKey()
+          t.column("payload", .blob).notNull()
+        }
+      }
+    }
+
     return migrator
+  }
+
+
+  func loadSessionResults() throws -> [SessionResult] {
+    try loadReviewRecords(table: "session_results", as: SessionResult.self)
+  }
+
+  func saveSessionResult(_ result: SessionResult) throws {
+    try saveReviewRecord(result, key: result.id, table: "session_results")
+  }
+
+  func saveSessionResult(_ result: SessionResult, recipe: ProjectLaunchRecipe) throws {
+    let resultPayload = try JSONEncoder().encode(result)
+    let recipePayload = try JSONEncoder().encode(recipe)
+    try dbQueue.write { db in
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO project_launch_recipes (recordKey, payload) VALUES (?, ?)",
+        arguments: [recipe.repositoryPath, recipePayload])
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO session_results (recordKey, payload) VALUES (?, ?)",
+        arguments: [result.id, resultPayload])
+    }
+  }
+
+  func loadProjectLaunchRecipe(repositoryPath: String) throws -> ProjectLaunchRecipe? {
+    try loadReviewRecords(table: "project_launch_recipes", as: ProjectLaunchRecipe.self)
+      .first { $0.repositoryPath == repositoryPath }
+  }
+
+  func saveProjectLaunchRecipe(_ recipe: ProjectLaunchRecipe) throws {
+    try saveReviewRecord(recipe, key: recipe.repositoryPath, table: "project_launch_recipes")
+  }
+
+  func saveWorkflowFinishArchive(_ record: WorkflowFinishArchiveRecord) throws {
+    let key = try JSONEncoder().encode([record.workflowID, record.repositoryPath, record.branchName])
+      .base64EncodedString()
+    try saveReviewRecord(record, key: key, table: "workflow_finish_archives")
+  }
+
+  func loadWorkflowFinishArchives() throws -> [WorkflowFinishArchiveRecord] {
+    try loadReviewRecords(table: "workflow_finish_archives", as: WorkflowFinishArchiveRecord.self)
+  }
+
+  private func loadReviewRecords<T: Decodable>(table: String, as type: T.Type) throws -> [T] {
+    try dbQueue.read { db in
+      try Data.fetchAll(db, sql: "SELECT payload FROM \(table) ORDER BY recordKey")
+        .map { try JSONDecoder().decode(type, from: $0) }
+    }
+  }
+
+  private func saveReviewRecord<T: Encodable>(_ record: T, key: String, table: String) throws {
+    let payload = try JSONEncoder().encode(record)
+    try dbQueue.write { db in
+      try db.execute(sql: "INSERT INTO \(table) (recordKey, payload) VALUES (?, ?) "
+        + "ON CONFLICT(recordKey) DO UPDATE SET payload = excluded.payload", arguments: [key, payload])
+    }
   }
 
   // MARK: - Public API

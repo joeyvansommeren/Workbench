@@ -5,6 +5,20 @@ import Testing
 
 @Suite("Sidebar session ordering")
 struct SidebarSessionOrderingTests {
+  @Test("Missing monitor status is not grouped with confirmed inactive sessions")
+  func unknownStatusIsSeparate() {
+    let items = [
+      item("unknown", timestamp: 300), item("inactive", timestamp: 200, status: .idle),
+      item("waiting", timestamp: 100, status: .waitingForUser),
+    ]
+    let groups = SidebarSessionOrdering.statusGroups(
+      from: items, isPinned: { $0.isPinned }, status: { $0.status },
+      timestamp: { $0.timestamp }, id: { $0.id })
+    #expect(groups[.unknown]?.map(\.id) == ["unknown"])
+    #expect(groups[.idle]?.map(\.id) == ["inactive"])
+    #expect(groups[.ready]?.map(\.id) == ["waiting"])
+  }
+
   @Test("Side by side can yield to a session without losing the saved pair")
   func sideBySideCanYieldAndReopen() {
     let comparison = workflowComparison()

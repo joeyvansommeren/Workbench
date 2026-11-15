@@ -110,6 +110,7 @@ final class SidebarCIFailureObserver {
 
   private let observationService: (any GitHubPRObservationServiceProtocol)?
   private let notifier: (any GitHubCIFailureNotifierProtocol)?
+  private let onSnapshot: @MainActor (String, GitHubPRObservationSnapshot) -> Void
   private let startupDelay: (SidebarCIObservationTarget) -> Duration
   private var entries: [String: Entry] = [:]
 
@@ -117,11 +118,13 @@ final class SidebarCIFailureObserver {
     observationService: (any GitHubPRObservationServiceProtocol)?,
     notifier: (any GitHubCIFailureNotifierProtocol)?,
     startupDelay: @escaping (SidebarCIObservationTarget) -> Duration = SidebarCIFailureObserver
-      .legacyStartupDelay
+      .legacyStartupDelay,
+    onSnapshot: @escaping @MainActor (String, GitHubPRObservationSnapshot) -> Void = { _, _ in }
   ) {
     self.observationService = observationService
     self.notifier = notifier
     self.startupDelay = startupDelay
+    self.onSnapshot = onSnapshot
   }
 
   /// The observation keys being watched (test seam).
@@ -161,6 +164,7 @@ final class SidebarCIFailureObserver {
     let viewModel = SessionGitHubQuickAccessViewModel()
     let delay = startupDelay(target)
     let notifier = notifier
+    let onSnapshot = onSnapshot
     // Same recipe as `CollapsibleSessionRow.observeGitHubIfAvailable()`.
     let task = Task {
       guard
@@ -170,7 +174,8 @@ final class SidebarCIFailureObserver {
           linkedPullRequests: target.linkedPullRequests,
           observationService: observationService,
           notifier: notifier,
-          startupDelay: delay
+          startupDelay: delay,
+          onSnapshot: { snapshot in onSnapshot(target.itemID, snapshot) }
         )
       else { return }
       // Stopped while subscribing: `stop` ran before there was a subscription
@@ -217,12 +222,20 @@ private struct SidebarCIFailureDriver: View {
     _observer = State(
       initialValue: SidebarCIFailureObserver(
         observationService: agentHub.gitHubPRObservationService,
-        notifier: agentHub.gitHubCIFailureNotifier
+        notifier: agentHub.gitHubCIFailureNotifier,
+        onSnapshot: { id, snapshot in agentHub.sessionAttentionModel.receive(snapshot, itemID: id) }
       ))
   }
 
   var body: some View {
     Color.clear
+      .task { await agentHub.sessionResultLibrary.load() }
+      .onChange(of: SessionAttentionModel.inputs(agentHub: agentHub), initial: true) { _, inputs in
+        agentHub.sessionAttentionModel.update(inputs: inputs, records: agentHub.sessionResultLibrary.records)
+      }
+      .onChange(of: agentHub.sessionResultLibrary.records) { _, records in
+        agentHub.sessionAttentionModel.update(inputs: SessionAttentionModel.inputs(agentHub: agentHub), records: records)
+      }
       .onChange(of: targets, initial: true) { _, newTargets in
         observer.update(targets: newTargets)
       }

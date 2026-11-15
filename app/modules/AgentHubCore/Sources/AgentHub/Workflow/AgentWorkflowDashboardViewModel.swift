@@ -35,6 +35,13 @@ public final class AgentWorkflowDashboardViewModel {
   private var manualState: ManualWorkflowDashboardState
   private var pendingManualSessionLaunches: [PendingManualSessionLaunch] = []
   private var prioritySessionIDs: Set<String> = []
+  private var finishArchiveStore: (any WorkflowFinishArchiveStoring)?
+  private var finishArchivePlanner: (any WorkflowFinishArchivePlanning)?
+  private var finishArchives: [WorkflowFinishArchiveRecord] = []
+  private var finishArchiveHistoryLoaded = false
+  private var finishArchiveConfigurationID = UUID()
+  private var finishInventorySource: (@MainActor () -> FinishRuntimeInventory)?
+  private var automaticArchivedBranchIDs: Set<String> = []
 
   private static let sessionAnalysisBatchSize = 10
 
@@ -487,10 +494,36 @@ public final class AgentWorkflowDashboardViewModel {
   }
 
   func restoreWorkflow(_ workflowID: String) {
-    guard manualState.archivedWorkflowIDs.remove(workflowID) != nil else { return }
-    persistManualState()
-    applyManualWorkflowProjection()
-    repairDetectedSelection()
+    if manualState.archivedWorkflowIDs.remove(workflowID) != nil {
+      persistManualState()
+      applyManualWorkflowProjection()
+      repairDetectedSelection()
+    }
+    Task { await restoreAutomaticallyArchivedWorkflow(workflowID) }
+  }
+
+  func restoreAutomaticallyArchivedWorkflow(_ workflowID: String) async {
+    guard await ensureFinishArchiveHistory(), let store = finishArchiveStore else { return }
+    let configuration = finishArchiveConfigurationID
+    let records = finishArchives.filter { $0.workflowID == workflowID && $0.restoredAt == nil }
+    do {
+      for var record in records {
+        record.restoredAt = Date()
+        guard finishArchiveHistoryLoaded, configuration == finishArchiveConfigurationID else { return }
+        try await store.saveWorkflowFinishArchive(record)
+        guard finishArchiveHistoryLoaded, configuration == finishArchiveConfigurationID else { return }
+        finishArchives.removeAll {
+          $0.workflowID == record.workflowID && $0.repositoryPath == record.repositoryPath
+            && $0.branchName == record.branchName
+        }
+        finishArchives.append(record)
+      }
+      guard finishArchiveHistoryLoaded, configuration == finishArchiveConfigurationID else { return }
+      let branchIDs = detectedBranches.filter { self.workflowID(for: $0) == workflowID }.map(\.id)
+      automaticArchivedBranchIDs.subtract(branchIDs)
+      applyManualWorkflowProjection()
+      repairDetectedSelection()
+    } catch { pullRequestWarning = "The task could not be restored. Try again." }
   }
 
   func moveSession(_ sessionID: String, to workflowID: String) async {
@@ -848,7 +881,122 @@ public final class AgentWorkflowDashboardViewModel {
     applyManualWorkflowProjection()
     advanceAutomatedReviews()
     applyManualWorkflowProjection()
+    await automaticallyArchiveMergedWorkflows(generation: discoveryGeneration)
     repairDetectedSelection()
+  }
+
+  /// Durable task archive only; this never closes terminals or removes resources.
+  func configureFinishArchiving(
+    store: (any WorkflowFinishArchiveStoring)?,
+    observationService: any GitHubPRObservationServiceProtocol,
+    gitInspector: any FinishGitInspecting = FinishGitInspectionService(),
+    inventorySource: (@MainActor () -> FinishRuntimeInventory)? = nil
+  ) async {
+    finishArchiveConfigurationID = UUID()
+    finishArchiveHistoryLoaded = false
+    finishInventorySource = inventorySource
+    finishArchiveStore = store
+    finishArchivePlanner = WorkflowFinishArchivePlanner(observer: observationService, inspector: gitInspector)
+    guard await ensureFinishArchiveHistory() else { return }
+    await automaticallyArchiveMergedWorkflows(generation: discoveryGeneration)
+  }
+
+  private func ensureFinishArchiveHistory() async -> Bool {
+    if finishArchiveHistoryLoaded { return true }
+    guard let store = finishArchiveStore else { return false }
+    let configuration = finishArchiveConfigurationID
+    do {
+      let records = try await store.loadWorkflowFinishArchives()
+      guard configuration == finishArchiveConfigurationID else { return false }
+      finishArchives = records
+      finishArchiveHistoryLoaded = true
+      return true
+    } catch {
+      guard configuration == finishArchiveConfigurationID else { return false }
+      finishArchiveHistoryLoaded = false
+      pullRequestWarning = "Saved finish history is unavailable. Archiving is paused until it can be read."
+      return false
+    }
+  }
+
+  private func currentFinishInventory() -> FinishRuntimeInventory {
+    let inventory: FinishRuntimeInventory
+    if let finishInventorySource { inventory = finishInventorySource() }
+    else if let claudeSessionsViewModel, let codexSessionsViewModel {
+      inventory = .capture(claude: claudeSessionsViewModel, codex: codexSessionsViewModel)
+    } else { return .unknown }
+    let assignments = detectedBranches.flatMap { branch in
+      (branch.implementerSessions + branch.reviewerSessions).map { ($0.id, workflowID(for: branch)) }
+    }
+    let known = Dictionary(assignments, uniquingKeysWith: { first, _ in first })
+    let sessions = inventory.sessions.map { resource in
+      var resource = resource
+      let id = FinishRuntimeInventory.normalizedID(resource.id)
+      resource.workflowID = manualState.sessionAssignments[id] ?? known[id] ?? resource.workflowID
+      return resource
+    }
+    return FinishRuntimeInventory(isComplete: inventory.isComplete, sessions: sessions, terminals: inventory.terminals)
+  }
+
+  private func automaticallyArchiveMergedWorkflows(generation: Int) async {
+    guard await ensureFinishArchiveHistory(), let planner = finishArchivePlanner else { return }
+    let groups = Dictionary(grouping: detectedBranches) { workflowID(for: $0) }
+    var confirmedIDs: Set<String> = []
+    for (workflowID, branches) in groups {
+      guard WorkflowFinishRuntimePolicy.canArchive(workflowID: workflowID, branches: branches,
+        inventory: currentFinishInventory()) else { continue }
+      let records = await planner.records(workflowID: workflowID, branches: branches)
+      guard records.count == branches.count,
+        generation == discoveryGeneration, !Task.isCancelled else { continue }
+      guard !records.contains(where: { WorkflowFinishArchivePolicy.wasRestored($0, among: finishArchives) }) else { continue }
+      // Recheck current activity after awaited I/O. A newly active sibling keeps
+      // the whole task visible, even when one branch has already merged.
+      let liveBranches = detectedBranches.filter { self.workflowID(for: $0) == workflowID }
+      guard Set(liveBranches.map(\.id)) == Set(branches.map(\.id)),
+        WorkflowFinishRuntimePolicy.canArchive(workflowID: workflowID, branches: liveBranches,
+          inventory: currentFinishInventory()) else { continue }
+      if await persistAutomaticFinishArchive(records, workflowID: workflowID,
+        branches: liveBranches, generation: generation) {
+        confirmedIDs.formUnion(branches.map(\.id))
+      }
+    }
+    guard generation == discoveryGeneration, !Task.isCancelled else { return }
+    automaticArchivedBranchIDs = confirmedIDs
+    applyManualWorkflowProjection()
+  }
+
+  /// The final write boundary repeats history and complete runtime checks after awaits.
+  func persistAutomaticFinishArchive(_ records: [WorkflowFinishArchiveRecord], workflowID: String,
+    branches: [DetectedBranchWorkflow], generation: Int? = nil) async -> Bool {
+    guard await ensureFinishArchiveHistory(), let store = finishArchiveStore,
+      !records.isEmpty, records.count == branches.count,
+      records.allSatisfy({ record in branches.contains { record.matches($0, workflowID: workflowID) } }),
+      !records.contains(where: { WorkflowFinishArchivePolicy.wasRestored($0, among: finishArchives) }),
+      WorkflowFinishRuntimePolicy.canArchive(workflowID: workflowID, branches: branches,
+        inventory: currentFinishInventory()) else { return false }
+    let configuration = finishArchiveConfigurationID
+    do {
+      for record in records where !finishArchives.contains(where: {
+        $0.workflowID == record.workflowID && $0.repositoryPath == record.repositoryPath
+          && $0.branchName == record.branchName && $0.pullRequestURL == record.pullRequestURL
+          && $0.pullRequestHeadSHA == record.pullRequestHeadSHA
+      }) {
+        guard finishArchiveHistoryLoaded, configuration == finishArchiveConfigurationID,
+          generation == nil || generation == discoveryGeneration,
+          !Task.isCancelled,
+          WorkflowFinishRuntimePolicy.canArchive(workflowID: workflowID, branches: branches,
+            inventory: currentFinishInventory()) else { return false }
+        try await store.saveWorkflowFinishArchive(record)
+        finishArchives.append(record)
+      }
+      return finishArchiveHistoryLoaded && configuration == finishArchiveConfigurationID
+        && (generation == nil || generation == discoveryGeneration) && !Task.isCancelled
+        && WorkflowFinishRuntimePolicy.canArchive(workflowID: workflowID, branches: branches,
+          inventory: currentFinishInventory())
+    } catch {
+      pullRequestWarning = "The merged task could not be archived. Refresh to try again."
+      return false
+    }
   }
 
   private var availableWorkflowIDs: Set<String> {
@@ -1392,6 +1540,7 @@ public final class AgentWorkflowDashboardViewModel {
       var branch = branch
       branch.automatedReview = manualState.automatedReviews[branch.id]
       branch.isArchived = manualState.archivedWorkflowIDs.contains(workflowID(for: branch))
+        || automaticArchivedBranchIDs.contains(branch.id)
       return branch
     }
   }
