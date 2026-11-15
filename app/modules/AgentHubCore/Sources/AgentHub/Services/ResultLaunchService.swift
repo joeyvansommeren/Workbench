@@ -6,18 +6,108 @@ protocol ResultHealthChecking: Sendable {
 }
 
 actor ResultHealthService: ResultHealthChecking {
+  private let configuration: URLSessionConfiguration
+
+  init(configuration: URLSessionConfiguration = .ephemeral) {
+    let copy = configuration.copy() as! URLSessionConfiguration
+    copy.timeoutIntervalForResource = min(copy.timeoutIntervalForResource, 4)
+    self.configuration = copy
+  }
+
   func isReachable(_ url: URL) async -> Bool {
-    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+      return false
+    }
     components.fragment = nil
     guard let networkURL = components.url else { return false }
-    var request = URLRequest(url: networkURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 4)
+    var request = URLRequest(
+      url: networkURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 4)
     request.httpMethod = "HEAD"
-    do {
-      let (_, response) = try await URLSession.shared.data(for: request)
-      guard !Task.isCancelled, let http = response as? HTTPURLResponse,
-        response.url == networkURL else { return false }
-      return (200..<400).contains(http.statusCode)
-    } catch { return false }
+    guard let response = await responseHeaders(for: request), !Task.isCancelled,
+      response.url == networkURL
+    else { return false }
+    if (200..<400).contains(response.statusCode) { return true }
+    guard response.statusCode == 405 || response.statusCode == 501 else { return false }
+    request.httpMethod = "GET"
+    request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+    guard let fallback = await responseHeaders(for: request), !Task.isCancelled,
+      fallback.url == networkURL
+    else { return false }
+    return (200..<400).contains(fallback.statusCode)
+  }
+
+  private func responseHeaders(for request: URLRequest) async -> HTTPURLResponse? {
+    let probe = ResultHealthProbe()
+    return await withTaskCancellationHandler {
+      await probe.response(for: request, configuration: configuration)
+    } onCancel: {
+      probe.cancel()
+    }
+  }
+}
+
+/// Stop the probe when URLSession delivers the response. CFNetwork can buffer
+/// a small prefix while identifying the response's content type.
+private final class ResultHealthProbe: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuation: CheckedContinuation<HTTPURLResponse?, Never>?
+  private var session: URLSession?
+  private var cancelled = false
+
+  func response(for request: URLRequest, configuration: URLSessionConfiguration) async
+    -> HTTPURLResponse?
+  {
+    await withCheckedContinuation { continuation in
+      lock.lock()
+      guard !cancelled else {
+        lock.unlock()
+        continuation.resume(returning: nil)
+        return
+      }
+      self.continuation = continuation
+      let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+      self.session = session
+      let task = session.dataTask(with: request)
+      task.resume()
+      lock.unlock()
+    }
+  }
+
+  func cancel() {
+    lock.lock()
+    cancelled = true
+    let session = self.session
+    lock.unlock()
+    session?.invalidateAndCancel()
+  }
+
+  func urlSession(
+    _ session: URLSession, dataTask: URLSessionDataTask,
+    didReceive response: URLResponse,
+    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+  ) {
+    lock.lock()
+    let continuation = self.continuation
+    self.continuation = nil
+    self.session = nil
+    lock.unlock()
+    completionHandler(.cancel)
+    session.invalidateAndCancel()
+    continuation?.resume(returning: response as? HTTPURLResponse)
+  }
+
+  func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    finish(nil, session: session)
+  }
+
+  private func finish(_ response: HTTPURLResponse?, session: URLSession) {
+    lock.lock()
+    let continuation = self.continuation
+    self.continuation = nil
+    self.session = nil
+    lock.unlock()
+    session.invalidateAndCancel()
+    continuation?.resume(returning: response)
   }
 }
 
