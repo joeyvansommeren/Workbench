@@ -11,7 +11,9 @@ import GRDB
 /// Actor-based service for persisting session metadata to SQLite
 /// Uses GRDB for database operations with async/await support
 public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspaceStoreProtocol,
-  SessionResultStoreProtocol, ProjectLaunchRecipeStoreProtocol, WorkflowFinishArchiveStoring, SessionReadCursorStoreProtocol {
+  SessionResultRecipeStoreProtocol, ProjectLaunchRecipeStoreProtocol, WorkflowFinishArchiveStoring,
+  SessionReadCursorStoreProtocol
+{
 
   // MARK: - Properties
 
@@ -472,6 +474,19 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
 
   func saveSessionResult(_ result: SessionResult) throws {
     try saveReviewRecord(result, key: result.id, table: "session_results")
+  }
+
+  func saveSessionResult(_ result: SessionResult, recipe: ProjectLaunchRecipe) throws {
+    let resultPayload = try JSONEncoder().encode(result)
+    let recipePayload = try JSONEncoder().encode(recipe)
+    try dbQueue.write { db in
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO project_launch_recipes (recordKey, payload) VALUES (?, ?)",
+        arguments: [recipe.repositoryPath, recipePayload])
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO session_results (recordKey, payload) VALUES (?, ?)",
+        arguments: [result.id, resultPayload])
+    }
   }
 
   func loadProjectLaunchRecipe(repositoryPath: String) throws -> ProjectLaunchRecipe? {

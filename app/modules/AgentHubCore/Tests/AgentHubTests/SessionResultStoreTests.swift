@@ -4,6 +4,39 @@ import Testing
 @testable import AgentHubCore
 
 struct SessionResultStoreTests {
+  @Test func atomicSaveRollsBackRecipeWhenResultWriteFails() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let path = directory.appendingPathComponent("metadata.sqlite").path
+    let store = try SessionMetadataStore(path: path)
+    var original = SessionResult(provider: .claude, sessionID: "s", projectPath: "/tmp/work")
+    original.summary = "Previous"
+    let oldRecipe = ProjectLaunchRecipe(
+      repositoryPath: "/tmp/main", destination: "http://localhost:3000/old")
+    try await store.saveSessionResult(original, recipe: oldRecipe)
+    let db = try DatabaseQueue(path: path)
+    try await db.write { database in
+      try database.execute(
+        sql:
+          "CREATE TRIGGER fail_result BEFORE INSERT ON session_results BEGIN SELECT RAISE(ABORT, 'test failure'); END"
+      )
+    }
+    var edited = original
+    edited.summary = "Updated"
+    let newRecipe = ProjectLaunchRecipe(
+      repositoryPath: "/tmp/main", destination: "http://localhost:3000/new")
+    do {
+      try await store.saveSessionResult(edited, recipe: newRecipe)
+      Issue.record("The injected result write failure must fail the transaction")
+    } catch {}
+    #expect(try await store.loadProjectLaunchRecipe(repositoryPath: "/tmp/main") == oldRecipe)
+    #expect(try await store.loadSessionResults().first?.summary == "Previous")
+    try await db.write { database in try database.execute(sql: "DROP TRIGGER fail_result") }
+    try await store.saveSessionResult(edited, recipe: newRecipe)
+    #expect(try await store.loadProjectLaunchRecipe(repositoryPath: "/tmp/main") == newRecipe)
+    #expect(try await store.loadSessionResults().first?.summary == "Updated")
+  }
   @Test func migrationPreservesExistingDataAndStoresAllThreeRecords() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -2,13 +2,20 @@ import Foundation
 import Testing
 @testable import AgentHubCore
 
-private actor ResultTestStore: SessionResultStoreProtocol, ProjectLaunchRecipeStoreProtocol {
+private actor ResultTestStore: SessionResultRecipeStoreProtocol, ProjectLaunchRecipeStoreProtocol {
   var results: [SessionResult] = []
   var recipe: ProjectLaunchRecipe?
+  var failAtomicSave = false
   func loadSessionResults() -> [SessionResult] { results }
   func saveSessionResult(_ result: SessionResult) { results = [result] }
   func loadProjectLaunchRecipe(repositoryPath: String) -> ProjectLaunchRecipe? { recipe }
   func saveProjectLaunchRecipe(_ recipe: ProjectLaunchRecipe) { self.recipe = recipe }
+  func setFailAtomicSave(_ value: Bool) { failAtomicSave = value }
+  func saveSessionResult(_ result: SessionResult, recipe: ProjectLaunchRecipe) throws {
+    if failAtomicSave { throw CocoaError(.fileWriteUnknown) }
+    results = [result]
+    self.recipe = recipe
+  }
 }
 
 private struct ResultTestSource: ResultSourceInspecting {
@@ -20,6 +27,35 @@ private struct ResultTestSource: ResultSourceInspecting {
 
 @MainActor
 struct SessionResultViewModelTests {
+  @Test func recipeAndResultUpdateOnlyAfterAtomicSaveSucceeds() async throws {
+    let store = ResultTestStore()
+    let library = SessionResultLibrary(store: store)
+    let model = SessionResultViewModel(
+      recipeStore: store, sourceService: ResultTestSource(identity: "source"))
+    let oldRecipe = ProjectLaunchRecipe(
+      repositoryPath: "/tmp/main", destination: "http://localhost:3000/old")
+    await store.saveProjectLaunchRecipe(oldRecipe)
+    await model.load(projectPath: "/tmp/work")
+    var original = SessionResult(provider: .claude, sessionID: "s", projectPath: "/tmp/work")
+    original.summary = "Previous"
+    try await library.save(original)
+    var edited = original
+    edited.summary = "Updated"
+    let newRecipe = ProjectLaunchRecipe(
+      repositoryPath: "/tmp/main", destination: "http://localhost:3000/new")
+    await store.setFailAtomicSave(true)
+    #expect(!(await model.save(edited, recipe: newRecipe, library: library)))
+    #expect(model.recipe == oldRecipe)
+    #expect(library.records[original.id]?.summary == "Previous")
+    #expect(await store.recipe == oldRecipe)
+    #expect(await store.results.first?.summary == "Previous")
+    await store.setFailAtomicSave(false)
+    #expect(await model.save(edited, recipe: newRecipe, library: library))
+    #expect(model.recipe == newRecipe)
+    #expect(library.records[original.id]?.summary == "Updated")
+    #expect(await store.recipe == newRecipe)
+    #expect(await store.results.first?.summary == "Updated")
+  }
   @Test func sourceChangeRejectsAcceptanceWithoutSavingIt() async throws {
     let store = ResultTestStore()
     let library = SessionResultLibrary(store: store)
