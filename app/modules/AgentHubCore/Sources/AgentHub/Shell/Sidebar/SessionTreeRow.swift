@@ -28,14 +28,15 @@ struct SessionTreeRow: View, Equatable {
   }
 
   private var node: SessionNode { model.node }
-  private var presentation: SessionStatusPresentation {
-    SessionStatusPresentation(status: node.status, isPending: node.isPending)
-  }
 
   var body: some View {
     HStack(spacing: 0) {
-      Button { actions.open(node) } label: { label }
-        .buttonStyle(.plain)
+      Button {
+        actions.open(node)
+      } label: {
+        SessionTreeRowLabel(model: model)
+      }
+      .buttonStyle(.plain)
       if node.showsApprovePill {
         SessionApprovePill(node: node, actions: actions)
           .padding(.leading, DesignTokens.Spacing.xs)
@@ -49,7 +50,7 @@ struct SessionTreeRow: View, Equatable {
       }
     }
     .padding(.trailing, DesignTokens.Spacing.xs)
-    .frame(height: DesignTokens.Size.row)
+    .frame(minHeight: DesignTokens.Size.row)
     .background(background)
     .overlay(alignment: .topLeading) {
       SessionGuideLine(isFirst: model.isFirstInBranch, isLast: model.isLastInBranch)
@@ -99,35 +100,6 @@ struct SessionTreeRow: View, Equatable {
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 
-  private var label: some View {
-    HStack(spacing: DesignTokens.Spacing.smPlus) {
-      StatusGlyph(presentation: presentation)
-        .frame(width: DesignTokens.Size.tile)
-      SidebarIcon(glyph: node.providerKind.sidebarGlyph, size: 14)
-        .foregroundStyle(isHovered || isSelected ? Color.wbTextPrimary : Color.wbTextTertiary)
-      Text(model.title)
-        .wbText(.body)
-        .foregroundStyle(Color.wbTextPrimary)
-        .lineLimit(1)
-        .truncationMode(.tail)
-      Spacer(minLength: 0)
-      if let roleLabel = model.roleLabel {
-        Text(roleLabel)
-          .wbText(.subheadline)
-          .foregroundStyle(Color.wbTextTertiary)
-          .lineLimit(1)
-          .fixedSize()
-      }
-    }
-    .padding(.leading, DesignTokens.Spacing.smPlus)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .contentShape(Rectangle())
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(
-      "\(model.title), \(node.providerKind.agentDisplayName) session, \(presentation.accessibilityLabel)"
-        + (model.roleLabel.map { ", \($0)" } ?? ""))
-  }
-
   @ViewBuilder
   private var background: some View {
     let shape = RoundedRectangle(cornerRadius: DesignTokens.Radius.row, style: .continuous)
@@ -141,6 +113,64 @@ struct SessionTreeRow: View, Equatable {
   }
 }
 
+/// Pure label shared by the row and its visual fixture.
+struct SessionTreeRowLabel: View {
+  let model: SessionRowModel
+  private var node: SessionNode { model.node }
+  private var presentation: SessionStatusPresentation {
+    SessionStatusPresentation(status: node.status, isPending: node.isPending)
+  }
+
+  var body: some View {
+    HStack(alignment: .top, spacing: DesignTokens.Spacing.smPlus) {
+      StatusGlyph(presentation: presentation)
+        .frame(width: DesignTokens.Size.tile, height: DesignTokens.Size.tile)
+      VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
+        HStack(spacing: DesignTokens.Spacing.xs) {
+          Text(model.title).wbText(.body).foregroundStyle(Color.wbTextPrimary)
+            .lineLimit(1).truncationMode(.tail)
+          if model.isUnread {
+            Circle().fill(Color.accentColor).frame(width: 6, height: 6).accessibilityHidden(true)
+          }
+          if model.showProvider {
+            SidebarIcon(glyph: node.providerKind.sidebarGlyph, size: 14)
+              .foregroundStyle(Color.wbTextTertiary)
+          }
+          Spacer(minLength: 0)
+          if let roleLabel = model.roleLabel {
+            Text(roleLabel).wbText(.subheadline).foregroundStyle(Color.wbTextTertiary).lineLimit(1)
+          }
+        }
+        if (model.diff?.fileCount ?? 0) > 0 || model.action != nil {
+          HStack(spacing: DesignTokens.Spacing.sm) {
+            if let diff = model.diff, diff.fileCount > 0 {
+              DiffStat(additions: diff.additions, deletions: diff.deletions)
+                .help("Worktree changes")
+            }
+            if let action = model.action {
+              Text(action).wbText(.subheadline).foregroundStyle(Color.wbTextTertiary).lineLimit(1)
+            }
+          }
+        }
+      }
+    }
+    .padding(.leading, DesignTokens.Spacing.smPlus)
+    .padding(.vertical, DesignTokens.Spacing.xs)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    .contentShape(Rectangle())
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "\(model.title), \(node.providerKind.agentDisplayName) session, \(presentation.accessibilityLabel)"
+        + (model.roleLabel.map { ", \($0)" } ?? "")
+        + (model.action.map { ", \($0)" } ?? "")
+        + (model.diff.flatMap {
+          $0.fileCount > 0 ? ", Worktree changes: \($0.additions) additions, \($0.deletions) deletions" : nil
+        } ?? "")
+        + (model.isUnread ? ", Unread updates" : ""))
+  }
+
+}
+
 // MARK: - Guide line
 
 /// The vertical line that joins a branch's sessions, broken around the glyph.
@@ -150,28 +180,35 @@ private struct SessionGuideLine: View {
   let isLast: Bool
 
   /// Centre of the lead column: row inset (10) + half the tile (9).
-  private static let x = DesignTokens.Spacing.smPlus + DesignTokens.Size.tile / 2
+  fileprivate static let x = DesignTokens.Spacing.smPlus + DesignTokens.Size.tile / 2
   /// Gap above and below the glyph centre.
-  private static let gap: CGFloat = 9
+  fileprivate static let gap: CGFloat = 9
   /// The line stops this far above the last row's bottom.
-  private static let lastInset: CGFloat = 6
+  fileprivate static let lastInset: CGFloat = 6
 
   var body: some View {
+    GuideShape(isLast: isLast)
+      .stroke(Color.wbBorderControl, lineWidth: 1)
+      .frame(width: SessionGuideLine.x + 1)
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+  }
+}
+
+private struct GuideShape: Shape {
+  let isLast: Bool
+  func path(in rect: CGRect) -> Path {
     Path { path in
-      let height = DesignTokens.Size.row
-      let mid = height / 2
-      path.move(to: CGPoint(x: Self.x, y: 0))
-      path.addLine(to: CGPoint(x: Self.x, y: mid - Self.gap))
-      let bottom = isLast ? height - Self.lastInset : height
-      if bottom > mid + Self.gap {
-        path.move(to: CGPoint(x: Self.x, y: mid + Self.gap))
-        path.addLine(to: CGPoint(x: Self.x, y: bottom))
+      let height = rect.height
+      let mid = DesignTokens.Spacing.xs + DesignTokens.Size.tile / 2
+      path.move(to: CGPoint(x: SessionGuideLine.x, y: 0))
+      path.addLine(to: CGPoint(x: SessionGuideLine.x, y: mid - SessionGuideLine.gap))
+      let bottom = isLast ? height - SessionGuideLine.lastInset : height
+      if bottom > mid + SessionGuideLine.gap {
+        path.move(to: CGPoint(x: SessionGuideLine.x, y: mid + SessionGuideLine.gap))
+        path.addLine(to: CGPoint(x: SessionGuideLine.x, y: bottom))
       }
     }
-    .stroke(Color.wbBorderControl, lineWidth: 1)
-    .frame(width: Self.x + 1, height: DesignTokens.Size.row)
-    .allowsHitTesting(false)
-    .accessibilityHidden(true)
   }
 }
 

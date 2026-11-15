@@ -12,6 +12,8 @@
 //
 
 import SwiftUI
+import AgentHubGitDiff
+import AgentHubGitHub
 
 struct SessionTreeView: View {
   @Environment(WorkbenchShellModel.self) private var shellModel
@@ -62,10 +64,12 @@ private struct SessionTreeContent: View {
 
   /// "Load more" pages per branch id. View state: it resets with the window.
   @State private var loadedPages: [String: Int] = [:]
+  @State private var loadedDiffActivity: [String: Date] = [:]
 
   var body: some View {
+    let snapshot = SessionTreeSnapshot(agentHub: agentHub, loadedPages: loadedPages)
     SessionTreeSelectionReader(
-      snapshot: SessionTreeSnapshot(agentHub: agentHub, loadedPages: loadedPages),
+      snapshot: snapshot,
       actions: actions,
       lastWorkspaceOpen: $lastWorkspaceOpen,
       onLoadMore: { model in
@@ -77,6 +81,92 @@ private struct SessionTreeContent: View {
         }
       }
     )
+    .task { await agentHub.sessionReadCursors.load() }
+    .task(id: diffInputs(snapshot)) {
+      await SidebarDiffLoader.run(diffInputs(snapshot)) { input in
+        let previous = loadedDiffActivity[input.path]
+        let vm = agentHub.claudeSessionsViewModel
+        await vm.ensureLocalDiffSummary(for: input.path, forceRefresh: SidebarDiffLoader.shouldRefresh(previous: previous, activity: input.activity))
+        guard !Task.isCancelled else { return }
+        loadedDiffActivity[input.path] = input.activity
+      }
+    }
+  }
+
+  private func diffInputs(_ snapshot: SessionTreeSnapshot) -> [SidebarDiffInput] {
+    var inputs: [SidebarDiffInput] = []
+    for row in snapshot.rows {
+      guard case .session(let model) = row, !model.node.isPending else { continue }
+      let node = model.node
+      let vm = node.providerKind == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
+      let path = LocalDiffSummaryService.normalize(node.session.projectPath)
+      let activity = vm.monitorStates[node.session.id]?.lastActivityAt ?? node.session.lastActivityAt
+      inputs.append(SidebarDiffInput(path: path, provider: node.providerKind, activity: activity))
+    }
+    return SidebarDiffLoader.coalesce(inputs)
+  }
+}
+
+struct SidebarDiffInput: Equatable {
+  let path: String
+  let provider: SessionProviderKind
+  let activity: Date
+}
+
+enum SidebarDiffLoader {
+  @MainActor private static let budget = SidebarDiffBudget(limit: 2)
+
+  static func shouldRefresh(previous: Date?, activity: Date) -> Bool {
+    guard let previous else { return true }
+    return activity > previous
+  }
+
+  static func coalesce(_ inputs: [SidebarDiffInput]) -> [SidebarDiffInput] {
+    var paths: [String: SidebarDiffInput] = [:]
+    for input in inputs {
+      if let old = paths[input.path], old.activity >= input.activity { continue }
+      paths[input.path] = input
+    }
+    return paths.values.sorted { $0.path < $1.path }
+  }
+
+  @MainActor
+  static func run(_ inputs: [SidebarDiffInput], load: @MainActor (SidebarDiffInput) async -> Void) async {
+    for input in inputs {
+      guard !Task.isCancelled else { return }
+      await budget.acquire()
+      if Task.isCancelled {
+        budget.release()
+        return
+      }
+      await load(input)
+      budget.release()
+    }
+  }
+}
+
+@MainActor
+private final class SidebarDiffBudget {
+  private let limit: Int
+  private var active = 0
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  init(limit: Int) { self.limit = limit }
+
+  func acquire() async {
+    if active < limit {
+      active += 1
+      return
+    }
+    await withCheckedContinuation { waiters.append($0) }
+  }
+
+  func release() {
+    if waiters.isEmpty {
+      active -= 1
+    } else {
+      waiters.removeFirst().resume()
+    }
   }
 }
 
@@ -124,7 +214,8 @@ struct SessionTreeSnapshot {
     unpagedRepos: [RepoNode]? = nil,
     collapsedRepoPaths: Set<String>,
     decorations: BranchWorkflowDecorationIndex,
-    title: (SessionNode) -> String
+    title: (SessionNode) -> String,
+    decorate: (SessionRowModel) -> SessionRowModel = { $0 }
   ) {
     var sessionsByRepo: [String: [SessionNode]] = [:]
     var sessionsByBranch: [String: [SessionNode]] = [:]
@@ -142,8 +233,12 @@ struct SessionTreeSnapshot {
       repos: repos,
       collapsedRepoPaths: collapsedRepoPaths,
       decorations: decorations,
-      title: title
-    )
+      title: title,
+      providersByBranch: sessionsByBranch.mapValues { Set($0.map(\.providerKind)) }
+    ).map { row in
+      if case .session(let model) = row { return .session(decorate(model)) }
+      return row
+    }
     self.sessionsByRepo = sessionsByRepo
     self.sessionsByBranch = sessionsByBranch
     self.repoPathBySessionID = repoPathBySessionID
@@ -173,6 +268,21 @@ struct SessionTreeSnapshot {
       decorations: decorations,
       title: { node in
         (node.providerKind == .claude ? claude : codex).displayName(for: node.session)
+      },
+      decorate: { model in
+        var model = model
+        let node = model.node
+        let vm = node.providerKind == .claude ? claude : codex
+        model.diff = claude.localDiffSummary(for: node.session.projectPath)
+        model.isUnread = !node.isPending && agentHub.sessionReadCursors.isUnread(
+          provider: node.providerKind, sessionID: node.session.id,
+          activity: vm.monitorStates[node.session.id]?.lastActivityAt ?? node.session.lastActivityAt)
+        if !node.showsApprovePill && !node.showsAnswerPill {
+          model.action = SessionRowAction.make(
+            attention: agentHub.sessionAttentionModel.items.first { $0.id == node.id },
+            snapshot: agentHub.sessionAttentionModel.snapshots[node.id], branch: node.session.branchName)
+        }
+        return model
       }
     )
   }
@@ -337,5 +447,17 @@ private struct WorkflowDiscoveryDriver: View {
         await viewModel.refreshDetectedWorkflows()
       }
       .accessibilityHidden(true)
+  }
+}
+
+
+enum SessionRowAction {
+  static func make(attention: SessionAttentionItem?, snapshot: GitHubPRObservationSnapshot?, branch: String?) -> String? {
+    let current = snapshot?.state == .ready && snapshot?.isStale == false
+      && branch != nil && snapshot?.pullRequest?.headRefName == branch
+    if let attention, attention.category != .checks { return attention.reason }
+    guard current, let pr = snapshot?.pullRequest, pr.stateKind == .open else { return nil }
+    if let attention { return attention.reason }
+    return pr.isDraft ? "Review draft #\(pr.number)" : "Review PR #\(pr.number)"
   }
 }
