@@ -5,6 +5,10 @@ protocol SessionResultStoreProtocol: Sendable {
   func saveSessionResult(_ result: SessionResult) async throws
 }
 
+protocol SessionResultRecipeStoreProtocol: SessionResultStoreProtocol {
+  func saveSessionResult(_ result: SessionResult, recipe: ProjectLaunchRecipe) async throws
+}
+
 protocol ProjectLaunchRecipeStoreProtocol: Sendable {
   func loadProjectLaunchRecipe(repositoryPath: String) async throws -> ProjectLaunchRecipe?
   func saveProjectLaunchRecipe(_ recipe: ProjectLaunchRecipe) async throws

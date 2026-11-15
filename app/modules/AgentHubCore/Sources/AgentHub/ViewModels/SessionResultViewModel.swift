@@ -69,17 +69,20 @@ final class SessionResultViewModel {
     var result = definition
     result.revise(sourceIdentity: source?.identity)
     do {
-      if var recipe {
-        guard let recipeStore, let source else { throw ResultLaunchError.unavailableStore }
-        recipe.repositoryPath = source.repositoryPath
-        _ = try recipe.workingPath(in: source.worktreePath)
-        if !recipe.destination.isEmpty {
-          _ = try ProjectLaunchRecipe.destinationURL(recipe.destination, projectPath: source.worktreePath)
+      var validatedRecipe = recipe
+      if validatedRecipe != nil {
+        guard recipeStore != nil, let source else { throw ResultLaunchError.unavailableStore }
+        validatedRecipe?.repositoryPath = source.repositoryPath
+        if let validatedRecipe {
+          _ = try validatedRecipe.workingPath(in: source.worktreePath)
+          if !validatedRecipe.destination.isEmpty {
+            _ = try ProjectLaunchRecipe.destinationURL(
+              validatedRecipe.destination, projectPath: source.worktreePath)
+          }
         }
-        try await recipeStore.saveProjectLaunchRecipe(recipe)
-        self.recipe = recipe
       }
-      try await library.save(result)
+      try await library.save(result, recipe: validatedRecipe)
+      if let validatedRecipe { self.recipe = validatedRecipe }
       error = nil
       return true
     } catch { self.error = error.localizedDescription; return false }

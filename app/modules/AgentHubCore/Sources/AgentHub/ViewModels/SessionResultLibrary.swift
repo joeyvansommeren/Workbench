@@ -21,9 +21,16 @@ final class SessionResultLibrary {
     } catch { loadError = error.localizedDescription }
   }
 
-  func save(_ result: SessionResult) async throws {
+  func save(_ result: SessionResult, recipe: ProjectLaunchRecipe? = nil) async throws {
     guard let store else { throw ResultLaunchError.unavailableStore }
-    try await store.saveSessionResult(result)
+    if let recipe {
+      guard let atomicStore = store as? any SessionResultRecipeStoreProtocol else {
+        throw ResultLaunchError.unavailableStore
+      }
+      try await atomicStore.saveSessionResult(result, recipe: recipe)
+    } else {
+      try await store.saveSessionResult(result)
+    }
     records[result.id] = result
   }
 }
