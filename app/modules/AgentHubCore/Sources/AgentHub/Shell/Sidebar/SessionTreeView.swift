@@ -15,6 +15,7 @@ import SwiftUI
 
 struct SessionTreeView: View {
   @Environment(WorkbenchShellModel.self) private var shellModel
+  @Environment(SessionDetailStateModel.self) private var detailState
   @Environment(\.agentHub) private var agentHub
   @Environment(\.sessionNavigationModel) private var navigationModel
   @Environment(\.sessionsActionCoordinator) private var coordinator
@@ -43,7 +44,8 @@ struct SessionTreeView: View {
       agentHub: agentHub,
       shellModel: shellModel,
       navigationModel: navigationModel,
-      coordinator: coordinator
+      coordinator: coordinator,
+      detailState: detailState
     )
     let record = $lastWorkspaceOpen
     actions.onWorkspaceOpen = { record.wrappedValue = $0 }

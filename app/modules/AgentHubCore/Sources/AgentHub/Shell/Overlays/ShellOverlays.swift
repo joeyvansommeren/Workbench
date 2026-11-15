@@ -49,6 +49,7 @@ struct ShellOverlayHost: ViewModifier {
   /// Set by "More options…"; presented once the sheet is gone (two sheets
   /// cannot show at once).
   @State private var legacyLauncherFollowUp: MultiSessionLaunchViewModel?
+  @State private var launchGate = NewSessionNavigationGate()
 
   func body(content: Content) -> some View {
     content
@@ -78,18 +79,27 @@ struct ShellOverlayHost: ViewModifier {
         request in
         NewSessionSheetContainer(
           model: request.model,
-          onCancel: { coordinator.newSessionSheetRequest = nil },
+          onCancel: {
+            launchGate.cancel(request.id)
+            request.model.launchViewModel.cancelLaunch()
+            coordinator.newSessionSheetRequest = nil
+          },
           onMoreOptions: {
             request.model.applyToLaunchViewModel()
             legacyLauncherFollowUp = request.model.launchViewModel
             coordinator.newSessionSheetRequest = nil
           },
-          onLaunchStarted: {
+          onLaunchCancelled: { launchGate.cancel(request.id) },
+          onSessionCreated: {
+            guard launchGate.complete(request.id) else { return }
             shellModel.select(.sessions)
             coordinator.newSessionSheetRequest = nil
+            coordinator.startSessionSheetContext = nil
           }
         )
         .wbRedrawsOnPaletteChange()
+        .onAppear { launchGate.begin(request.id) }
+        .interactiveDismissDisabled(request.model.launchViewModel.isLaunching)
       }
   }
 
@@ -188,18 +198,21 @@ struct ShellOverlayHost: ViewModifier {
   }
 }
 
-/// Closes the sheet when a launch starts: progress then shows in the window,
-/// as with the legacy launcher.
+/// Keeps the form visible until this request creates a terminal. Failed
+/// preparation leaves both the destination and entered choices intact.
 private struct NewSessionSheetContainer: View {
   let model: NewSessionSheetModel
   let onCancel: () -> Void
   let onMoreOptions: () -> Void
-  let onLaunchStarted: () -> Void
+  let onLaunchCancelled: () -> Void
+  let onSessionCreated: () -> Void
 
   var body: some View {
     NewSessionSheet(model: model, onCancel: onCancel, onMoreOptions: onMoreOptions)
-      .onChange(of: model.launchViewModel.isLaunching) { wasLaunching, isLaunching in
-        if !wasLaunching, isLaunching { onLaunchStarted() }
+      .onAppear {
+        model.launchViewModel.waitsForCreatedSession = true
+        model.launchViewModel.onSessionCreated = { _, _ in onSessionCreated() }
+        model.launchViewModel.onLaunchPresentationCancelled = onLaunchCancelled
       }
   }
 }

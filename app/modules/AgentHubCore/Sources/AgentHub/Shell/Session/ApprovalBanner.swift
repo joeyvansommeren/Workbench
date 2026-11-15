@@ -4,7 +4,7 @@
 //
 //  `ApprovalBanner` from the prototype: an overlay at the bottom of the
 //  terminal area with the exact command or file, Deny, and Approve ⌘↩ with
-//  "Always allow" in a chevron menu. It is an overlay on purpose: resizing the
+//  permission scope review in a chevron menu. It is an overlay on purpose: resizing the
 //  terminal would resize the PTY in the middle of Claude's prompt. "Show in
 //  terminal" moves it out of the way to reveal Claude's own menu.
 //
@@ -67,7 +67,9 @@ private struct ApprovalBannerHost: View {
   let phase: ApprovalResponsePhase?
   let viewModel: CLISessionsViewModel
 
+  @Environment(\.isTerminalConcealed) private var isTerminalConcealed
   @State private var isRevealingTerminal = false
+  @State private var isReviewingPermissionScope = false
 
   var body: some View {
     Group {
@@ -81,7 +83,7 @@ private struct ApprovalBannerHost: View {
           phase: phase,
           onDeny: { respond(.deny) },
           onApprove: { respond(.approveOnce) },
-          onApproveAlways: { respond(.approveAlways) },
+          onApproveAlways: { isReviewingPermissionScope = true },
           onShowInTerminal: { isRevealingTerminal = true }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -91,14 +93,28 @@ private struct ApprovalBannerHost: View {
     // Banner ↔ chip crossfade: one control changing state, not a cut.
     .animation(.wbAnimation(DesignTokens.Motion.fast), value: isRevealingTerminal)
     .padding(DesignTokens.Spacing.lg)
+    .sheet(isPresented: $isReviewingPermissionScope) {
+      ApprovalPermissionScopeSheet(
+        providerOption: viewModel.approvalPersistenceOption(
+          sessionId: sessionId, terminalKey: terminalKey),
+        onCancel: { isReviewingPermissionScope = false },
+        onShowInTerminal: {
+          isReviewingPermissionScope = false
+          isRevealingTerminal = true
+        }
+      )
+    }
     .onAppear {
       MainThreadStallMonitor.breadcrumb("approval: shown \(pending.toolName)")
       // `.id(request)` gives each request a fresh host, so this speaks once per request.
-      AccessibilityNotification.Announcement(
-        "Claude needs approval: \(ApprovalRequestPresentation(pending: pending).title)"
-      ).post()
+      if !isTerminalConcealed {
+        AccessibilityNotification.Announcement(
+          "Claude needs approval: \(ApprovalRequestPresentation(pending: pending).title)"
+        ).post()
+      }
       updateShortcut()
     }
+    .onChange(of: isTerminalConcealed) { _, _ in updateShortcut() }
     .onChange(of: isRevealingTerminal) { _, _ in updateShortcut() }
     .onChange(of: phase) { _, _ in updateShortcut() }
     // Keyed by request: this runs after the exit fade, when the next
@@ -116,7 +132,7 @@ private struct ApprovalBannerHost: View {
   /// revealed, or once the request was answered, the terminal gets its normal
   /// shortcut back. A second answer is refused by the view model regardless.
   private func updateShortcut() {
-    guard !isRevealingTerminal, !(phase?.isAnswered ?? false) else {
+    guard !isTerminalConcealed, !isRevealingTerminal, !(phase?.isAnswered ?? false) else {
       viewModel.setApprovalShortcutHandler(forKey: terminalKey, request: request, nil)
       return
     }
@@ -276,8 +292,6 @@ struct ApprovalBanner: View {
     .fixedSize()
   }
 
-  /// Approve ⌘↩ plus a chevron menu with "Always allow". In the narrowest
-  /// layout the menu also holds "Show in terminal" and the key caps go.
   private func approveButton(isCompact: Bool) -> some View {
     SplitButton(
       menuAccessibilityLabel: "More approval options",
@@ -295,13 +309,60 @@ struct ApprovalBanner: View {
         }
       }
     } menu: {
-      Button("Always allow", action: onApproveAlways)
+      Button("Review permission scope…", action: onApproveAlways)
       if isCompact {
         Divider()
         Button("Show in terminal", action: onShowInTerminal)
       }
     }
     .fixedSize()
+  }
+}
+
+/// No grant is sent from this sheet. Claude's option is shown verbatim;
+/// unavailable scope facts stay unknown and the provider owns the decision.
+private struct ApprovalPermissionScopeSheet: View {
+  let providerOption: String?
+  let onCancel: () -> Void
+  let onShowInTerminal: () -> Void
+
+  private var disclosure: ClaudePermissionScopeDisclosure {
+    ClaudePermissionScopeDisclosure(providerOption: providerOption)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
+      Text("Review permission scope")
+        .wbText(.headline)
+      VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+        Text("Claude's offered permission")
+          .wbText(.subheadline)
+        ScrollView {
+          Text(providerOption ?? "The app cannot read Claude's permission option.")
+            .wbText(.body)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 140)
+      }
+      Text("Duration: \(disclosure.duration). Revocation: \(disclosure.revocation).")
+        .wbText(.body)
+      Text(
+        "Review the target, duration and revocation in Claude's terminal before choosing this permission."
+      )
+      .wbText(.body)
+      .foregroundStyle(Color.wbTextSecondary)
+      HStack {
+        Button("Cancel", action: onCancel)
+          .keyboardShortcut(.cancelAction)
+        Spacer()
+        Button("Show in terminal", action: onShowInTerminal)
+          .buttonStyle(.wbPrimary)
+          .keyboardShortcut(.defaultAction)
+      }
+    }
+    .padding(DesignTokens.Spacing.lg)
+    .frame(width: 440)
   }
 }
 

@@ -121,13 +121,7 @@ struct GitHubReviewSessionLink: Identifiable, Equatable {
   var id: String { itemID }
 
   var statusText: String {
-    if isPending {
-      return "Starting"
-    }
-    if let status {
-      return status.displayName
-    }
-    return session.isActive ? "Active" : "Available"
+    SessionStatusPresentation(status: status, isPending: isPending).word
   }
 }
 

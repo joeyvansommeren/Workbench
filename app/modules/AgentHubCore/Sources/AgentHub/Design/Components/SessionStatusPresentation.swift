@@ -17,7 +17,7 @@ public enum StatusGlyphShape: String, Sendable, CaseIterable {
   case breathingDot
   /// Spinning arc. Used for tool execution.
   case spinningArc
-  /// Filled circle with a check mark. Used for "your turn".
+  /// Filled circle with a check mark. Used only for an explicit successful outcome.
   case filledCheck
   /// Filled circle with an exclamation mark. Used for approval / input.
   case filledBang
@@ -25,7 +25,7 @@ public enum StatusGlyphShape: String, Sendable, CaseIterable {
   case ring
 }
 
-// MARK: - Status category (mirrors StatusGroupCategory)
+// MARK: - Visual category
 
 /// Colour category for a status glyph.
 public enum StatusCategory: String, Sendable, CaseIterable {
@@ -35,72 +35,133 @@ public enum StatusCategory: String, Sendable, CaseIterable {
   case idle
 }
 
+// MARK: - Independent activity and outcome
+
+/// Provider activity does not establish whether the user accepted the work.
+public enum SessionActivity: String, Equatable, Sendable {
+  case starting
+  case running
+  case waiting
+  case inactive
+  case unknown
+}
+
+/// Only explicit, current-version evidence may supply a product outcome.
+public enum SessionOutcome: String, Codable, Equatable, Sendable {
+  case unknown
+  case needsInput
+  case needsApproval
+  case readyToInspect
+  case changesRequested
+  case accepted
+  case finished
+
+  public var displayName: String {
+    switch self {
+    case .unknown: "Outcome unknown"
+    case .needsInput: "Needs input"
+    case .needsApproval: "Needs approval"
+    case .readyToInspect: "Ready to inspect"
+    case .changesRequested: "Changes requested"
+    case .accepted: "Accepted"
+    case .finished: "Finished"
+    }
+  }
+}
+
 // MARK: - Presentation
 
-/// Everything the UI needs to render a session status, computed once
-/// from a `SessionStatus?` value. Pure — no side effects, no AppKit.
+/// Pure presentation of provider activity and separately evidenced outcome.
 public struct SessionStatusPresentation: Equatable, Sendable {
-
-  /// The glyph shape to draw.
+  public let activity: SessionActivity
+  public let outcome: SessionOutcome
   public let shape: StatusGlyphShape
-
-  /// The colour category (drives fill, text and tint token choice).
   public let category: StatusCategory
-
-  /// Human-readable word for labels and chips.
   public let word: String
-
-  /// Accessibility label for VoiceOver.
   public let accessibilityLabel: String
 
-  /// Create a presentation for the given status.
-  ///
-  /// - Parameters:
-  ///   - status: The session status, or `nil` for idle.
-  ///   - isPending: `true` when the session is still starting
-  ///     (pending / "Starting"). Overrides `nil` to show a breathing dot.
-  public init(status: SessionStatus?, isPending: Bool = false) {
+  /// Callers must bind an explicit outcome to the current result version.
+  /// A quiet, missing or completed provider turn never supplies acceptance.
+  public init(
+    status: SessionStatus?,
+    isPending: Bool = false,
+    outcome: SessionOutcome = .unknown
+  ) {
     if isPending, status == nil || status == .idle {
-      self.shape = .breathingDot
-      self.category = .working
-      self.word = "Starting"
-      self.accessibilityLabel = "Starting"
+      activity = .starting
+      self.outcome = .unknown
+      shape = .breathingDot
+      category = .working
+      word = "Starting"
+      accessibilityLabel = "Starting, outcome unknown"
       return
     }
 
     switch status {
-    case .thinking:
-      self.shape = .breathingDot
-      self.category = .working
-      self.word = "Thinking"
-      self.accessibilityLabel = "Thinking"
-
-    case .executingTool(let name):
-      self.shape = .spinningArc
-      self.category = .working
-      self.word = "Running \(name)"
-      self.accessibilityLabel = "Running tool \(name)"
-
-    case .waitingForUser:
-      self.shape = .filledCheck
-      self.category = .ready
-      self.word = "Your turn"
-      self.accessibilityLabel = "Your turn"
-
-    case .awaitingApproval(let tool):
-      self.shape = .filledBang
-      self.category = .attention
-      let isInput = SessionInteractiveInputTool.matches(tool)
-      let label = isInput ? "Needs input" : "Needs approval"
-      self.word = label
-      self.accessibilityLabel = label
-
-    case .idle, .none:
-      self.shape = .ring
-      self.category = .idle
-      self.word = "Idle"
-      self.accessibilityLabel = "Idle"
+    case .thinking, .executingTool: activity = .running
+    case .waitingForUser, .awaitingApproval: activity = .waiting
+    case .idle: activity = .inactive
+    case nil: activity = .unknown
     }
+
+    // A live request takes precedence over an earlier result outcome.
+    if case .awaitingApproval(let tool) = status {
+      self.outcome = SessionInteractiveInputTool.matches(tool) ? .needsInput : .needsApproval
+    } else {
+      self.outcome = activity == .running ? .unknown : outcome
+    }
+
+    // Running activity stays visible. A new run must not look accepted merely
+    // because a caller still holds the previous result's acceptance.
+    if activity == .running {
+      self.shape = status == .thinking ? .breathingDot : .spinningArc
+      category = .working
+      switch status {
+      case .executingTool(let name):
+        word = "Running \(name)"
+        accessibilityLabel = "Running tool \(name), outcome unknown"
+      default:
+        word = "Thinking"
+        accessibilityLabel = "Thinking, outcome unknown"
+      }
+      return
+    }
+
+    switch self.outcome {
+    case .needsInput, .needsApproval, .changesRequested:
+      shape = .filledBang
+      category = .attention
+      word = self.outcome.displayName
+    case .accepted, .finished:
+      shape = .filledCheck
+      category = .ready
+      word = self.outcome.displayName
+    case .readyToInspect:
+      shape = .ring
+      category = .idle
+      word = self.outcome.displayName
+    case .unknown:
+      switch activity {
+      case .waiting:
+        shape = .filledBang
+        category = .attention
+        word = "Waiting for you"
+      case .inactive:
+        shape = .ring
+        category = .idle
+        word = "Inactive"
+      case .unknown:
+        shape = .ring
+        category = .idle
+        word = "Status unknown"
+      case .starting, .running:
+        // Handled above; kept exhaustive without deriving an outcome.
+        shape = .breathingDot
+        category = .working
+        word = "Working"
+      }
+    }
+    accessibilityLabel = self.outcome == .unknown ? "\(word), outcome unknown" : word
   }
 
   /// The fill colour for the glyph.

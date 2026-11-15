@@ -14,6 +14,7 @@ public struct GlobalSessionSelectionRequest: Identifiable, Equatable, Sendable {
   public let itemId: String
   public let projectPath: String
   public let session: CLISession?
+  public let focusesTerminal: Bool
 
   public init(
     id: UUID = UUID(),
@@ -21,7 +22,8 @@ public struct GlobalSessionSelectionRequest: Identifiable, Equatable, Sendable {
     sessionId: String,
     projectPath: String,
     itemId: String? = nil,
-    session: CLISession? = nil
+    session: CLISession? = nil,
+    focusesTerminal: Bool = false
   ) {
     self.id = id
     self.providerKind = providerKind
@@ -29,6 +31,7 @@ public struct GlobalSessionSelectionRequest: Identifiable, Equatable, Sendable {
     self.itemId = itemId ?? Self.itemId(providerKind: providerKind, sessionId: sessionId)
     self.projectPath = projectPath
     self.session = session
+    self.focusesTerminal = focusesTerminal
   }
 
   public static func itemId(providerKind: SessionProviderKind, sessionId: String) -> String {
@@ -96,14 +99,16 @@ public final class GlobalSessionSelectionRouter {
     sessionId: String,
     projectPath: String,
     itemId: String? = nil,
-    session: CLISession? = nil
+    session: CLISession? = nil,
+    focusesTerminal: Bool = false
   ) {
     selectionRequest = GlobalSessionSelectionRequest(
       providerKind: providerKind,
       sessionId: sessionId,
       projectPath: projectPath,
       itemId: itemId,
-      session: session
+      session: session,
+      focusesTerminal: focusesTerminal
     )
   }
 

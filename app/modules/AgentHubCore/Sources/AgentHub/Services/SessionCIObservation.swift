@@ -34,17 +34,17 @@ enum SessionCIObservation {
     linkedPullRequests: [GitHubPullRequestURLReference],
     observationService: any GitHubPRObservationServiceProtocol,
     notifier: (any GitHubCIFailureNotifierProtocol)?,
-    startupDelay: Duration
+    startupDelay: Duration,
+    onSnapshot: (@MainActor (GitHubPRObservationSnapshot) -> Void)? = nil
   ) async -> Bool {
     if linkedPullRequests.isEmpty {
       try? await Task.sleep(for: startupDelay)
       guard !Task.isCancelled else { return false }
     }
 
-    if let notifier {
-      viewModel.onSnapshotApplied = { snapshot in
-        notifier.evaluate(snapshot: snapshot, context: context)
-      }
+    viewModel.onSnapshotApplied = { snapshot in
+      notifier?.evaluate(snapshot: snapshot, context: context)
+      onSnapshot?(snapshot)
     }
 
     await viewModel.load(

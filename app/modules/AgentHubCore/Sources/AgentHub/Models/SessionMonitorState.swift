@@ -174,12 +174,12 @@ public enum SessionStatus: Equatable, Sendable {
     case .executingTool(let name):
       return "Tool: \(name)"
     case .waitingForUser:
-      return "Ready"
+      return "Waiting for you"
     case .awaitingApproval(let tool):
       return SessionInteractiveInputTool.matches(tool)
         ? "Input needed" : "Awaiting approval: \(tool)"
     case .idle:
-      return "Idle"
+      return "Inactive"
     }
   }
 
@@ -190,7 +190,7 @@ public enum SessionStatus: Equatable, Sendable {
     case .executingTool:
       return "gearshape"
     case .waitingForUser:
-      return "checkmark.circle"
+      return "pause.circle"
     case .awaitingApproval(let tool):
       return SessionInteractiveInputTool.matches(tool)
         ? "bubble.left.and.exclamationmark.bubble.right"
@@ -207,7 +207,7 @@ public enum SessionStatus: Equatable, Sendable {
     case .executingTool:
       return "orange"
     case .waitingForUser:
-      return "green"
+      return "yellow"
     case .awaitingApproval:
       return "yellow"
     case .idle:

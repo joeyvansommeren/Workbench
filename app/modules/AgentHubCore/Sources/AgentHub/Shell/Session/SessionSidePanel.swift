@@ -24,8 +24,8 @@ struct SessionSidePanel<PanelBody: View>: View {
       panelBody()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-      if segment == .diff, let diffSummary, diffSummary.fileCount > 0, let onCommit {
-        foot(fileCount: diffSummary.fileCount, onCommit: onCommit)
+      if segment == .diff, let onCommit {
+        foot(onCommit: onCommit)
       }
     }
     .background(Color.wbSurfaceContent)
@@ -44,9 +44,9 @@ struct SessionSidePanel<PanelBody: View>: View {
     .frame(height: 52)
   }
 
-  private func foot(fileCount: Int, onCommit: @escaping () -> Void) -> some View {
+  private func foot(onCommit: @escaping () -> Void) -> some View {
     Button(action: onCommit) {
-      Text(CommitChangesAction.title(fileCount: fileCount))
+      Text(CommitChangesAction.title(fileCount: 0))
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
     }
@@ -56,7 +56,7 @@ struct SessionSidePanel<PanelBody: View>: View {
     .overlay(alignment: .top) {
       Rectangle().fill(Color.wbBorderHairline).frame(height: 1)
     }
-    .accessibilityHint("Asks the agent to commit the changes")
+    .accessibilityHint("Review the exact files, branch, and commit message before committing")
   }
 }
 

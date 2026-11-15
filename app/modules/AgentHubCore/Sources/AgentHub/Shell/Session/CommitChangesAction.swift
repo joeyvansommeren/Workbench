@@ -2,12 +2,11 @@
 //  CommitChangesAction.swift
 //  AgentHub
 //
-//  "Commit N files" in the session side panel. Workbench never commits by
-//  itself: it asks the agent to commit, the same way "Create PR" asks it to
-//  open a pull request. The agent's `git commit` then asks for approval.
+//  Commit review is a local, named-file operation. It never sends a terminal prompt.
 //
 
 import Foundation
+import Observation
 
 /// A per-session "one at a time" guard with a short cooldown, so a double
 /// click sends one prompt.
@@ -31,40 +30,82 @@ final class SessionActionCooldown {
 
 @MainActor
 enum CommitChangesAction {
-  static let cooldown = SessionActionCooldown()
-  static let cooldownDuration: Duration = .seconds(2)
-
   static func title(fileCount: Int) -> String {
-    // No ellipsis: the click sends the prompt at once and asks nothing more.
-    fileCount == 1 ? "Commit 1 file" : "Commit \(fileCount) files"
+    "Review commit…"
   }
+}
 
-  static func prompt(fileCount: Int) -> String {
-    let files = fileCount == 1 ? "the changed file" : "the \(fileCount) changed files"
-    return
-      "Commit \(files) in this worktree. Write the commit message from the session context. Do not push."
+@MainActor
+@Observable
+final class CommitChangesReviewModel: Identifiable {
+  enum Phase: Equatable {
+    case preparing, prepared, executing, committed, failed, unconfirmed
   }
+  let id = UUID()
+  let sessionID: String
+  let providerID: String
+  let projectPath: String
+  var message = ""
+  private(set) var phase: Phase = .preparing
+  private(set) var snapshot: CommitChangeSnapshot?
+  private(set) var receipt: CommitChangesReceipt?
+  private(set) var error: String?
+  private let service: any CommitChangesServiceProtocol
+  private var preparationStarted = false
+  private var invalidated = false
 
-  /// Sends the commit prompt to the session's terminal (or queues it when the
-  /// terminal is not running yet), then focuses the terminal. Does nothing
-  /// while the previous commit request for this session cools down.
-  static func perform(
-    session: CLISession,
-    terminalKey: String,
-    fileCount: Int,
-    viewModel: CLISessionsViewModel,
-    showTerminal: () -> Void
+  init(
+    sessionID: String, providerID: String, projectPath: String,
+    service: any CommitChangesServiceProtocol
   ) {
-    guard cooldown.begin(session.id) else { return }
-    showTerminal()
-    let prompt = prompt(fileCount: fileCount)
-    if !viewModel.sendPromptToActiveTerminal(forKey: terminalKey, prompt: prompt) {
-      viewModel.showTerminalWithPrompt(for: session, prompt: prompt)
+    self.sessionID = sessionID
+    self.providerID = providerID
+    self.projectPath = projectPath
+    self.service = service
+  }
+
+  var canCommit: Bool {
+    phase == .prepared && !invalidated && !(snapshot?.entries.isEmpty ?? true)
+      && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  func prepare() async {
+    guard !preparationStarted else { return }
+    preparationStarted = true
+    do {
+      let prepared = try await service.prepare(
+        sessionID: sessionID, providerID: providerID, projectPath: projectPath)
+      guard !invalidated else { return }
+      snapshot = prepared
+      phase = .prepared
+    } catch {
+      self.error = error.localizedDescription
+      phase = .failed
     }
-    viewModel.focusTerminal(forKey: terminalKey)
-    Task {
-      try? await Task.sleep(for: cooldownDuration)
-      cooldown.end(session.id)
+  }
+
+  /// Switching sessions before approval invalidates this review. Execution is
+  /// already bound to its captured target and must finish reporting its result.
+  func invalidate() {
+    guard phase != .executing, phase != .committed else { return }
+    invalidated = true
+    error = "The session changed. Open a new commit review for the current session."
+    phase = .failed
+  }
+
+  func commit() async {
+    guard canCommit, let snapshot else { return }
+    phase = .executing
+    do {
+      receipt = try await service.commit(snapshot: snapshot, message: message)
+      phase = .committed
+    } catch {
+      self.error = error.localizedDescription
+      if case CommitChangesError.unconfirmed = error {
+        phase = .unconfirmed
+      } else {
+        phase = .failed
+      }
     }
   }
 }

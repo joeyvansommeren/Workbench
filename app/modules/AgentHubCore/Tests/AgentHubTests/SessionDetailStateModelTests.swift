@@ -212,12 +212,10 @@ struct SessionDetailStateModelTests {
 
   // MARK: - Commit and Claude theme hint
 
-  @Test("Commit title and prompt name the file count")
+  @Test("Commit action opens review independently of displayed diff counts")
   func commitWording() {
-    #expect(CommitChangesAction.title(fileCount: 1) == "Commit 1 file")
-    #expect(CommitChangesAction.title(fileCount: 3) == "Commit 3 files")
-    #expect(CommitChangesAction.prompt(fileCount: 3).contains("the 3 changed files"))
-    #expect(CommitChangesAction.prompt(fileCount: 3).contains("Do not push"))
+    #expect(CommitChangesAction.title(fileCount: 0) == "Review commit…")
+    #expect(CommitChangesAction.title(fileCount: 3) == "Review commit…")
   }
 
   @Test("Claude theme hint: only a dark Claude theme on the new shell's light terminal")

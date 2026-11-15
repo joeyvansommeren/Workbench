@@ -93,17 +93,11 @@ struct CollapsibleSessionRow: View {
     )
   }
 
-  private var statusColor: Color {
-    if attention != nil { return .orange }
-    guard let sessionStatus else { return .secondary }
-    switch sessionStatus {
-    case .thinking: return .blue
-    case .executingTool: return .orange
-    case .waitingForUser: return .green
-    case .awaitingApproval: return .orange
-    case .idle: return .secondary
-    }
+  var statusPresentation: SessionStatusPresentation {
+    SessionStatusPresentation(status: sessionStatus, isPending: isPending)
   }
+
+  private var statusColor: Color { statusPresentation.textColor }
 
   private var attention: SidebarSessionAttention? {
     SidebarSessionAttention(status: sessionStatus)
@@ -127,17 +121,6 @@ struct CollapsibleSessionRow: View {
       isAppVisible: appVisibility?.isVisible ?? true,
       reduceMotion: reduceMotion
     )
-  }
-
-  private func statusDisplayText(_ status: SessionStatus) -> String {
-    switch status {
-    case .thinking: return "working"
-    case .executingTool(let name): return name.lowercased()
-    case .waitingForUser: return "ready"
-    case .awaitingApproval(let tool):
-      return SessionInteractiveInputTool.matches(tool) ? "Input needed" : "Approval needed"
-    case .idle: return "idle"
-    }
   }
 
   private var gitHubObservationTaskID: String {
@@ -283,28 +266,19 @@ struct CollapsibleSessionRow: View {
     )
   }
 
-  @ViewBuilder
   private var statusLabel: some View {
-    if let attention {
-      Label(attention.displayName, systemImage: attention.systemImage)
-        .font(.secondaryCaption)
-        .foregroundColor(statusColor)
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        .id("attention-\(attention.rawValue)")
-        .accessibilityLabel(attention.displayName)
-    } else if let sessionStatus {
-      Text(statusDisplayText(sessionStatus))
-        .font(.secondaryCaption)
-        .foregroundColor(statusColor)
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        .id("status-\(statusDisplayText(sessionStatus))")
-    } else if isPending {
-      Text("starting")
-        .font(.secondaryCaption)
-        .foregroundColor(.secondary)
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        .id("status-pending")
+    HStack(spacing: 4) {
+      if let attention {
+        Image(systemName: attention.systemImage)
+      }
+      Text(statusPresentation.word)
     }
+    .font(.secondaryCaption)
+    .foregroundColor(statusColor)
+    .transition(.opacity)
+    .id("status-\(statusPresentation.word)")
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(statusPresentation.accessibilityLabel)
   }
 
   // MARK: - Subviews

@@ -105,6 +105,8 @@ struct DetectedProject: Sendable {
   /// non-nil, a stdin pipe is attached and this string is written then closed
   /// immediately after spawn. Tools that don't read stdin discard the bytes.
   var stdinPrefill: String? = nil
+  /// Saved executable arguments are literal; only inferred framework commands receive an injected port.
+  var allowsPortInjection: Bool = true
 }
 
 // MARK: - DevServerState

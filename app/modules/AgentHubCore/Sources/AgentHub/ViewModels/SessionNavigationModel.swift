@@ -125,7 +125,8 @@ final class SessionNavigationModel {
     selectedSessionItems: () -> [SessionItemSnapshot],
     colorScheme: ColorScheme,
     setAuxiliaryShellVisible: (Bool) -> Void,
-    selectedProviderRawSetter: (String) -> Void
+    selectedProviderRawSetter: (String) -> Void,
+    revealTerminal: (GlobalSessionSelectionRequest) -> Void = { _ in }
   ) -> Bool {
     guard let router, let request = router.selectionRequest else {
       return false
@@ -163,6 +164,14 @@ final class SessionNavigationModel {
     } else {
       selectedWorkspaceID = nil
       primarySessionId = request.itemId
+    }
+    if request.focusesTerminal {
+      revealTerminal(request)
+      // Focus after the selected surface has had a chance to mount and reveal its terminal.
+      Task { @MainActor in
+        await Task.yield()
+        viewModel.focusTerminal(forKey: request.sessionId)
+      }
     }
     scrollToSessionId = request.itemId
     MainThreadStallMonitor.breadcrumb("nav: consumed selection \(request.itemId.prefix(20))")

@@ -75,11 +75,11 @@ struct SessionMetadataMigrationSafetyTests {
     #expect(try store.readWorkspaceState(for: .claude) == state)
   }
 
-  @Test("The open-tab migration is the last registered identifier")
+  @Test("Result review is appended after the open-tab migration")
   func migrationIsAppended() {
     #expect(
       SessionMetadataStore.migrationIdentifiers.last
-        == SessionMetadataStore.MigrationID.addOpenSessionTabIds)
+        == SessionMetadataStore.MigrationID.createResultReview)
   }
 }
 

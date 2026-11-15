@@ -16,6 +16,8 @@ struct NewSessionSheet: View {
   let onMoreOptions: () -> Void
 
   @FocusState private var isPromptFocused: Bool
+  @Environment(\.scenePhase) private var scenePhase
+  @State private var showsAgentSetup = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
@@ -30,8 +32,7 @@ struct NewSessionSheet: View {
             selection: $model.agent,
             items: SessionProviderKind.allCases,
             title: { $0.agentDisplayName },
-            // A missing CLI disables its segment.
-            isItemEnabled: { model.isAgentAvailable($0) },
+            isItemEnabled: { _ in true },
             help: { model.isAgentAvailable($0) ? nil : $0.notInstalledHelp },
             fillsWidth: true,
             accessibilityLabel: "Agent"
@@ -41,9 +42,20 @@ struct NewSessionSheet: View {
           // Start stays disabled; say why where the eye is, not in a tooltip.
           GridRow {
             Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-            Text(model.agent.notInstalledHelp)
-              .wbText(.callout)
-              .foregroundStyle(Color.wbTextSecondary)
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+              Text(model.agent.notInstalledHelp)
+                .wbText(.callout)
+                .foregroundStyle(Color.wbTextSecondary)
+              Button("Set up \(model.agent.agentDisplayName)") { showsAgentSetup = true }
+                .buttonStyle(WBSecondaryButtonStyle())
+                .accessibilityIdentifier("newSession.setupAgent")
+                .popover(isPresented: $showsAgentSetup) {
+                  AgentSetupRecoveryView(provider: model.agent) {
+                    model.launchViewModel.refreshCLIAvailability()
+                    if model.isAgentAvailable(model.agent) { showsAgentSetup = false }
+                  }
+                }
+            }
           }
         }
         GridRow {
@@ -76,6 +88,9 @@ struct NewSessionSheet: View {
     .onAppear {
       model.launchViewModel.refreshCLIAvailability()
       DispatchQueue.main.async { isPromptFocused = true }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { model.launchViewModel.refreshCLIAvailability() }
     }
   }
 

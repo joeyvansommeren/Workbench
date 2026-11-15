@@ -24,20 +24,51 @@ struct CommandPaletteEntriesTests {
     repositoryNameWithOwner: "joey/workbench"
   )
 
-  @Test("Sessions sort attention > ready > running > thinking > idle")
+  @Test("Sessions sort explicit requests before waiting, running, thinking and inactive")
   func statusOrder() {
     let sessions = [
       session("idle", "Idle one", status: .idle),
       session("thinking", "Thinking one", status: .thinking),
       session("running", "Running one", status: .executingTool(name: "Bash")),
-      session("ready", "Ready one", status: .waitingForUser),
+      session("waiting", "Waiting one", status: .waitingForUser),
       session("attention", "Attention one", status: .awaitingApproval(tool: "Edit")),
     ]
     let entries = CommandPaletteEntries.build(query: "one", sessions: sessions, pullRequests: [])
-    #expect(entries.map(\.id) == [
-      "session-attention", "session-ready", "session-running", "session-thinking", "session-idle",
-    ])
+    #expect(
+      entries.map(\.id) == [
+        "session-attention", "session-waiting", "session-running", "session-thinking",
+        "session-idle",
+      ])
     #expect(entries.first?.trailingText == "Needs approval")
+    #expect(entries.first { $0.id == "session-waiting" }?.trailingText == "Waiting for you")
+  }
+
+  @Test("Questions and approvals outrank generic waiting while equal evidence stays stable")
+  func requestEvidenceOutranksSharedAttentionTint() {
+    let sessions = [
+      session("waiting-first", "Waiting first", status: .waitingForUser),
+      session("question", "Question", status: .awaitingApproval(tool: "AskUserQuestion")),
+      session("approval", "Approval", status: .awaitingApproval(tool: "Edit")),
+      session("waiting-second", "Waiting second", status: .waitingForUser),
+    ]
+    let entries = CommandPaletteEntries.build(query: "", sessions: sessions, pullRequests: [])
+      .filter { $0.group == .sessions }
+    #expect(
+      entries.map(\.id) == [
+        "session-question", "session-approval", "session-waiting-first", "session-waiting-second",
+      ])
+    #expect(entries[0].trailingText == "Needs input")
+    #expect(entries[1].trailingText == "Needs approval")
+    for entry in entries.dropFirst(2) {
+      #expect(entry.trailingText == "Waiting for you")
+      guard case .status(let presentation) = entry.lead else {
+        Issue.record("A session must carry its canonical status presentation")
+        continue
+      }
+      #expect(presentation.outcome == .unknown)
+      #expect(presentation.category == .attention)
+      #expect(presentation.shape != .filledCheck)
+    }
   }
 
   @Test("A typed query caps Sessions and Pull requests and counts the rest")
