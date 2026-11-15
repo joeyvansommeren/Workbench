@@ -25,6 +25,14 @@ public protocol LocalDiffSummaryServiceProtocol: Sendable {
   func cachedSummary(for projectPath: String) async -> LocalDiffSummary?
   func summary(for projectPath: String) async -> LocalDiffSummary
   func invalidate(projectPath: String) async
+  func invalidateAfterPendingActivity(projectPath: String) async -> Bool
+}
+
+extension LocalDiffSummaryServiceProtocol {
+  public func invalidateAfterPendingActivity(projectPath: String) async -> Bool {
+    await invalidate(projectPath: projectPath)
+    return !Task.isCancelled
+  }
 }
 
 public actor LocalDiffSummaryService: LocalDiffSummaryServiceProtocol {
@@ -39,6 +47,8 @@ public actor LocalDiffSummaryService: LocalDiffSummaryServiceProtocol {
   }
 
   private let evaluator: Evaluator
+  private let now: @Sendable () -> Date
+  private let sleep: @Sendable (TimeInterval) async throws -> Void
   private let minimumRefreshInterval: TimeInterval
   private let adaptiveThrottleMultiplier: Double
   private var cache: [String: LocalDiffSummary] = [:]
@@ -50,11 +60,17 @@ public actor LocalDiffSummaryService: LocalDiffSummaryServiceProtocol {
   init(
     evaluator: Evaluator? = nil,
     minimumRefreshInterval: TimeInterval = 1.0,
-    adaptiveThrottleMultiplier: Double = 3.0
+    adaptiveThrottleMultiplier: Double = 3.0,
+    now: @escaping @Sendable () -> Date = { .now },
+    sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
+      try await Task.sleep(for: .seconds($0))
+    }
   ) {
     self.evaluator = evaluator ?? { projectPath in
       await Self.defaultEvaluator(projectPath: projectPath)
     }
+    self.now = now
+    self.sleep = sleep
     self.minimumRefreshInterval = minimumRefreshInterval
     self.adaptiveThrottleMultiplier = adaptiveThrottleMultiplier
   }
@@ -77,7 +93,7 @@ public actor LocalDiffSummaryService: LocalDiffSummaryServiceProtocol {
     let task = Task(priority: .utility) {
       await evaluator(normalizedProjectPath)
     }
-    let evaluationStartedAt = Date.now
+    let evaluationStartedAt = now()
     lastEvaluationStartedAt[normalizedProjectPath] = evaluationStartedAt
     let inFlightEvaluation = InFlightEvaluation(
       id: UUID(),
@@ -89,7 +105,7 @@ public actor LocalDiffSummaryService: LocalDiffSummaryServiceProtocol {
     let summary = await task.value
     if inFlightTasks[normalizedProjectPath]?.id == inFlightEvaluation.id {
       inFlightTasks.removeValue(forKey: normalizedProjectPath)
-      lastEvaluationDuration[normalizedProjectPath] = Date.now.timeIntervalSince(evaluationStartedAt)
+      lastEvaluationDuration[normalizedProjectPath] = now().timeIntervalSince(evaluationStartedAt)
       if (cacheGeneration[normalizedProjectPath] ?? 0) == inFlightEvaluation.generation {
         cache[normalizedProjectPath] = summary
       }
@@ -105,12 +121,39 @@ public actor LocalDiffSummaryService: LocalDiffSummaryServiceProtocol {
     }
 
     if let lastEvaluationStartedAt = lastEvaluationStartedAt[normalizedProjectPath],
-       Date.now.timeIntervalSince(lastEvaluationStartedAt) < effectiveRefreshInterval(for: normalizedProjectPath) {
+      now().timeIntervalSince(lastEvaluationStartedAt)
+        < effectiveRefreshInterval(for: normalizedProjectPath)
+    {
       return
     }
 
     cacheGeneration[normalizedProjectPath, default: 0] += 1
     cache.removeValue(forKey: normalizedProjectPath)
+  }
+
+  /// Wait for an older scan and its throttle window before invalidating. A
+  /// canceled sidebar task leaves the shared evaluator running, but does not
+  /// schedule another scan after its row disappears.
+  public func invalidateAfterPendingActivity(projectPath: String) async -> Bool {
+    let path = Self.normalize(projectPath)
+    while !Task.isCancelled {
+      if let inFlight = inFlightTasks[path] {
+        _ = await inFlight.task.value
+        await Task.yield()
+        continue
+      }
+      if let start = lastEvaluationStartedAt[path] {
+        let remaining = effectiveRefreshInterval(for: path) - now().timeIntervalSince(start)
+        if remaining > 0 {
+          do { try await sleep(remaining) } catch { return false }
+          continue
+        }
+      }
+      cacheGeneration[path, default: 0] += 1
+      cache.removeValue(forKey: path)
+      return true
+    }
+    return false
   }
 
   /// Slow repos self-throttle: a worktree whose evaluation costs N seconds may

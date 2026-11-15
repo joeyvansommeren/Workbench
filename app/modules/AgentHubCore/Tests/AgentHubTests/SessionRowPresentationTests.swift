@@ -36,6 +36,31 @@ struct SessionRowPresentationTests {
         branch: "feature") == nil)
   }
 
+  @Test("Unrelated failed checks do not hide a recorded result action")
+  func unrelatedChecksFallBackToResult() {
+    let attention = SessionAttentionItem(
+      id: "s", title: "S", reason: "Review failed checks", category: .checks)
+    let fallback = "Inspect the recorded result"
+    let stale = snapshot(branch: "feature", state: .error("offline"))
+    #expect(stale.isStale)
+    let invalid = [
+      snapshot(branch: "other", state: .ready),
+      stale,
+      snapshot(branch: "feature", state: .ready, draft: true),
+      snapshot(branch: "feature", state: .ready, prState: "CLOSED"),
+    ]
+    for value in invalid {
+      #expect(
+        SessionRowAction.make(
+          attention: attention, snapshot: value, branch: "feature", fallbackReason: fallback)
+          == fallback)
+    }
+    #expect(
+      SessionRowAction.make(
+        attention: attention, snapshot: nil, branch: "feature", fallbackReason: fallback)
+        == fallback)
+  }
+
   @Test("Only the active key window can acknowledge activity")
   func activeWindow() {
     #expect(SessionReadVisibility.isActive(scenePhase: .active, controlActiveState: .key))

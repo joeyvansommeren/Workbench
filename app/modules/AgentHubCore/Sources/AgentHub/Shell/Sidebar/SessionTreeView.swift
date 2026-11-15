@@ -86,7 +86,11 @@ private struct SessionTreeContent: View {
       await SidebarDiffLoader.run(diffInputs(snapshot)) { input in
         let previous = loadedDiffActivity[input.path]
         let vm = agentHub.claudeSessionsViewModel
-        await vm.ensureLocalDiffSummary(for: input.path, forceRefresh: SidebarDiffLoader.shouldRefresh(previous: previous, activity: input.activity))
+        if SidebarDiffLoader.shouldRefresh(previous: previous, activity: input.activity) {
+          guard await vm.refreshLocalDiffAfterActivity(for: input.path) else { return }
+        } else {
+          await vm.ensureLocalDiffSummary(for: input.path)
+        }
         guard !Task.isCancelled else { return }
         loadedDiffActivity[input.path] = input.activity
       }
@@ -280,7 +284,12 @@ struct SessionTreeSnapshot {
         if !node.showsApprovePill && !node.showsAnswerPill {
           model.action = SessionRowAction.make(
             attention: agentHub.sessionAttentionModel.items.first { $0.id == node.id },
-            snapshot: agentHub.sessionAttentionModel.snapshots[node.id], branch: node.session.branchName)
+            snapshot: agentHub.sessionAttentionModel.snapshots[node.id],
+            branch: node.session.branchName,
+            fallbackReason: SessionAttentionProjection.resultReason(
+              result: agentHub.sessionResultLibrary.records[node.id],
+              projectPath: node.session.projectPath,
+              activity: vm.monitorStates[node.session.id]?.lastActivityAt))
         }
         return model
       }
@@ -452,12 +461,17 @@ private struct WorkflowDiscoveryDriver: View {
 
 
 enum SessionRowAction {
-  static func make(attention: SessionAttentionItem?, snapshot: GitHubPRObservationSnapshot?, branch: String?) -> String? {
+  static func make(
+    attention: SessionAttentionItem?, snapshot: GitHubPRObservationSnapshot?, branch: String?,
+    fallbackReason: String? = nil
+  ) -> String? {
     let current = snapshot?.state == .ready && snapshot?.isStale == false
       && branch != nil && snapshot?.pullRequest?.headRefName == branch
     if let attention, attention.category != .checks { return attention.reason }
-    guard current, let pr = snapshot?.pullRequest, pr.stateKind == .open else { return nil }
-    if let attention { return attention.reason }
+    guard current, let pr = snapshot?.pullRequest, pr.stateKind == .open else {
+      return fallbackReason
+    }
+    if let attention { return pr.isDraft ? fallbackReason : attention.reason }
     return pr.isDraft ? "Review draft #\(pr.number)" : "Review PR #\(pr.number)"
   }
 }

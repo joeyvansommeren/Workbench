@@ -39,17 +39,28 @@ enum SessionAttentionProjection {
       } else if let failure = failedChecks[input.id] {
         reason = failure
         category = .checks
-      } else if let result = records[input.id], result.matches(projectPath: input.projectPath) {
-        if result.decision == .none { reason = "Inspect the recorded result" }
-        else if result.decision == .accepted, let activity = input.lastActivityAt,
-          activity > (result.decidedAt ?? result.updatedAt) {
-          reason = "New activity after acceptance · review result"
-        }
+      } else {
+        reason = resultReason(
+          result: records[input.id], projectPath: input.projectPath, activity: input.lastActivityAt)
       }
-      if let reason { candidates[input.id] = SessionAttentionItem(id: input.id, title: input.title, reason: reason, category: category) }
+      if let reason {
+        candidates[input.id] = SessionAttentionItem(
+          id: input.id, title: input.title, reason: reason, category: category)
+      }
     }
     let retained = previous.compactMap { candidates.removeValue(forKey: $0.id) }
     return retained + candidates.values.sorted { $0.id < $1.id }
+  }
+
+  static func resultReason(result: SessionResult?, projectPath: String, activity: Date?) -> String?
+  {
+    guard let result, result.matches(projectPath: projectPath) else { return nil }
+    if result.decision == .none { return "Inspect the recorded result" }
+    if result.decision == .accepted, let activity, activity > (result.decidedAt ?? result.updatedAt)
+    {
+      return "New activity after acceptance · review result"
+    }
+    return nil
   }
 
   static func next(after id: String?, in items: [SessionAttentionItem]) -> SessionAttentionItem? {

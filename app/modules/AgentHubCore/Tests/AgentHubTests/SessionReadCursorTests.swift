@@ -63,6 +63,48 @@ struct SessionReadCursorTests {
     #expect(!model.isUnread(provider: .claude, sessionID: "one", activity: .now))
   }
 
+  @Test("A visible session retries a transient write without more activity")
+  func automaticRetry() async {
+    let store = FailingCursorStore()
+    let model = SessionReadCursorModel(store: store)
+    let cursor = SessionReadCursor(
+      provider: .claude, sessionID: "one", activity: Date(timeIntervalSince1970: 100))
+    await SessionReadVisibility.acknowledge(
+      cursor, model: model, current: { cursor }, sleep: { _ in })
+    #expect(await store.saved == cursor)
+  }
+
+  @Test("A newer visible cursor retries after an older in-flight write fails")
+  func newerDuringFailure() async {
+    let store = GatedFailureStore()
+    let model = SessionReadCursorModel(store: store)
+    await model.load()
+    let old = Date(timeIntervalSince1970: 100)
+    let first = Task { await model.acknowledge(provider: .claude, sessionID: "one", activity: old) }
+    await store.waitForFirstWrite()
+    let newer = SessionReadCursor(
+      provider: .claude, sessionID: "one", activity: old.addingTimeInterval(1))
+    await SessionReadVisibility.acknowledge(
+      newer, model: model, current: { newer },
+      sleep: { _ in
+        await store.releaseFirstWrite()
+        _ = await first.value
+      })
+    #expect(await store.saved == newer)
+  }
+
+  @Test("A session hidden during retry never writes a new acknowledgement")
+  func retryStopsWhenHidden() async {
+    let store = FailingCursorStore()
+    let model = SessionReadCursorModel(store: store)
+    let cursor = SessionReadCursor(
+      provider: .claude, sessionID: "one", activity: Date(timeIntervalSince1970: 100))
+    var visible: SessionReadCursor? = cursor
+    await SessionReadVisibility.acknowledge(
+      cursor, model: model, current: { visible }, sleep: { _ in visible = nil })
+    #expect(await store.saved == nil)
+  }
+
   @Test("A failed write can be retried without losing newer activity")
   func retry() async {
     let store = FailingCursorStore()
@@ -201,4 +243,30 @@ private actor FailedLoadStore: SessionReadCursorStoreProtocol {
   enum Failure: Error { case unavailable }
   func loadReadCursors() throws -> [SessionReadCursor] { throw Failure.unavailable }
   func acknowledgeReadCursor(_ cursor: SessionReadCursor) {}
+}
+
+private actor GatedFailureStore: SessionReadCursorStoreProtocol {
+  private var started: CheckedContinuation<Void, Never>?
+  private var waiting: CheckedContinuation<Void, Never>?
+  private var attempts = 0
+  private(set) var saved: SessionReadCursor?
+  func loadReadCursors() -> [SessionReadCursor] { [] }
+  func acknowledgeReadCursor(_ cursor: SessionReadCursor) async throws {
+    attempts += 1
+    if attempts == 1 {
+      started?.resume()
+      await withCheckedContinuation { waiting = $0 }
+      throw Failure.transient
+    }
+    saved = cursor
+  }
+  func waitForFirstWrite() async {
+    if attempts > 0 { return }
+    await withCheckedContinuation { started = $0 }
+  }
+  func releaseFirstWrite() {
+    waiting?.resume()
+    waiting = nil
+  }
+  enum Failure: Error { case transient }
 }

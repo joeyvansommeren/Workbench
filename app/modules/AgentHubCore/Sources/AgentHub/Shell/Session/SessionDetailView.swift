@@ -889,11 +889,20 @@ enum SessionReadVisibility {
   @MainActor
   static func acknowledge(
     _ cursor: SessionReadCursor, model: SessionReadCursorModel,
-    current: @MainActor () -> SessionReadCursor?
+    current: @MainActor () -> SessionReadCursor?,
+    sleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) async {
     await model.load()
-    guard !Task.isCancelled, current() == cursor else { return }
-    await model.acknowledge(provider: cursor.provider, sessionID: cursor.sessionID, activity: cursor.activity)
+    for attempt in 0..<5 {
+      guard !Task.isCancelled, current() == cursor else { return }
+      if await model.acknowledge(
+        provider: cursor.provider, sessionID: cursor.sessionID, activity: cursor.activity)
+      {
+        return
+      }
+      guard attempt < 4 else { return }
+      do { try await sleep(.seconds(1 << attempt)) } catch { return }
+    }
   }
 
   static func activeLinkedSession(_ snapshot: TerminalWorkspaceSnapshot) -> TerminalWorkspaceLinkedSessionSnapshot? {

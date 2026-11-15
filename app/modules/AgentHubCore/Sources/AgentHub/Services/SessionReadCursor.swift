@@ -52,18 +52,20 @@ final class SessionReadCursorModel {
     return activity > (cursors[.init(provider: provider, sessionID: sessionID)] ?? .distantPast)
   }
 
-  func acknowledge(provider: SessionProviderKind, sessionID: String, activity: Date) async {
+  @discardableResult
+  func acknowledge(provider: SessionProviderKind, sessionID: String, activity: Date) async -> Bool {
     let key = SessionReadCursorKey(provider: provider, sessionID: sessionID)
     cursors[key] = max(cursors[key] ?? .distantPast, activity)
-    guard let store, !inFlight.contains(key) else { return }
+    guard let store, !inFlight.contains(key) else { return false }
     inFlight.insert(key)
     defer { inFlight.remove(key) }
-    while let latest = cursors[key], latest > (durable[key] ?? .distantPast) {
+    while !Task.isCancelled, let latest = cursors[key], latest > (durable[key] ?? .distantPast) {
       do {
         try await store.acknowledgeReadCursor(
           .init(provider: provider, sessionID: sessionID, activity: latest))
         durable[key] = max(durable[key] ?? .distantPast, latest)
-      } catch { return }
+      } catch { return false }
     }
+    return (durable[key] ?? .distantPast) >= activity
   }
 }

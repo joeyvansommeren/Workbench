@@ -728,6 +728,17 @@ public final class CLISessionsViewModel {
     }
   }
 
+  func refreshLocalDiffAfterActivity(for projectPath: String) async -> Bool {
+    let path = LocalDiffSummaryService.normalize(projectPath)
+    guard await localDiffSummaryService.invalidateAfterPendingActivity(projectPath: path),
+      !Task.isCancelled
+    else { return false }
+    let summary = await localDiffSummaryService.summary(for: path)
+    guard !Task.isCancelled else { return false }
+    if localDiffSummaries[path] != summary { localDiffSummaries[path] = summary }
+    return true
+  }
+
   /// Runs `operation` after every previously enqueued watcher operation for
   /// the same session has finished, so starts and stops reach the watcher
   /// actor in the order they were issued.
