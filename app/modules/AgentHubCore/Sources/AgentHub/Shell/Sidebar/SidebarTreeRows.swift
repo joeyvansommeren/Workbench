@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import AgentHubGitDiff
 
 struct RepoHeaderRowModel: Equatable {
   let path: String
@@ -43,6 +44,10 @@ struct SessionRowModel: Equatable {
   let roleLabel: String?
   let isFirstInBranch: Bool
   let isLastInBranch: Bool
+  var showProvider = false
+  var diff: LocalDiffSummary? = nil
+  var action: String? = nil
+  var isUnread = false
 
   var id: String { node.id }
 }
@@ -80,7 +85,8 @@ enum SidebarTreeRows {
     repos: [RepoNode],
     collapsedRepoPaths: Set<String>,
     decorations: BranchWorkflowDecorationIndex,
-    title: (SessionNode) -> String
+    title: (SessionNode) -> String,
+    providersByBranch: [String: Set<SessionProviderKind>] = [:]
   ) -> [SidebarTreeRow] {
     var rows: [SidebarTreeRow] = []
     for (repoIndex, repo) in repos.enumerated() {
@@ -118,7 +124,8 @@ enum SidebarTreeRows {
                 title: title(node),
                 roleLabel: roleLabel(for: node, decoration: decoration),
                 isFirstInBranch: sessionIndex == 0,
-                isLastInBranch: sessionIndex == branch.sessions.count - 1
+                isLastInBranch: sessionIndex == branch.sessions.count - 1,
+                showProvider: (providersByBranch[branch.id] ?? Set(branch.sessions.map(\.providerKind))).count > 1
               )))
         }
         if branch.hasMore {

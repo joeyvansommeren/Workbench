@@ -147,6 +147,7 @@ public final class AgentHubProvider {
 
   private(set) lazy var sessionResultLibrary = SessionResultLibrary(store: metadataStore)
   private(set) lazy var sessionAttentionModel = SessionAttentionModel()
+  private(set) lazy var sessionReadCursors = SessionReadCursorModel(store: metadataStore)
 
   public private(set) lazy var metadataStore: SessionMetadataStore? = {
     if let metadataStoreOverride {

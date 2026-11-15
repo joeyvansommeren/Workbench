@@ -11,12 +11,14 @@ import GRDB
 /// Actor-based service for persisting session metadata to SQLite
 /// Uses GRDB for database operations with async/await support
 public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspaceStoreProtocol,
-  SessionResultRecipeStoreProtocol, ProjectLaunchRecipeStoreProtocol, WorkflowFinishArchiveStoring
+  SessionResultRecipeStoreProtocol, ProjectLaunchRecipeStoreProtocol, WorkflowFinishArchiveStoring,
+  SessionReadCursorStoreProtocol
 {
 
   // MARK: - Properties
 
   enum MigrationID {
+    static let createSessionReadCursors = "v20_create_session_read_cursors"
     static let createResultReview = "v19_create_result_review"
     static let createSessionMetadata = "v1_create_session_metadata"
     static let createSessionRepoMapping = "v2_create_session_repo_mapping"
@@ -69,6 +71,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     MigrationID.addArchivedSessionIds,
     MigrationID.addOpenSessionTabIds,
     MigrationID.createResultReview,
+    MigrationID.createSessionReadCursors,
   ]
 
   private let dbQueue: DatabaseQueue
@@ -107,7 +110,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
 
   // MARK: - Migrations
 
-  private nonisolated var migrator: DatabaseMigrator {
+  nonisolated var migrator: DatabaseMigrator {
     var migrator = DatabaseMigrator()
 
     migrator.registerMigration(MigrationID.createSessionMetadata) { db in
@@ -432,7 +435,36 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
       }
     }
 
+    migrator.registerMigration(MigrationID.createSessionReadCursors) { db in
+      try db.create(table: "session_read_cursors") { t in
+        t.column("provider", .text).notNull()
+        t.column("sessionId", .text).notNull()
+        t.column("lastReadActivityAt", .double).notNull()
+        t.primaryKey(["provider", "sessionId"])
+      }
+    }
     return migrator
+  }
+
+  func loadReadCursors() throws -> [SessionReadCursor] {
+    try dbQueue.read { db in
+      try Row.fetchAll(db, sql: "SELECT provider, sessionId, lastReadActivityAt FROM session_read_cursors")
+        .compactMap { row in
+          guard let provider = SessionProviderKind(rawValue: row["provider"]) else { return nil }
+          let seconds: Double = row["lastReadActivityAt"]
+          return SessionReadCursor(provider: provider, sessionID: row["sessionId"], activity: Date(timeIntervalSinceReferenceDate: seconds))
+        }
+    }
+  }
+
+  func acknowledgeReadCursor(_ cursor: SessionReadCursor) throws {
+    try dbQueue.write { db in
+      try db.execute(sql: """
+        INSERT INTO session_read_cursors (provider, sessionId, lastReadActivityAt) VALUES (?, ?, ?)
+        ON CONFLICT(provider, sessionId) DO UPDATE SET lastReadActivityAt =
+          MAX(lastReadActivityAt, excluded.lastReadActivityAt)
+        """, arguments: [cursor.provider.rawValue, cursor.sessionID, cursor.activity.timeIntervalSinceReferenceDate])
+    }
   }
 
 

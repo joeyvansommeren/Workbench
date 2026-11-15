@@ -23,6 +23,8 @@ struct SessionDetailView: View {
 
   @Environment(\.agentHub) private var agentHub
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.controlActiveState) private var controlActiveState
   @Environment(\.sessionNavigationModel) private var navigationModel
   @Environment(\.sessionsActionCoordinator) private var actionCoordinator
   @Environment(SessionDetailStateModel.self) private var stateModel
@@ -79,6 +81,12 @@ struct SessionDetailView: View {
       stateModel.autoOpen.start(items: items.compactMap(autoOpenItem))
     }
     .task { await workspaceViewModel.load() }
+    .task(id: visibleReadCursor(navigationModel: navigationModel)) {
+      guard let cursor = visibleReadCursor(navigationModel: navigationModel), let agentHub else { return }
+      await SessionReadVisibility.acknowledge(cursor, model: agentHub.sessionReadCursors) {
+        visibleReadCursor(navigationModel: navigationModel)
+      }
+    }
     .task(id: pendingCIFailureRequestID) { await consumeCIFailureActionRequest() }
     .onChange(of: agentHub?.globalSessionSelectionRouter.selectionRequest?.id) { _, _ in
       consumeRouterRequests()
@@ -102,6 +110,25 @@ struct SessionDetailView: View {
     .onChange(of: codexViewModel.pendingFileOpen?.filePath) { _, _ in
       consumePendingFileOpen(from: codexViewModel, providerKind: .codex)
     }
+  }
+
+  private func visibleReadCursor(navigationModel: SessionNavigationModel) -> SessionReadCursor? {
+    guard SessionReadVisibility.isActive(scenePhase: scenePhase, controlActiveState: controlActiveState),
+      shellModel.destination == .sessions,
+      navigationModel.selectedModuleLandingPath == nil,
+      navigationModel.workflowComparisonState.presentedComparison == nil else { return nil }
+    let item: ProjectableSessionItem?
+    if let workspaceID = navigationModel.selectedWorkspaceID {
+      guard let workspace = workspaceViewModel.workspace(id: workspaceID),
+        let snapshot = try? workspace.decodedSnapshot(),
+        let linked = SessionReadVisibility.activeLinkedSession(snapshot) else { return nil }
+      item = items.first { $0.providerKind == linked.provider && $0.session.id == linked.sessionId }
+    } else {
+      item = selectedItem(navigationModel: navigationModel)
+    }
+    guard let item, !item.isPending,
+      let activity = viewModel(for: item.providerKind).monitorStates[item.session.id]?.lastActivityAt else { return nil }
+    return SessionReadCursor(provider: item.providerKind, sessionID: item.session.id, activity: activity)
   }
 
   private var emptyState: some View {
@@ -850,5 +877,38 @@ private struct ClaudeThemeHintBanner: View {
     .frame(height: 28)
     .background(Color.wbSurfaceField)
     .accessibilityElement(children: .combine)
+  }
+}
+
+
+enum SessionReadVisibility {
+  static func isActive(scenePhase: ScenePhase, controlActiveState: ControlActiveState) -> Bool {
+    scenePhase == .active && controlActiveState == .key
+  }
+
+  @MainActor
+  static func acknowledge(
+    _ cursor: SessionReadCursor, model: SessionReadCursorModel,
+    current: @MainActor () -> SessionReadCursor?,
+    sleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+  ) async {
+    await model.load()
+    for attempt in 0..<5 {
+      guard !Task.isCancelled, current() == cursor else { return }
+      if await model.acknowledge(
+        provider: cursor.provider, sessionID: cursor.sessionID, activity: cursor.activity)
+      {
+        return
+      }
+      guard attempt < 4 else { return }
+      do { try await sleep(.seconds(1 << attempt)) } catch { return }
+    }
+  }
+
+  static func activeLinkedSession(_ snapshot: TerminalWorkspaceSnapshot) -> TerminalWorkspaceLinkedSessionSnapshot? {
+    guard snapshot.panels.indices.contains(snapshot.activePanelIndex) else { return nil }
+    let panel = snapshot.panels[snapshot.activePanelIndex]
+    guard panel.tabs.indices.contains(panel.activeTabIndex) else { return nil }
+    return panel.tabs[panel.activeTabIndex].linkedSession
   }
 }

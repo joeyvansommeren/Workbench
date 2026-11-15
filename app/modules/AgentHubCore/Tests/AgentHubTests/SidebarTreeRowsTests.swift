@@ -178,6 +178,16 @@ struct SidebarTreeRowsTests {
         repoPathBySessionID: snapshot.repoPathBySessionID) == "s3")
   }
 
+  @Test("Provider marks account for sessions beyond the loaded page")
+  func mixedProvidersBeyondPage() {
+    let rows = SidebarTreeRows.rows(
+      repos: [repo("/tmp/A", branches: [branch("main", sessions: ["one"], hasMore: true)])],
+      collapsedRepoPaths: [], decorations: .empty, title: { $0.id },
+      providersByBranch: ["/tmp/A|main": [.claude, .codex]])
+    guard case .session(let row) = rows[2] else { Issue.record("missing session"); return }
+    #expect(row.showProvider)
+  }
+
   @Test("Role labels appear only for a reviewed workflow")
   func roleLabels() {
     let node = SessionNode(

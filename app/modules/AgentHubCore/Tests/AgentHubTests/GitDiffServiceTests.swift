@@ -375,6 +375,42 @@ private actor LocalDiffSummaryEvaluatorSpy {
 
 @Suite("LocalDiffSummaryService")
 struct LocalDiffSummaryServiceTests {
+  @Test("Final activity during a scan gets a trailing scan after the throttle")
+  func trailingRefreshAfterFinalActivity() async {
+    let clock = TrailingTestClock()
+    let gate = TrailingEvaluationGate()
+    let service = LocalDiffSummaryService(
+      evaluator: { _ in await gate.evaluate() }, minimumRefreshInterval: 5,
+      adaptiveThrottleMultiplier: 0, now: { clock.now() }, sleep: { clock.advance($0) })
+    let first = Task { await service.summary(for: "/tmp/trailing") }
+    await gate.waitForStart()
+    let trailing = Task {
+      await service.invalidateAfterPendingActivity(projectPath: "/tmp/trailing")
+    }
+    await gate.release()
+    _ = await first.value
+    #expect(await trailing.value)
+    let summary = await service.summary(for: "/tmp/trailing")
+    #expect(summary.additions == 2)
+    #expect(await gate.count == 2)
+    #expect(clock.now().timeIntervalSinceReferenceDate == 5)
+  }
+
+  @Test("Cancellation prevents a trailing scan after the row disappears")
+  func cancelTrailingRefresh() async {
+    let gate = TrailingEvaluationGate()
+    let service = LocalDiffSummaryService(
+      evaluator: { _ in await gate.evaluate() }, minimumRefreshInterval: 0,
+      adaptiveThrottleMultiplier: 0)
+    let first = Task { await service.summary(for: "/tmp/cancel") }
+    await gate.waitForStart()
+    let trailing = Task { await service.invalidateAfterPendingActivity(projectPath: "/tmp/cancel") }
+    trailing.cancel()
+    await gate.release()
+    _ = await first.value
+    #expect(!(await trailing.value))
+    #expect(await gate.count == 1)
+  }
 
   @Test("counts unique files across branch staged and unstaged diffs")
   func countsUniqueFilesAcrossDiffModes() async throws {
@@ -527,5 +563,36 @@ struct LocalDiffSummaryServiceTests {
     #expect(sharedCount == 1)
     #expect(refreshed.fileCount == 2)
     #expect(finalCount == 2)
+  }
+}
+
+
+private final class TrailingTestClock: @unchecked Sendable {
+  private let lock = NSLock()
+  private var date = Date(timeIntervalSinceReferenceDate: 0)
+  func now() -> Date { lock.withLock { date } }
+  func advance(_ seconds: TimeInterval) { lock.withLock { date.addTimeInterval(seconds) } }
+}
+
+private actor TrailingEvaluationGate {
+  private(set) var count = 0
+  private var started: CheckedContinuation<Void, Never>?
+  private var suspended: CheckedContinuation<Void, Never>?
+  func evaluate() async -> LocalDiffSummary {
+    count += 1
+    let evaluation = count
+    if evaluation == 1 {
+      started?.resume()
+      await withCheckedContinuation { suspended = $0 }
+    }
+    return LocalDiffSummary(fileCount: 1, additions: evaluation, deletions: 0)
+  }
+  func waitForStart() async {
+    if count > 0 { return }
+    await withCheckedContinuation { started = $0 }
+  }
+  func release() {
+    suspended?.resume()
+    suspended = nil
   }
 }

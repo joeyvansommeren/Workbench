@@ -79,7 +79,7 @@ struct SessionMetadataMigrationSafetyTests {
   func migrationIsAppended() {
     #expect(
       SessionMetadataStore.migrationIdentifiers.last
-        == SessionMetadataStore.MigrationID.createResultReview)
+        == SessionMetadataStore.MigrationID.createSessionReadCursors)
   }
 }
 
