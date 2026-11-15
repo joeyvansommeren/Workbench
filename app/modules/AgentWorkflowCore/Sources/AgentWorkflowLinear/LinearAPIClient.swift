@@ -9,6 +9,10 @@ public protocol LinearIssueReading: Sendable {
   func workflowStates(teamID: String) async throws -> [LinearWorkflowState]
   func cycleIssues(cycleID: String) async throws -> [LinearIssue]
   func assignedIssues(userID: String) async throws -> [LinearIssue]
+  /// The team's projects that are not completed or canceled, by name.
+  func projects(teamID: String) async throws -> [LinearProject]
+  /// Open issues (not completed or canceled) of a project, limited to one team.
+  func projectIssues(projectID: String, teamID: String) async throws -> [LinearIssue]
   func issue(id: String) async throws -> LinearIssue
 }
 
@@ -51,6 +55,7 @@ enum LinearGraphQL {
             state { id name type position color }
             assignee { id name email avatarUrl }
             labels { nodes { id name color } }
+            project { id name color }
           }
         }
       }
@@ -74,6 +79,7 @@ enum LinearGraphQL {
           state { id name type position color }
           assignee { id name email avatarUrl }
           labels { nodes { id name color } }
+          project { id name color }
         }
       }
     }
@@ -88,10 +94,65 @@ enum LinearGraphQL {
         state { id name type position color }
         assignee { id name email avatarUrl }
         labels { nodes { id name color } }
+        project { id name color }
       }
     }
     """
   }
+
+  // The project queries pass ids and the page cursor as GraphQL variables, so
+  // a stored or opaque value can never change the query text.
+
+  /// One page of a team's open projects. Variables: `teamID`, `after`.
+  /// Linear's project status types are backlog, planned, started, paused,
+  /// completed and canceled; the last two are closed.
+  static let projects = """
+    query TeamProjects($teamID: String!, $after: String) {
+      team(id: $teamID) {
+        projects(
+          first: 250
+          after: $after
+          filter: { status: { type: { nin: ["completed", "canceled"] } } }
+        ) {
+          nodes { id name color }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+    """
+
+  /// One page of a project's open issues in one team (the board's columns
+  /// are that team's workflow states). Variables: `projectID`, `teamID`,
+  /// `after`.
+  static let projectIssues = """
+    query ProjectIssues($projectID: ID!, $teamID: ID!, $after: String) {
+      issues(
+        first: 250
+        after: $after
+        filter: {
+          project: { id: { eq: $projectID } }
+          team: { id: { eq: $teamID } }
+          state: { type: { nin: ["completed", "canceled"] } }
+        }
+      ) {
+        nodes {
+          id identifier title description priority priorityLabel url createdAt
+          state { id name type position color }
+          assignee { id name email avatarUrl }
+          labels { nodes { id name color } }
+          project { id name color }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    """
+
+  /// Safety caps on pages (250 each), so a broken cursor can never loop.
+  /// Projects: high enough to be the whole list in practice (10,000), since
+  /// a saved project missing from it is forgotten. Issues: 2,000 open issues
+  /// in one project and team, more than a board can show.
+  static let maxProjectPages = 40
+  static let maxIssuePages = 8
 
   static func transitionIssue(id: String, stateID: String) -> String {
     """
@@ -161,6 +222,28 @@ public actor LinearAPIClient: LinearService {
     return data.issues.nodes
   }
 
+  public func projects(teamID: String) async throws -> [LinearProject] {
+    let projects: [LinearProject] = try await Self.fetchPages(maxPages: LinearGraphQL.maxProjectPages) { after in
+      let response: LinearGraphQLResponse<TeamProjectsResponse> = try await self.execute(
+        query: LinearGraphQL.projects, variables: ["teamID": teamID, "after": after])
+      guard let data = response.data else { throw self.errorFromResponse(response) }
+      // A team that no longer exists (or is not visible) has no projects.
+      guard let connection = data.team?.projects else { return ([], nil) }
+      return (connection.nodes, connection.pageInfo.nextCursor)
+    }
+    return LinearProject.sortedByName(projects)
+  }
+
+  public func projectIssues(projectID: String, teamID: String) async throws -> [LinearIssue] {
+    try await Self.fetchPages(maxPages: LinearGraphQL.maxIssuePages) { after in
+      let response: LinearGraphQLResponse<ProjectIssuesResponse> = try await self.execute(
+        query: LinearGraphQL.projectIssues,
+        variables: ["projectID": projectID, "teamID": teamID, "after": after])
+      guard let data = response.data else { throw self.errorFromResponse(response) }
+      return (data.issues.nodes, data.issues.pageInfo.nextCursor)
+    }
+  }
+
   public func issue(id: String) async throws -> LinearIssue {
     let response: LinearGraphQLResponse<IssueDetailResponse> = try await execute(
       query: LinearGraphQL.issue(id: id))
@@ -183,7 +266,27 @@ public actor LinearAPIClient: LinearService {
 
   // MARK: - Private
 
-  private func execute<T: Decodable & Sendable>(query: String) async throws -> LinearGraphQLResponse<T> {
+  /// Follows `endCursor` while Linear says there is a next page, up to
+  /// `maxPages`, and stops on a cursor it has already seen.
+  static func fetchPages<Node>(
+    maxPages: Int,
+    _ page: (_ after: String?) async throws -> (nodes: [Node], nextCursor: String?)
+  ) async throws -> [Node] {
+    var all: [Node] = []
+    var cursor: String?
+    var seen = Set<String>()
+    for _ in 0..<maxPages {
+      let result = try await page(cursor)
+      all += result.nodes
+      guard let next = result.nextCursor, seen.insert(next).inserted else { break }
+      cursor = next
+    }
+    return all
+  }
+
+  private func execute<T: Decodable & Sendable>(
+    query: String, variables: [String: String?] = [:]
+  ) async throws -> LinearGraphQLResponse<T> {
     guard let key = apiKey(), !key.isEmpty else {
       throw LinearAPIError.missingKey
     }
@@ -193,7 +296,10 @@ public actor LinearAPIClient: LinearService {
     // Linear personal API keys use the key directly, no "Bearer" prefix.
     request.setValue(key, forHTTPHeaderField: "Authorization")
 
-    let body = ["query": query]
+    var body: [String: Any] = ["query": query]
+    if !variables.isEmpty {
+      body["variables"] = variables.mapValues { $0 ?? NSNull() as Any }
+    }
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
     let data: Data

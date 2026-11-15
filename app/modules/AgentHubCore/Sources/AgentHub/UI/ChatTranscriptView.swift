@@ -249,7 +249,7 @@ struct ChatTranscriptView: View {
       }
       Spacer()
       if pendingApproval != nil, let onApprove {
-        Button("Approve") { _ = onApprove() }
+        Button("Approve") { ChatApprovalAction.approve(onApprove, fallback: onShowTerminal) }
           .buttonStyle(.borderedProminent)
           .tint(.orange)
           .controlSize(.small)
@@ -1034,5 +1034,13 @@ struct ChatMarkdownText: View {
     let options = AttributedString.MarkdownParsingOptions(
       interpretedSyntax: .inlineOnlyPreservingWhitespace)
     return (try? AttributedString(markdown: normalized, options: options)) ?? AttributedString(prose)
+  }
+}
+
+/// The chat banner's Approve: the app answers when it can confirm Claude's
+/// menu; otherwise (fail closed) the chat switches to the terminal.
+enum ChatApprovalAction {
+  static func approve(_ onApprove: () -> Bool, fallback: () -> Void) {
+    if !onApprove() { fallback() }
   }
 }

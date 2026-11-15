@@ -197,7 +197,7 @@ public struct SessionsBrowserPanel: View {
     .padding(.vertical, 8)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)

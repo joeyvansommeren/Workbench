@@ -257,6 +257,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   private var lastWorkspaceSnapshot: TerminalWorkspaceSnapshot?
   public var onUserInteraction: (() -> Void)?
   public var onRequestShowEditor: (() -> Void)?
+  public var approvalShortcutHandler: (() -> Void)?
   public var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)?
   public var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)?
   public var onCLILaunchFailed: (() -> Void)?
@@ -510,6 +511,17 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
     return true
   }
 
+  /// Escape to the agent tab only: denies Claude's permission menu.
+  public func sendEscapeToAgentSession() -> Bool {
+    guard let terminal = protectedAgentTab?.terminalView else { return false }
+    terminal.send([0x1B])
+    return true
+  }
+
+  /// SwiftTerm holds the screen buffer, so text is readable. A scrolled-back
+  /// tab still returns nil from `agentScreenTail`, and approvals refuse then.
+  public var canReadAgentScreen: Bool { true }
+
   /// The bottom rows of the agent tab's visible screen, verbatim. Bounded by
   /// `maxRows`; reads the buffer SwiftTerm already holds, no new process or I/O.
   public func agentScreenTail(maxRows: Int) -> [String]? {
@@ -582,43 +594,37 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   /// YAML theme hot-reloads that keep the id but change
   /// `terminal.background` / `terminal.cursor` still apply.
   public func updateColors(isDark: Bool, theme: RuntimeTheme? = nil) {
+    let colors = TerminalPaletteResolver.current(isDark: isDark, theme: theme)
     let fingerprint = TerminalAppearanceSync.ColorFingerprint(
       isDark: isDark,
       themeBackground: theme?.terminalBackground?.toHexString(),
       themeCursor: theme?.terminalCursor?.toHexString(),
+      paletteSignature: colors.palette?.signature,
       surfaceIDs: appearanceSurfaceIDs
     )
     guard TerminalAppearanceSync.shouldApply(current: lastAppliedColorFingerprint, incoming: fingerprint) else {
       return
     }
 
+    // Legacy shell: only background and cursor are themed; foreground and ANSI
+    // colors keep the terminal defaults. New shell: the whole palette follows
+    // the Workbench theme (see `TerminalPaletteResolver`).
+    let ansi = colors.ansi.map { $0.map(Self.swiftTermColor) }
     for terminal in allTerminalViews {
-      // Theme terminal colors only apply in dark mode
-      if isDark, let bg = theme?.terminalBackground {
-        terminal.nativeBackgroundColor = bg
-      } else if isDark {
-        terminal.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0)
-      } else {
-        // Match app light background
-        terminal.nativeBackgroundColor = NSColor(Color.backgroundLight)
-      }
-
-      if isDark {
-        terminal.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.88, alpha: 1.0)
-      } else {
-        terminal.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
-      }
-
-      if isDark, let cursor = theme?.terminalCursor {
-        terminal.caretColor = cursor
-      } else {
-        terminal.caretColor = NSColor(red: 204/255, green: 120/255, blue: 92/255, alpha: 1.0)
-      }
-
+      terminal.nativeBackgroundColor = colors.background
+      terminal.nativeForegroundColor = colors.foreground
+      terminal.caretColor = colors.cursor
+      if let ansi { terminal.installColors(ansi) }
+      if let selection = colors.selection { terminal.selectedTextBackgroundColor = selection }
       terminal.needsDisplay = true
     }
 
     lastAppliedColorFingerprint = fingerprint
+  }
+
+  private static func swiftTermColor(_ color: SRGBA) -> SwiftTerm.Color {
+    func channel(_ value: CGFloat) -> UInt16 { UInt16((max(0, min(1, value)) * 65535).rounded()) }
+    return SwiftTerm.Color(red: channel(color.r), green: channel(color.g), blue: channel(color.b))
   }
 
   /// Applies a provisional appearance to a freshly created terminal view.
@@ -631,13 +637,12 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
       ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
     terminal.font = font
 
-    if isDark {
-      terminal.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0)
-      terminal.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.88, alpha: 1.0)
-    } else {
-      terminal.nativeBackgroundColor = NSColor(Color.backgroundLight)
-      terminal.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
-    }
+    // No theme here: theme colors arrive with the next `syncAppearance`. In the
+    // new shell the palette applies at once, so a new terminal never flashes
+    // the legacy colors.
+    let colors = TerminalPaletteResolver.current(isDark: isDark, theme: nil)
+    terminal.nativeBackgroundColor = colors.background
+    terminal.nativeForegroundColor = colors.foreground
   }
 
   private func installInteractionMonitorIfNeeded() {
@@ -678,22 +683,31 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
 
         // Typing shortcuts (require terminal to be first responder)
         guard terminalTextInputActive else { break }
-        guard isProtectedAgentTab(focusedTab) else {
-          self.onUserInteraction?()
-          break
-        }
 
         let shortcut = NewlineShortcut(
           rawValue: UserDefaults.standard.integer(forKey: AgentHubDefaults.terminalNewlineShortcut)
         ) ?? .system
 
-        let isReturn = event.keyCode == 36
+        let isReturn = event.keyCode == ApprovalShortcutRouting.returnKeyCode
 
-        let action = TerminalSubmitInterception.keyAction(
+        // While an approval banner shows, ⌘↩ approves from any tab; the
+        // responder still types into the agent tab only.
+        let route = ApprovalShortcutRouting.route(
           shortcut: shortcut,
           isReturn: isReturn,
-          flags: flags
+          flags: flags,
+          isApprovalBannerVisible: self.approvalShortcutHandler != nil
         )
+        guard case .terminal(let action) = route else {
+          self.approvalShortcutHandler?()
+          self.onUserInteraction?()
+          return nil
+        }
+
+        guard isProtectedAgentTab(focusedTab) else {
+          self.onUserInteraction?()
+          break
+        }
         let queuedContextPrompt: String?
         switch action {
         case .submit, .systemSubmit:
@@ -759,8 +773,8 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   private func configureTerminalAppearance(_ terminal: TerminalView, isDark: Bool) {
     applyInitialAppearance(to: terminal, isDark: isDark)
 
-    // Set cursor color to match brand (bookCloth color)
-    terminal.caretColor = NSColor(red: 204/255, green: 120/255, blue: 92/255, alpha: 1.0)
+    // Legacy: the brand (bookCloth) cursor. New shell: the palette cursor.
+    terminal.caretColor = TerminalPaletteResolver.current(isDark: isDark, theme: nil).cursor
   }
 
   private func prepareTerminalView(isDark: Bool) -> SafeLocalProcessTerminalView {

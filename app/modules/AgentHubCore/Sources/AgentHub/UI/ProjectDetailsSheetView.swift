@@ -502,7 +502,7 @@ private struct ProjectSessionGridCard: View {
     RoundedRectangle(cornerRadius: 8, style: .continuous)
       .fill(isHovered
             ? Color.brandPrimary(from: runtimeTheme).opacity(colorScheme == .dark ? 0.16 : 0.22)
-            : Color.surfaceOverlay.opacity(colorScheme == .dark ? 0.55 : 0.65))
+            : Color.legacySurfaceFill.opacity(colorScheme == .dark ? 0.55 : 0.65))
       .overlay(
         RoundedRectangle(cornerRadius: 8, style: .continuous)
           .stroke(Color.secondary.opacity(isHovered ? 0.24 : 0.12), lineWidth: 1)
@@ -1000,8 +1000,8 @@ struct ProjectDetailsCardBackground: ViewModifier {
       .background(
         RoundedRectangle(cornerRadius: 8, style: .continuous)
           .fill(highlighted
-                ? Color.surfaceHover.opacity(colorScheme == .dark ? 0.8 : 0.9)
-                : Color.surfaceOverlay.opacity(colorScheme == .dark ? 0.55 : 0.65))
+                ? Color.legacySurfaceHover.opacity(colorScheme == .dark ? 0.8 : 0.9)
+                : Color.legacySurfaceFill.opacity(colorScheme == .dark ? 0.55 : 0.65))
           .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
               .stroke(Color.secondary.opacity(highlighted ? 0.24 : 0.12), lineWidth: 1)

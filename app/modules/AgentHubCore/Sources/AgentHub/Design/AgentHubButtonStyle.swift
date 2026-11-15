@@ -25,8 +25,6 @@ private struct OutlinedButtonBody: View {
   let tintColor: Color
 
   @State private var isHovered = false
-  @Environment(\.isEnabled) private var isEnabled
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     let cornerRadius = AgentHubLayout.buttonCornerRadius
@@ -40,12 +38,8 @@ private struct OutlinedButtonBody: View {
       .background(shape.fill(backgroundFill(isPressed: configuration.isPressed)))
       .overlay(shape.stroke(tintColor.opacity(0.4), lineWidth: 1))
       .contentShape(shape)
-      .scaleEffect(
-        isEnabled && !reduceMotion && configuration.isPressed ? 0.96 : 1.0
-      )
+      // Colour-only hover and press, instant: no scale (Joey's rule).
       .onHover { isHovered = $0 }
-      .animation(.easeOut(duration: 0.15), value: isHovered)
-      .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
   }
 
   private func backgroundFill(isPressed: Bool) -> Color {

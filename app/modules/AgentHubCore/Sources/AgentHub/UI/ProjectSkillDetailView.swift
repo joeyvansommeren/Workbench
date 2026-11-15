@@ -139,7 +139,7 @@ struct ProjectSkillDetailView: View {
     }
     .background(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(Color.surfaceOverlay.opacity(0.4))
+        .fill(Color.legacySurfaceFill.opacity(0.4))
         .overlay(
           RoundedRectangle(cornerRadius: 8, style: .continuous)
             .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
@@ -299,7 +299,7 @@ struct ProjectRuleDetailView: View {
     }
     .background(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(Color.surfaceOverlay.opacity(0.4))
+        .fill(Color.legacySurfaceFill.opacity(0.4))
         .overlay(
           RoundedRectangle(cornerRadius: 8, style: .continuous)
             .stroke(Color.secondary.opacity(0.12), lineWidth: 1)

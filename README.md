@@ -1,27 +1,23 @@
 # AgentHub
 
-<img width="1365" height="388" alt="Screenshot 2026-05-26 at 4 24 53 PM" src="https://github.com/user-attachments/assets/5d6185b7-3b06-483b-b28a-2bc17047c64d" />
+<img width="1440" height="900" alt="Sessions: destination tabs, the repo, branch and session tree, and a Claude session waiting for approval (Standard, light)" src="docs/screenshots/sessions-light.png" />
 
 ## Features
 
-<img width="1364" height="670" alt="Screenshot 2026-05-26 at 4 33 58 PM" src="https://github.com/user-attachments/assets/515b657d-9c89-41aa-a51b-a063f27cbb60" />
-<img width="1347" height="667" alt="Screenshot 2026-05-26 at 4 34 27 PM" src="https://github.com/user-attachments/assets/cb688da8-21ab-411a-973d-eb699c0e52ab" />
-<img width="1334" height="651" alt="Screenshot 2026-05-26 at 4 35 23 PM" src="https://github.com/user-attachments/assets/c06cd1d5-4ef3-41d2-95b7-07722d537012" />
-<img width="1316" height="621" alt="Screenshot 2026-05-26 at 4 35 38 PM" src="https://github.com/user-attachments/assets/eb5a73bd-f6a6-46a2-8788-2ff25d0415bb" />
-<img width="1293" height="655" alt="Screenshot 2026-05-26 at 4 35 48 PM" src="https://github.com/user-attachments/assets/4c83b798-967a-4f7b-be93-a02d265ccd12" />
-<img width="1341" height="685" alt="Screenshot 2026-05-26 at 4 36 03 PM" src="https://github.com/user-attachments/assets/8ce8a951-1b58-4d41-a719-e5c8a605b301" />
-<img width="1299" height="692" alt="Screenshot 2026-05-26 at 4 36 20 PM" src="https://github.com/user-attachments/assets/602cae08-8cd9-40b0-a797-47e78a53568d" />
-<img width="1330" height="660" alt="Screenshot 2026-05-26 at 4 36 36 PM" src="https://github.com/user-attachments/assets/9b08937b-0847-44c0-aa82-26946aedacae" />
+<img width="1440" height="900" alt="Sessions in dark mode (Standard palette)" src="docs/screenshots/sessions-dark.png" />
+<img width="1440" height="900" alt="Sessions with the Warm palette (light)" src="docs/screenshots/sessions-warm-light.png" />
+<img width="1440" height="900" alt="Reviews: the pull request table with the detail panel (dark)" src="docs/screenshots/reviews-dark.png" />
+<img width="1440" height="900" alt="Jira: the sprint board (Standard, dark)" src="docs/screenshots/jira-dark.png" />
 
 - **Multi-provider support** — Monitor and launch Claude Code and Codex sessions side by side
 - **Real-time session monitoring** — Watch all sessions update live via file-system watchers (no polling)
-- **Embedded terminal** — Full PTY terminal (SwiftTerm) inside each monitoring card; resume or start sessions without leaving the app
-- **Hub panel** — Unified view of all sessions across providers with single, list, 2-column, and 3-column grid layouts
+- **Embedded terminal** — Full PTY terminal (SwiftTerm) for each session; resume or start sessions without leaving the app
+- **One window, four destinations** — Sessions, Reviews, Jira and Linear are tabs in the title row (Cmd+1 – Cmd+4). The sidebar is one repo → branch → session tree; agent workflows (implementer, reviewer, PR) show on their branch row. The session view shows the selected session with a side panel (Diff, Plan, GitHub, Preview, …). Approve Claude tool requests in the app (Cmd+Return)
+- **Appearance** — System, Light or Dark, with a Standard or Warm palette; the terminal follows the theme. The previous interface stays available until it is removed: turn off **Settings → General → New interface** and relaunch
 - **Auxiliary Hub shell** — Toggle a session-scoped shell dock from the Hub with **Cmd+J**; it follows the selected session's worktree and preserves shell state per session
 - **Resizable list cards** — In list mode, monitoring cards can be resized with a preview guide for a smoother, less distracting resize experience
 - **Inline diff review** — Full split-pane diff view with inline editor to send change requests directly to Claude
-- **GitHub support** — Browse pull requests and issues for the current repository, inspect PR diffs and CI checks, monitor current-branch PR status f![Uploading Screenshot 2026-05-26 at 4.23.24 PM.png…]()
-rom session rows, and send GitHub context back into a session
+- **GitHub support** — Browse pull requests and issues for the current repository, inspect PR diffs and CI checks, monitor current-branch PR status from session rows, and send GitHub context back into a session
 - **File explorer and built-in editor** — Browse the project tree, jump to files with Cmd+P, edit files in-app with syntax highlighting, and save changes without leaving AgentHub
 - **Git worktree management** — Create and delete sibling worktrees from the UI, launch sessions on new branches, and choose whether AgentHub-owned worktree sessions appear under the parent module or as separate modules
 - **Remix with provider picker** — Branch any session into an isolated git worktree and continue it in Claude or Codex; the original session's transcript is passed as context to the new session
@@ -39,7 +35,7 @@ rom session rows, and send GitHub context back into a session
 - **Usage stats** — Track token counts, costs, and daily activity per provider (menu bar or popover)
 - **Command palette** — Quick access to sessions, repositories, and actions via Cmd+K
 - **Pending changes preview** — Review Edit/Write/MultiEdit tool diffs before accepting
-- **Custom themes** — bundled YAML themes (Singularity, Nebula, Helios, Rigel, Vela, Antares, Sentry, plus a Ghostty-only theme) with terminal ANSI palettes, custom backgrounds where applicable, and WCAG-compliant contrast; load custom YAML themes with hot-reload
+- **Custom themes (previous interface)** — bundled YAML themes (Singularity, Nebula, Helios, Rigel, Vela, Antares, Sentry, plus a Ghostty-only theme) with terminal ANSI palettes, custom backgrounds where applicable, and WCAG-compliant contrast; load custom YAML themes with hot-reload
 - **Terminal font picker** — Choose from 9 monospace fonts: SF Mono, JetBrains Mono, GeistMono, Fira Code, Cascadia Mono, Source Code Pro, Menlo, Monaco, Courier New
 - **Image & file attachments** — Drag-and-drop files into sessions
 - **Session naming** — Rename any session with custom names (SQLite-backed)
@@ -189,16 +185,20 @@ Updates are delivered automatically via [Sparkle](https://sparkle-project.org/) 
 | **Cmd+K** | Open command palette |
 | **Cmd+P** | Quick open files |
 | **Cmd+N** | New session |
-| **Cmd+B** | Toggle sidebar |
+| **Cmd+1 – Cmd+4** | Sessions, Reviews, Jira, Linear |
+| **Ctrl+Cmd+S** | Toggle sidebar |
+| **Option+Cmd+0** | Toggle side panel |
+| **Shift+Cmd+R** | Resume session by ID |
+| **Option+Cmd+A** | Archive current session |
+| **Cmd+Return** | Approve the pending Claude tool request (while the approval banner shows) |
 | **Cmd+J** | Toggle Hub auxiliary shell |
 | **Cmd+,** | Open settings |
 | **Cmd+Shift+O** | Expand/collapse the embedded web preview |
-| **Cmd+[** | Navigate to previous session |
-| **Cmd+]** | Navigate to next session |
-| **Cmd+\\** | Toggle focus mode (single ↔ previous layout) |
 | **Cmd++** | Increase terminal font size |
 | **Cmd+-** | Decrease terminal font size |
 | **Escape** | Dismiss maximized card / side panel / sheet |
+
+Previous interface only: **Cmd+B** (toggle sidebar), **Cmd+[ / Cmd+]** (previous / next session), **Cmd+\\** (focus mode).
 
 ### Diff View
 
@@ -258,7 +258,7 @@ When the embedded Claude or Codex terminal is focused, text editing shortcuts fo
 
 ## Hub Layouts
 
-The monitoring panel supports multiple layout modes:
+The new interface shows one session at a time: the one selected in the sidebar. The previous interface's monitoring panel supports multiple layout modes:
 
 | Mode | Description |
 |---|---|
@@ -300,7 +300,7 @@ AgentHub's settings window is organized into four tabs:
 - **General** — Notifications and app-wide behavior such as opening the file explorer in a modal window
 - **Configuration** — Claude and Codex CLI commands, provider-specific defaults, and Smart mode
 - **Worktrees** — Worktree module grouping and generated branch naming
-- **Appearance** — Flat session layout, terminal preferences, and theme selection
+- **Appearance** — System, Light or Dark; Standard or Warm palette; terminal preferences (the previous interface shows the YAML theme picker instead)
 
 ### Display Mode
 

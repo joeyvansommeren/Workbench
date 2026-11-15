@@ -275,6 +275,31 @@ public enum AgentHubDefaults {
   /// Whether agent sessions get the Studio system-prompt nudge (default on).
   public static let studioAgentGuidanceEnabled = "\(keyPrefix)features.studioAgentGuidanceEnabled"
 
+  /// Whether the new Apple-style shell is enabled.
+  /// Read once at launch; changing requires a relaunch.
+  /// Type: Bool (default: true; an explicit NO gives the legacy UI)
+  public static let appleShellEnabled = "\(keyPrefix)features.appleShell"
+
+  /// Which scope the new shell's Reviews list shows: `requested`, `mine` or `all`.
+  /// A UI preference, not session state.
+  /// Type: String (default: "requested")
+  public static let reviewsScope = "\(keyPrefix)reviews.scope"
+
+  /// Which agent the new shell's "Review with …" button starts: `Claude` or `Codex`.
+  /// A UI preference, not session state.
+  /// Type: String (default: "Claude")
+  public static let reviewsAgent = "\(keyPrefix)reviews.agent"
+
+  // MARK: - Appearance
+
+  /// User appearance preference: `system`, `light` or `dark`.
+  /// Type: String (default: "system")
+  public static let appearance = "\(keyPrefix)appearance"
+
+  /// User palette preference: `standard` or `warm`.
+  /// Type: String (default: "standard")
+  public static let palette = "\(keyPrefix)palette"
+
   /// Inspector payload level used by debug web preview inspect flows
   /// Type: String (default: "regular")
   public static let webPreviewInspectorDataLevel =
@@ -438,6 +463,10 @@ public enum AgentHubDefaults {
 
   /// Selected Linear team ID. Type: String
   public static let linearSelectedTeamID = "\(keyPrefix)linear.selectedTeamID"
+
+  /// The Linear board's project filter, per team: team ID → project ID. A
+  /// team without an entry shows all projects. Type: [String: String]
+  public static let linearSelectedProjectIDs = "\(keyPrefix)linear.selectedProjectIDs"
 
   /// Local repository path that Linear issue sessions start in. Type: String
   public static let linearRepositoryPath = "\(keyPrefix)linear.repositoryPath"

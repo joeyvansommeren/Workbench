@@ -163,11 +163,8 @@ private struct AgentHubFlatRowModifier: ViewModifier {
             .frame(width: 2)
         }
       }
-      .onHover { hovering in
-        withAnimation(.easeInOut(duration: 0.12)) {
-          isHovered = hovering
-        }
-      }
+      // Instant hover (motion plan item 2).
+      .onHover { isHovered = $0 }
   }
 }
 

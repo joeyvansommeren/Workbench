@@ -1,3 +1,4 @@
+import AgentHubCore
 import Foundation
 import GhosttySwift
 
@@ -42,6 +43,76 @@ enum AgentHubGhosttyAppearanceConfiguration {
     } catch {
       return bundledPath
     }
+  }
+
+  /// New-shell overlay: the bundled profile rewritten so every terminal
+  /// color comes from the Workbench `TerminalPalette` (background, foreground,
+  /// cursor, selection and the 16 ANSI slots). The file name carries a stable
+  /// hash of the colors, so a palette switch loads a new overlay.
+  static func path(
+    isDark: Bool,
+    terminalPalette: TerminalPalette,
+    directory: URL? = nil
+  ) -> String? {
+    guard let bundledPath = path(isDark: isDark) else { return nil }
+    let fileName =
+      "appearance-palette-v1-\(isDark ? "dark" : "light")-\(stableHash(terminalPalette.signature)).conf"
+    let targetDirectory = directory ?? defaultOverlayDirectory
+    let target = targetDirectory.appendingPathComponent(fileName)
+    if FileManager.default.fileExists(atPath: target.path) { return target.path }
+    do {
+      let base = try String(contentsOfFile: bundledPath, encoding: .utf8)
+      try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+      try overlayContent(base: base, terminalPalette: terminalPalette)
+        .write(to: target, atomically: true, encoding: .utf8)
+      return target.path
+    } catch {
+      return bundledPath
+    }
+  }
+
+  /// Pure rewrite of a bundled overlay with a full terminal palette. Opacity,
+  /// keybinds and comments pass through untouched.
+  static func overlayContent(base: String, terminalPalette: TerminalPalette) -> String {
+    let background = TerminalPalette.hex(terminalPalette.background)
+    let foreground = TerminalPalette.hex(terminalPalette.foreground)
+    let values: [String: String] = [
+      "background": background,
+      "cursor-text": background,
+      "foreground": foreground,
+      "cursor-color": TerminalPalette.hex(terminalPalette.cursor),
+      "selection-background": TerminalPalette.hex(terminalPalette.selection),
+      "selection-foreground": foreground,
+    ]
+    return base
+      .components(separatedBy: "\n")
+      .map { line in
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.hasPrefix("#"), let equalsIndex = line.firstIndex(of: "=") else {
+          return line
+        }
+        let key = line[..<equalsIndex].trimmingCharacters(in: .whitespaces)
+        if let value = values[key] { return "\(key) = \(value)" }
+        guard key == "palette" else { return line }
+        // `palette = N=#RRGGBB`
+        let entry = line[line.index(after: equalsIndex)...].trimmingCharacters(in: .whitespaces)
+        guard let slotEnd = entry.firstIndex(of: "="),
+          let slot = Int(entry[..<slotEnd]),
+          terminalPalette.ansi.indices.contains(slot)
+        else { return line }
+        return "palette = \(slot)=\(TerminalPalette.hex(terminalPalette.ansi[slot]))"
+      }
+      .joined(separator: "\n")
+  }
+
+  /// FNV-1a, stable across launches (unlike `hashValue`).
+  static func stableHash(_ text: String) -> String {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+    for byte in text.utf8 {
+      hash ^= UInt64(byte)
+      hash = hash &* 0x100_0000_01b3
+    }
+    return String(hash, radix: 16)
   }
 
   /// Pure rewrite of a bundled overlay: only the `background` key and the

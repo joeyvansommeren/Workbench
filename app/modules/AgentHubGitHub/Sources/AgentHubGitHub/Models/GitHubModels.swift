@@ -367,6 +367,14 @@ public struct GitHubPullRequest: Identifiable, Equatable, Sendable, Decodable {
     return .none
   }
 
+  /// The CI state as GitHub's own commit rollup (`statusCheckRollup.state`)
+  /// reports it, so the Reviews queue (which fetches that state) and a loaded
+  /// detail (which has the check list) agree. Unlike `ciStatus`, skipped and
+  /// neutral checks count as passing, as they do on GitHub.
+  public var rollupCIStatus: CIStatus {
+    CIStatus.rollup(of: statusCheckRollup)
+  }
+
   enum CodingKeys: String, CodingKey {
     case number, title, body, state, url
     case headRefName, headRefOid, baseRefName
@@ -388,6 +396,16 @@ public enum CIStatus: String, Sendable {
   case failure
   case pending
   case none
+
+  /// GitHub's rollup rule over a list of checks: any failure fails, else any
+  /// pending is pending, else success (skipped and neutral checks pass). No
+  /// checks at all is `.none`, as GitHub reports no rollup then.
+  public static func rollup(of checks: [GitHubCheckRun]?) -> CIStatus {
+    guard let checks, !checks.isEmpty else { return .none }
+    if checks.contains(where: { $0.ciStatus == .failure }) { return .failure }
+    if checks.contains(where: { $0.ciStatus == .pending }) { return .pending }
+    return .success
+  }
 
   public var icon: String {
     switch self {

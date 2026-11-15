@@ -224,4 +224,68 @@ struct TerminalAppearanceSyncTests {
 
     #expect(TerminalAppearanceSync.shouldApply(current: current, incoming: incoming))
   }
+
+  // MARK: - New shell palette
+
+  @Test("New shell: a palette change in light mode applies")
+  func lightModePaletteChangeApplies() {
+    let standard = TerminalAppearanceSync.ColorFingerprint(
+      isDark: false,
+      themeBackground: nil,
+      themeCursor: nil,
+      paletteSignature: "#FFFFFF,#1D1D1F",
+      surfaceIDs: [surfaceA]
+    )
+    let warm = TerminalAppearanceSync.ColorFingerprint(
+      isDark: false,
+      themeBackground: nil,
+      themeCursor: nil,
+      paletteSignature: "#FCFBF9,#1C1917",
+      surfaceIDs: [surfaceA]
+    )
+
+    #expect(TerminalAppearanceSync.shouldApply(current: standard, incoming: warm))
+  }
+
+  @Test("New shell: theme terminal colors never count, in either mode")
+  func paletteFingerprintIgnoresThemeColors() {
+    for isDark in [false, true] {
+      let current = TerminalAppearanceSync.ColorFingerprint(
+        isDark: isDark,
+        themeBackground: "#181825",
+        themeCursor: "#F5E0DC",
+        paletteSignature: "#1C1C1F",
+        surfaceIDs: [surfaceA]
+      )
+      let incoming = TerminalAppearanceSync.ColorFingerprint(
+        isDark: isDark,
+        themeBackground: "#000000",
+        themeCursor: "#FFFFFF",
+        paletteSignature: "#1C1C1F",
+        surfaceIDs: [surfaceA]
+      )
+
+      #expect(!TerminalAppearanceSync.shouldApply(current: current, incoming: incoming))
+      #expect(incoming.themeBackground == nil)
+    }
+  }
+
+  @Test("Switching from the legacy rules to a palette applies")
+  func legacyToPaletteApplies() {
+    let legacy = TerminalAppearanceSync.ColorFingerprint(
+      isDark: false,
+      themeBackground: nil,
+      themeCursor: nil,
+      surfaceIDs: [surfaceA]
+    )
+    let palette = TerminalAppearanceSync.ColorFingerprint(
+      isDark: false,
+      themeBackground: nil,
+      themeCursor: nil,
+      paletteSignature: "#FFFFFF",
+      surfaceIDs: [surfaceA]
+    )
+
+    #expect(TerminalAppearanceSync.shouldApply(current: legacy, incoming: palette))
+  }
 }

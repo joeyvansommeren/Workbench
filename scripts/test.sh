@@ -5,7 +5,9 @@
 # Usage:
 #   scripts/test.sh             # packages (fast) then core (slow)  [default]
 #   scripts/test.sh core        # AgentHubCore xcodebuild suite only
-#   scripts/test.sh packages    # fast `swift test` packages only
+#   scripts/test.sh packages    # motion + shell guards + fast `swift test` packages only
+#   scripts/test.sh motion      # motion guard only (scripts/check-motion.sh)
+#   scripts/test.sh shell       # shell toolbar guard only (scripts/check-shell.sh)
 #
 # Notes:
 #   - The AgentHubCore suite cannot run under `swift test`: it depends on
@@ -63,6 +65,28 @@ run_packages() {
   done
 }
 
+# Grep guard: no press/hover scale and no bouncy springs in new-shell code.
+run_motion_check() {
+  echo ""
+  echo "▶ motion guard"
+  if bash "$ROOT/scripts/check-motion.sh"; then
+    :
+  else
+    FAILURES+=("motion guard (scripts/check-motion.sh)")
+  fi
+}
+
+# Grep guard: no SwiftUI toolbar (it brings back the NSToolbar) in new-shell code.
+run_shell_check() {
+  echo ""
+  echo "▶ shell guard"
+  if bash "$ROOT/scripts/check-shell.sh"; then
+    :
+  else
+    FAILURES+=("shell guard (scripts/check-shell.sh)")
+  fi
+}
+
 run_core() {
   echo ""
   echo "▶ xcodebuild test: AgentHubCore (scheme AgentHubCore-Tests)"
@@ -97,9 +121,11 @@ run_core() {
 
 case "${1:-all}" in
   core)     run_core ;;
-  packages) run_packages ;;
-  all)      run_packages; run_core ;;   # cheap failures surface first
-  *)        echo "usage: scripts/test.sh [all|core|packages]" >&2; exit 2 ;;
+  packages) run_motion_check; run_shell_check; run_packages ;;
+  motion)   run_motion_check ;;
+  shell)    run_shell_check ;;
+  all)      run_motion_check; run_shell_check; run_packages; run_core ;;   # cheap failures surface first
+  *)        echo "usage: scripts/test.sh [all|core|packages|motion|shell]" >&2; exit 2 ;;
 esac
 
 echo ""

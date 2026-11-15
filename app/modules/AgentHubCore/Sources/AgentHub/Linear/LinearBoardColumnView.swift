@@ -54,7 +54,7 @@ struct LinearBoardColumnView: View {
         .scrollIndicators(.never)
         .onChange(of: selectedIssueID) { _, id in
           guard let id, column.issues.contains(where: { $0.id == id }) else { return }
-          withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id) }
+          withAnimation(.wbAnimation(DesignTokens.Motion.medium)) { proxy.scrollTo(id) }
         }
       }
     }
@@ -169,9 +169,8 @@ struct LinearIssueCard: View {
         .strokeBorder(borderColor, lineWidth: 1)
     )
     .contentShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
-    .onHover { hovering in
-      withAnimation(.easeOut(duration: 0.12)) { isHovered = hovering }
-    }
+    // Instant, like every hover in the shell (motion plan item 2).
+    .onHover { isHovered = $0 }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("\(issue.identifier): \(issue.title)")
   }

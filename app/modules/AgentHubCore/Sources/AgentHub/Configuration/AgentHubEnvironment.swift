@@ -17,6 +17,14 @@ private struct AppVisibilityKey: EnvironmentKey {
   static let defaultValue: AppVisibilityMonitor? = nil
 }
 
+private struct SessionNavigationModelKey: EnvironmentKey {
+  static let defaultValue: SessionNavigationModel? = nil
+}
+
+private struct SessionsActionCoordinatorKey: EnvironmentKey {
+  static let defaultValue: SessionsActionCoordinator? = nil
+}
+
 extension EnvironmentValues {
   /// Access to the AgentHub provider from the environment
   ///
@@ -44,6 +52,20 @@ extension EnvironmentValues {
   public var appVisibility: AppVisibilityMonitor? {
     get { self[AppVisibilityKey.self] }
     set { self[AppVisibilityKey.self] = newValue }
+  }
+
+  /// Per-window navigation model. Set by `AgentHubOperationsView`; read by
+  /// `MultiProviderSessionsListView` (falls back to a local `@State` when absent).
+  var sessionNavigationModel: SessionNavigationModel? {
+    get { self[SessionNavigationModelKey.self] }
+    set { self[SessionNavigationModelKey.self] = newValue }
+  }
+
+  /// Per-window action coordinator. Set by `AgentHubOperationsView`; read by
+  /// `MultiProviderSessionsListView` (falls back to a local `@State` when absent).
+  var sessionsActionCoordinator: SessionsActionCoordinator? {
+    get { self[SessionsActionCoordinatorKey.self] }
+    set { self[SessionsActionCoordinatorKey.self] = newValue }
   }
 }
 

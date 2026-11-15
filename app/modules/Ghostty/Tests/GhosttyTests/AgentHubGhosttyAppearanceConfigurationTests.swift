@@ -1,3 +1,4 @@
+import AgentHubCore
 import Foundation
 import GhosttySwift
 import Testing
@@ -234,5 +235,42 @@ struct AgentHubGhosttyAppearanceConfigurationTests {
 
     #expect(lowercased == uppercased)
     #expect(bare == uppercased)
+  }
+
+  @Test("New shell: the Workbench palette rewrites every terminal color")
+  func workbenchPaletteRewritesColors() throws {
+    let bundledPath = try #require(AgentHubGhosttyAppearanceConfiguration.path(isDark: false))
+    let base = try String(contentsOfFile: bundledPath, encoding: .utf8)
+    let palette = TerminalPalette(palette: .appleLight, isDark: false)
+
+    let content = AgentHubGhosttyAppearanceConfiguration.overlayContent(base: base, terminalPalette: palette)
+
+    #expect(content.contains("background = \(TerminalPalette.hex(palette.background))"))
+    #expect(content.contains("cursor-text = \(TerminalPalette.hex(palette.background))"))
+    #expect(content.contains("foreground = \(TerminalPalette.hex(palette.foreground))"))
+    #expect(content.contains("cursor-color = \(TerminalPalette.hex(palette.cursor))"))
+    #expect(content.contains("selection-background = \(TerminalPalette.hex(palette.selection))"))
+    for slot in 0..<16 {
+      #expect(content.contains("palette = \(slot)=\(TerminalPalette.hex(palette.ansi[slot]))"))
+    }
+    // Transparency, keybinds and comments pass through.
+    #expect(content.contains("background-opacity = 0"))
+    #expect(content.contains("keybind = super+1=unbind"))
+    #expect(!content.contains("foreground = #2D3748"))
+  }
+
+  @Test("New shell: a palette switch writes a different overlay file")
+  func paletteSwitchChangesOverlayPath() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ghostty-palette-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let standard = try #require(AgentHubGhosttyAppearanceConfiguration.path(
+      isDark: false, terminalPalette: TerminalPalette(palette: .appleLight, isDark: false), directory: directory))
+    let warm = try #require(AgentHubGhosttyAppearanceConfiguration.path(
+      isDark: false, terminalPalette: TerminalPalette(palette: .appleWarmLight, isDark: false), directory: directory))
+    let again = try #require(AgentHubGhosttyAppearanceConfiguration.path(
+      isDark: false, terminalPalette: TerminalPalette(palette: .appleLight, isDark: false), directory: directory))
+    #expect(standard != warm)
+    #expect(standard == again)
   }
 }

@@ -51,6 +51,13 @@ public final class CLISessionsViewModel {
   private let cliAvailabilityService: any CLIAvailabilityChecking
   private let terminalSurfaceFactory: any EmbeddedTerminalSurfaceFactory
   private let terminalBackend: EmbeddedTerminalBackend
+  /// Answers Claude's permission menu by keystroke. Replaceable in tests.
+  @ObservationIgnored public var approvalResponder: any ApprovalResponding =
+    TerminalKeystrokeApprovalResponder()
+  /// Progress after an approval click, shared by the banner and the tree pill.
+  public let approvalTracker = ApprovalResponseTracker()
+  /// The request whose banner set each terminal's ⌘↩ handler.
+  @ObservationIgnored private var approvalShortcutOwners: [String: ApprovalRequestKey] = [:]
   @ObservationIgnored private var terminalWorkspaceSaveTasks: [String: Task<Void, Never>] = [:]
   @ObservationIgnored private var workspaceStatePersistTask: Task<Void, Never>?
   /// Guards `refresh()` so overlapping callers never run `refreshSessions`
@@ -85,6 +92,10 @@ public final class CLISessionsViewModel {
   // MARK: - State
 
   public private(set) var selectedRepositories: [SelectedRepository] = []
+  /// True once the launch restore has put the saved repositories in
+  /// `selectedRepositories` (or found none). Stays false when the saved
+  /// state could not be read, so the UI never claims "no projects" then.
+  public private(set) var hasLoadedRepositories = false
   public private(set) var lastFocusedSessionId: String?
   public private(set) var lastFocusedSessionAt: Date?
   public private(set) var selectedFolderPaths: [String] = []
@@ -178,6 +189,36 @@ public final class CLISessionsViewModel {
   /// Session IDs the user explicitly archived. These tombstones prevent durable
   /// workflow and review links from silently restoring a closed session.
   public private(set) var archivedSessionIds: Set<String> = []
+
+  /// Sessions the shell showed at the last run (one per window), for this
+  /// provider. The v17 column is named for P6's tabs; since P12 it holds the
+  /// shown session. Nil until the persisted workspace state has been read
+  /// this run, so a window never mistakes "not read yet" for "none". Windows
+  /// take it through `claimRestoredOpenSessionTabIds()`.
+  private(set) var restoredOpenSessionTabIds: [String]?
+  @ObservationIgnored private var hasClaimedRestoredOpenSessionTabIds = false
+  /// The ids saved with the workspace state: the ordered union of every
+  /// window's shown session (`OpenSessionTabsAggregate`).
+  @ObservationIgnored private var openSessionTabIds: [String] = []
+  @ObservationIgnored private var openSessionTabsAggregate = OpenSessionTabsAggregate()
+
+  /// The saved ids, handed to the first window that asks after the read.
+  /// Later windows get an empty list. Nil while the read is still pending.
+  func claimRestoredOpenSessionTabIds() -> [String]? {
+    guard let restoredOpenSessionTabIds else { return nil }
+    guard !hasClaimedRestoredOpenSessionTabIds else { return [] }
+    hasClaimedRestoredOpenSessionTabIds = true
+    return restoredOpenSessionTabIds
+  }
+
+  /// Stores one window's shown session id for this provider and saves the union
+  /// of all windows (gated on a successful read, like every workspace-state save).
+  func updateOpenSessionTabIds(_ ids: [String], window: UUID) {
+    let union = openSessionTabsAggregate.update(window: window, ids: ids)
+    guard union != openSessionTabIds else { return }
+    openSessionTabIds = union
+    persistWorkspaceState()
+  }
 
   /// Maps session IDs to prompts that should be sent to the terminal when it becomes ready.
   ///
@@ -861,6 +902,73 @@ public final class CLISessionsViewModel {
     else { return false }
     markSessionFocused(key)
     return true
+  }
+
+  /// Answers the session's pending permission prompt from the app (banner,
+  /// tree pill, chat, voice). Fails closed: `.answerInTerminal` when the app
+  /// can't confirm Claude's menu is waiting, and at most one key per request
+  /// (`.alreadyAnswered` after that). `terminalKey` defaults to the id.
+  @discardableResult
+  public func respondToApproval(
+    sessionId: String,
+    decision: ApprovalDecision,
+    terminalKey: String? = nil
+  ) -> ApprovalResponseOutcome {
+    let pending = monitorStates[sessionId]?.pendingToolUse
+    MainThreadStallMonitor.breadcrumb("approval: \(decision.breadcrumbVerb) \(pending?.toolName ?? "?")")
+    let key = terminalKey ?? sessionId
+    let request = pending.map(ApprovalRequestKey.init(pending:))
+    let outcome: ApprovalResponseOutcome
+    if let request, approvalTracker.hasAnswered(sessionId: sessionId, request: request) {
+      outcome = .answerInTerminal(.alreadyAnswered)
+    } else {
+      outcome = approvalResponder.respond(
+        to: ApprovalRequestContext(sessionId: sessionId, providerKind: providerKind, pendingToolUse: pending),
+        decision: decision,
+        terminal: activeTerminals[key].map { SurfaceApprovalKeystrokeTarget(surface: $0) }
+      )
+    }
+    if let request {
+      approvalTracker.record(
+        outcome, decision: decision, sessionId: sessionId, request: request,
+        menuStillVisible: { [weak self] in self?.agentPermissionMenuVisible(forKey: key) })
+    }
+    if outcome == .sent {
+      markSessionFocused(sessionId)
+    } else {
+      AppLogger.session.notice(
+        "Approval for \(sessionId, privacy: .public) left to the terminal: \(String(describing: outcome), privacy: .public)")
+    }
+    return outcome
+  }
+
+  /// Whether the agent tab still shows Claude's permission menu; nil when the
+  /// backend or the scroll position doesn't allow reading it.
+  private func agentPermissionMenuVisible(forKey key: String) -> Bool? {
+    guard let terminal = activeTerminals[key], terminal.canReadAgentScreen,
+      let tail = terminal.agentScreenTail(maxRows: ClaudePermissionMenu.tailRows)
+    else { return nil }
+    return ClaudePermissionMenu.isVisible(in: tail)
+  }
+
+  /// Routes ⌘↩ in the session's terminal to `handler` while a banner shows;
+  /// nil restores the newline/submit shortcut.
+  ///
+  /// `request` names the banner that owns the handler. A clear for a request
+  /// that no longer owns it is ignored: the old banner's exit transition ends
+  /// after the next request's banner registered, and must not remove its ⌘↩.
+  /// A clear without a request always clears.
+  public func setApprovalShortcutHandler(
+    forKey key: String, request: ApprovalRequestKey? = nil, _ handler: (() -> Void)?
+  ) {
+    if handler == nil, let request, let owner = approvalShortcutOwners[key], owner != request {
+      return
+    }
+    // Through a local: a write via the dictionary subscript would count as a
+    // change to `activeTerminals` and redraw every observer.
+    guard let terminal = activeTerminals[key] else { return }
+    terminal.approvalShortcutHandler = handler
+    approvalShortcutOwners[key] = handler == nil ? nil : request
   }
 
   /// Delivers an orchestration handoff to a running session, resuming its embedded terminal when needed.
@@ -1953,6 +2061,10 @@ public final class CLISessionsViewModel {
   public private(set) var sessionPullRequestReferences: [String: [GitHubPullRequestURLReference]] =
     [:]
 
+  /// Tool name of the pending tool use per monitored session, if any. The new
+  /// sidebar's Approve pill reads this instead of the whole monitor state.
+  public private(set) var sessionPendingToolNames: [String: String] = [:]
+
   /// Status for a monitored session, or `nil` if it has not reported yet.
   public func sessionStatus(for sessionId: String) -> SessionStatus? {
     sessionStatuses[sessionId]
@@ -1965,6 +2077,11 @@ public final class CLISessionsViewModel {
   /// PR references detected for a monitored session.
   public func pullRequestReferences(for sessionId: String) -> [GitHubPullRequestURLReference] {
     sessionPullRequestReferences[sessionId] ?? []
+  }
+
+  /// Name of the tool waiting for approval, or `nil` when nothing is pending.
+  public func pendingToolName(for sessionId: String) -> String? {
+    sessionPendingToolNames[sessionId]
   }
 
   /// Cached project-level preview eligibility keyed by normalized project path.
@@ -2794,6 +2911,10 @@ public final class CLISessionsViewModel {
       }
       canPersistWorkspaceState = true
       selectedFolderPaths = workspaceState.selectedFolderPaths
+      // Tabs a window opened before this read finished are merged by the
+      // tabs model when it sees the restored list.
+      openSessionTabIds = workspaceState.openSessionTabIds
+      restoredOpenSessionTabIds = workspaceState.openSessionTabIds
       let paths = await restoredRepositoryPaths(from: workspaceState)
       // Retain every saved session ID before any restore step can fail. Even if
       // repositories or worktrees are unavailable this launch, the IDs keep
@@ -2802,6 +2923,7 @@ public final class CLISessionsViewModel {
         .subtracting(archivedSessionIds)
       unrestoredSessionIds.formUnion(persistedSessionIds)
       guard !paths.isEmpty else {
+        hasLoadedRepositories = true
         return
       }
 
@@ -2876,6 +2998,7 @@ public final class CLISessionsViewModel {
         updated: restoredRepositoriesWithCurrent
       )
       restoreExpansionState(workspaceState.expansionState)
+      hasLoadedRepositories = true
       persistSelectedRepositories()
       syncClaudeHookInstalls(paths: claudeHookInstallPaths(from: selectedRepositories))
 
@@ -3089,7 +3212,8 @@ public final class CLISessionsViewModel {
       monitoredSessionIds: Array(sessionIdsToPersist).sorted(),
       archivedSessionIds: Array(archivedSessionIds).sorted(),
       ownedWorktreePaths: Array(ownedWorktreePaths).sorted(),
-      expansionState: state
+      expansionState: state,
+      openSessionTabIds: openSessionTabIds
     )
   }
 
@@ -3856,6 +3980,23 @@ public final class CLISessionsViewModel {
       return
     }
     selectedRepositories[index].isExpanded.toggle()
+    persistWorkspaceState()
+  }
+
+  /// Sets the expanded state of the repository at `path`, if it is tracked.
+  /// The new sidebar sets both providers to the same value so their copies of a
+  /// shared repository never disagree.
+  public func setRepositoryExpanded(path: String, isExpanded: Bool) {
+    let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(path)
+    guard
+      let index = selectedRepositories.firstIndex(where: {
+        WorktreeModuleResolver.normalizedDirectoryPath($0.path) == normalizedPath
+      }),
+      selectedRepositories[index].isExpanded != isExpanded
+    else {
+      return
+    }
+    selectedRepositories[index].isExpanded = isExpanded
     persistWorkspaceState()
   }
 
@@ -5111,6 +5252,10 @@ public final class CLISessionsViewModel {
     if sessionPullRequestReferences[sessionId] != references {
       sessionPullRequestReferences[sessionId] = references
     }
+    let pendingToolName = state.pendingToolUse?.toolName
+    if sessionPendingToolNames[sessionId] != pendingToolName {
+      sessionPendingToolNames[sessionId] = pendingToolName
+    }
 
     monitorStateModels[sessionId]?.update(state)
   }
@@ -5120,6 +5265,7 @@ public final class CLISessionsViewModel {
     sessionStatuses.removeValue(forKey: sessionId)
     sessionLastAssistantMessages.removeValue(forKey: sessionId)
     sessionPullRequestReferences.removeValue(forKey: sessionId)
+    sessionPendingToolNames.removeValue(forKey: sessionId)
     monitorStateModels[sessionId]?.update(nil)
     monitorStateModels.removeValue(forKey: sessionId)
   }

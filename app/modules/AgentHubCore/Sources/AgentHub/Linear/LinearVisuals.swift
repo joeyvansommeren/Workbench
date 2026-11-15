@@ -131,7 +131,7 @@ struct LinearAvatar: View {
           .font(.system(size: size * 0.7))
           .foregroundStyle(.secondary)
           .frame(width: size, height: size)
-          .background(Color.surfaceOverlay)
+          .background(Color.legacySurfaceFill)
       }
     }
     .frame(width: size, height: size)

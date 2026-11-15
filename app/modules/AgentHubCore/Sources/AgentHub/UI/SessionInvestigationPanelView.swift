@@ -240,7 +240,7 @@ private struct ReportSection<Content: View>: View {
     .padding(12)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
@@ -269,7 +269,7 @@ private struct MetricTile: View {
     .padding(12)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
@@ -411,7 +411,7 @@ private struct MetadataChips: View {
             .padding(.vertical, 3)
             .background(
               RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color.surfaceOverlay)
+                .fill(Color.legacySurfaceFill)
             )
         }
       }

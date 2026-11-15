@@ -227,6 +227,21 @@ public enum SessionInteractiveInputTool {
   }
 }
 
+/// A pending tool use the app may answer: a Claude permission prompt, not an
+/// input question. The banner, the tree pill and the responder all use this.
+public enum ApprovablePermission {
+  public static func matches(toolName: String?, providerKind: SessionProviderKind) -> Bool {
+    guard providerKind == .claude, let toolName else { return false }
+    return !SessionInteractiveInputTool.matches(toolName)
+  }
+}
+
+extension PendingToolUse {
+  public func isApprovablePermission(providerKind: SessionProviderKind) -> Bool {
+    ApprovablePermission.matches(toolName: toolName, providerKind: providerKind)
+  }
+}
+
 // MARK: - ActivityEntry
 
 public struct ActivityEntry: Identifiable, Equatable, Sendable {

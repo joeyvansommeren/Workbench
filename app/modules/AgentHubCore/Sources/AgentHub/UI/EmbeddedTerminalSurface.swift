@@ -55,9 +55,17 @@ public protocol EmbeddedTerminalSurface: AnyObject {
   /// Types into the agent's own tab only, never an accessory or child tab.
   /// Chat actions (approve) use this; false when the agent tab is gone.
   func typeTextToAgentSession(_ text: String) -> Bool
+  /// Presses Escape in the agent's own tab only. Approval deny uses this.
+  func sendEscapeToAgentSession() -> Bool
+  /// Set while an approval banner shows for this session: ⌘↩ in the terminal
+  /// calls it instead of the newline/submit shortcut (`ApprovalShortcutRouting`).
+  var approvalShortcutHandler: (() -> Void)? { get set }
   /// The last `maxRows` visible rows of the agent's own tab, for state the CLI
   /// only draws on screen (compacting). Nil when the backend cannot read text.
   func agentScreenTail(maxRows: Int) -> [String]?
+  /// True when this backend can read the agent tab's text at all, even if
+  /// `agentScreenTail` returns nil right now (scrolled back).
+  var canReadAgentScreen: Bool { get }
   func typeInitialTextIfNeeded(_ text: String)
   func syncAppearance(isDark: Bool, fontSize: CGFloat, fontFamily: String, theme: RuntimeTheme?)
   func focus()
@@ -106,10 +114,23 @@ public extension EmbeddedTerminalSurface {
     false
   }
 
+  /// Fail closed, like `typeTextToAgentSession`.
+  func sendEscapeToAgentSession() -> Bool {
+    false
+  }
+
+  /// Backends without the hook keep ⌘↩ unchanged.
+  var approvalShortcutHandler: (() -> Void)? {
+    get { nil }
+    set {}
+  }
+
   /// Backends without screen access (Ghostty's public API only sends text).
   func agentScreenTail(maxRows: Int) -> [String]? {
     nil
   }
+
+  var canReadAgentScreen: Bool { false }
 
   var onWorkspaceChanged: ((TerminalWorkspaceSnapshot) -> Void)? {
     get { nil }

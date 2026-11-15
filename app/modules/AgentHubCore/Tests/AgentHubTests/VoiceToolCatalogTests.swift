@@ -9,6 +9,7 @@ private final class MockVoiceToolExecutor: VoiceAgentToolExecuting {
   var details: [String: VoiceSessionStatusDetail] = [:]
   var pending: [String: VoicePendingApproval] = [:]
   private(set) var approvalResponses: [(String, Bool)] = []
+  var approvalStatus = "accepted"
   private(set) var completionStreamSessionIds: [String] = []
 
   func listSessions() -> VoiceSessionsSummary {
@@ -95,7 +96,7 @@ private final class MockVoiceToolExecutor: VoiceAgentToolExecuting {
   ) -> VoiceApprovalResponseResult {
     approvalResponses.append((sessionId, approve))
     return .init(
-      status: "accepted",
+      status: approvalStatus,
       sessionId: sessionId,
       decision: approve ? "approve" : "deny"
     )
@@ -430,6 +431,31 @@ struct VoiceToolCatalogTests {
     #expect(executor.approvalResponses.count == 1)
     #expect(executor.approvalResponses.first?.0 == "claude-1")
     #expect(executor.approvalResponses.first?.1 == true)
+  }
+
+  @Test
+  func approvalThatFailsClosedReachesTheModelAsAnswerInTerminal() async throws {
+    let executor = MockVoiceToolExecutor()
+    executor.details["claude-1"] = detail(sessionId: "claude-1", provider: .claude)
+    executor.pending["claude-1"] = pending(sessionId: "claude-1", toolUseId: "tool-1")
+    executor.approvalStatus = "answer_in_terminal"
+    // Keep the catalog alive: it holds the pending confirmation.
+    let catalog = VoiceToolCatalog(executor: executor, onBackgroundUpdate: { _ in })
+    let tools = catalog.makeTools()
+    let registry = VoiceToolRegistry(tools: tools)
+
+    _ = await registry.execute(
+      name: "approve_pending_tool",
+      arguments: #"{"session_id":"claude-1","decision":"deny"}"#
+    )
+    let result = await registry.execute(
+      name: "approve_pending_tool",
+      arguments: #"{"session_id":"claude-1","decision":"deny","confirmed":true}"#
+    )
+
+    #expect(try status(result) == "answer_in_terminal")
+    let description = tools.first { $0.name == "approve_pending_tool" }?.description ?? ""
+    #expect(description.contains("answer_in_terminal"))
   }
 
   @Test

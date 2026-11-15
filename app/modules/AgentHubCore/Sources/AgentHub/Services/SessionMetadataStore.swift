@@ -39,6 +39,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     static let addSelectedFolderPaths = "v14_add_selected_folder_paths"
     static let createGitHubReviewSessions = "v15_create_github_review_sessions"
     static let addArchivedSessionIds = "v16_add_archived_session_ids"
+    static let addOpenSessionTabIds = "v17_add_open_session_tab_ids"
   }
 
   static let migrationIdentifiers = [
@@ -62,7 +63,8 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     MigrationID.createStudioArtifacts,
     MigrationID.addSelectedFolderPaths,
     MigrationID.createGitHubReviewSessions,
-    MigrationID.addArchivedSessionIds
+    MigrationID.addArchivedSessionIds,
+    MigrationID.addOpenSessionTabIds,
   ]
 
   private let dbQueue: DatabaseQueue
@@ -407,6 +409,13 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     migrator.registerMigration(MigrationID.addArchivedSessionIds) { db in
       try db.alter(table: "session_workspace_state") { t in
         t.add(column: "archivedSessionIdsData", .blob)
+      }
+    }
+
+    // Nullable and additive: existing rows read back with no open tabs.
+    migrator.registerMigration(MigrationID.addOpenSessionTabIds) { db in
+      try db.alter(table: "session_workspace_state") { t in
+        t.add(column: "openSessionTabIdsData", .blob)
       }
     }
 

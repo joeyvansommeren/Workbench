@@ -86,6 +86,27 @@ public struct LinearLabel: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
+/// A Linear project: the board's project filter, and an issue's project.
+public struct LinearProject: Codable, Equatable, Identifiable, Sendable {
+  public let id: String
+  public let name: String
+  /// Hex colour, for example `#5e6ad2`. Nil when the query did not ask for it.
+  public let color: String?
+
+  public init(id: String, name: String, color: String? = nil) {
+    self.id = id
+    self.name = name
+    self.color = color
+  }
+
+  /// Case- and diacritic-insensitive name order, the menu's order.
+  public static func sortedByName(_ projects: [LinearProject]) -> [LinearProject] {
+    projects.sorted {
+      $0.name.localizedStandardCompare($1.name) == .orderedAscending
+    }
+  }
+}
+
 public struct LinearIssue: Codable, Equatable, Identifiable, Sendable {
   public let id: String
   public let identifier: String
@@ -98,6 +119,8 @@ public struct LinearIssue: Codable, Equatable, Identifiable, Sendable {
   public let labels: [LinearLabel]
   public let url: String
   public let createdAt: Date
+  /// Nil when the issue has no project.
+  public let project: LinearProject?
 
   public init(
     id: String,
@@ -110,7 +133,8 @@ public struct LinearIssue: Codable, Equatable, Identifiable, Sendable {
     assignee: LinearUser? = nil,
     labels: [LinearLabel] = [],
     url: String = "",
-    createdAt: Date = Date()
+    createdAt: Date = Date(),
+    project: LinearProject? = nil
   ) {
     self.id = id
     self.identifier = identifier
@@ -123,10 +147,11 @@ public struct LinearIssue: Codable, Equatable, Identifiable, Sendable {
     self.labels = labels
     self.url = url
     self.createdAt = createdAt
+    self.project = project
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, identifier, title, description, priority, priorityLabel, state, assignee, labels, url, createdAt
+    case id, identifier, title, description, priority, priorityLabel, state, assignee, labels, url, createdAt, project
   }
 
   /// Labels come from GraphQL as `{ nodes: [...] }` but we store them flat.
@@ -142,6 +167,7 @@ public struct LinearIssue: Codable, Equatable, Identifiable, Sendable {
     assignee = try container.decodeIfPresent(LinearUser.self, forKey: .assignee)
     url = try container.decode(String.self, forKey: .url)
     createdAt = try container.decode(Date.self, forKey: .createdAt)
+    project = try container.decodeIfPresent(LinearProject.self, forKey: .project)
     // Labels: try connection wrapper first, then plain array.
     if let connection = try? container.decode(LabelsConnection.self, forKey: .labels) {
       labels = connection.nodes
@@ -216,6 +242,37 @@ public struct IssuesConnection: Decodable, Sendable {
 
 public struct AssignedIssuesResponse: Decodable, Sendable {
   public let issues: IssuesConnection
+}
+
+/// A connection page's cursor info.
+public struct LinearPageInfo: Decodable, Sendable {
+  public let hasNextPage: Bool
+  public let endCursor: String?
+
+  /// The cursor of the next page, or nil on the last page.
+  public var nextCursor: String? { hasNextPage ? endCursor : nil }
+}
+
+public struct TeamProjectsResponse: Decodable, Sendable {
+  public let team: TeamProjectsData?
+}
+
+public struct TeamProjectsData: Decodable, Sendable {
+  public let projects: ProjectsConnection
+}
+
+public struct ProjectsConnection: Decodable, Sendable {
+  public let nodes: [LinearProject]
+  public let pageInfo: LinearPageInfo
+}
+
+public struct ProjectIssuesResponse: Decodable, Sendable {
+  public let issues: PagedIssuesConnection
+}
+
+public struct PagedIssuesConnection: Decodable, Sendable {
+  public let nodes: [LinearIssue]
+  public let pageInfo: LinearPageInfo
 }
 
 public struct IssueDetailResponse: Decodable, Sendable {

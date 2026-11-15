@@ -149,13 +149,6 @@ struct CollapsibleSessionRow: View {
     return "\(repositoryKey)|\(isPending)|\(agentHub != nil)"
   }
 
-  private var observationStartupDelayMilliseconds: Int {
-    let bucket = session.id.unicodeScalars.reduce(0) { partialResult, scalar in
-      (partialResult + Int(scalar.value)) % 1_500
-    }
-    return 250 + bucket
-  }
-
   // MARK: - Body
 
   @State private var isRowHovered = false
@@ -374,32 +367,22 @@ struct CollapsibleSessionRow: View {
       return
     }
 
-    if linkedPullRequests.isEmpty {
-      try? await Task.sleep(for: .milliseconds(observationStartupDelayMilliseconds))
-      guard !Task.isCancelled else { return }
-    }
-
-    if let notifier = agentHub?.gitHubCIFailureNotifier {
-      let context = GitHubCIFailureSessionContext(
-        sessionId: session.id,
-        providerKind: providerKind,
-        projectPath: session.projectPath,
-        branchName: session.branchName
-      )
-      sessionGitHubQuickAccessViewModel.onSnapshotApplied = { snapshot in
-        notifier.evaluate(snapshot: snapshot, context: context)
-      }
-    }
-
-    await sessionGitHubQuickAccessViewModel.load(
+    let context = GitHubCIFailureSessionContext(
+      sessionId: session.id,
+      providerKind: providerKind,
       projectPath: session.projectPath,
-      branchName: session.branchName,
-      linkedPullRequests: linkedPullRequests,
-      observationService: observationService,
-      refreshOnSubscribe: false,
-      recordInitialActivity: false,
-      forceRefreshLinkedPullRequest: !linkedPullRequests.isEmpty
+      branchName: session.branchName
     )
+    guard
+      await SessionCIObservation.load(
+        sessionGitHubQuickAccessViewModel,
+        context: context,
+        linkedPullRequests: linkedPullRequests,
+        observationService: observationService,
+        notifier: agentHub?.gitHubCIFailureNotifier,
+        startupDelay: SessionCIObservation.startupDelay(sessionID: session.id)
+      )
+    else { return }
     await sessionGitHubQuickAccessViewModel.notifySessionActivity(at: timestamp)
   }
 }

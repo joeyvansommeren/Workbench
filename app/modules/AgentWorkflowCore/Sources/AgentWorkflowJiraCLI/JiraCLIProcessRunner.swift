@@ -54,6 +54,13 @@ public actor JiraCLIProcessRunner: JiraCLICommandRunning {
     }.value
   }
 
+  /// True when `acli` can be found on `PATH` or in the standard install directories.
+  public static func isInstalled() -> Bool {
+    locateACLI(
+      environmentPATH: ProcessInfo.processInfo.environment["PATH"],
+      homeDirectory: NSHomeDirectory()) != nil
+  }
+
   /// Directories searched besides `PATH`, in order.
   static func standardDirectories(homeDirectory: String) -> [String] {
     ["/opt/homebrew/bin", "/usr/local/bin", "\(homeDirectory)/.local/bin", "/usr/bin"]

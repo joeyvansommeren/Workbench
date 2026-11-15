@@ -65,7 +65,7 @@ struct JiraBoardColumnView: View {
       .scrollIndicators(.never)
       .onChange(of: selectedTicketKey) { _, key in
         guard let key, column.tickets.contains(where: { $0.key == key }) else { return }
-        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(key) }
+        withAnimation(.wbAnimation(DesignTokens.Motion.medium)) { proxy.scrollTo(key) }
       }
       }
     }
@@ -91,7 +91,7 @@ struct JiraBoardColumnView: View {
       onDropTicket(key)
       return true
     } isTargeted: { targeted in
-      withAnimation(.easeOut(duration: 0.12)) { isDropTargeted = targeted }
+      withAnimation(.wbAnimation(DesignTokens.Motion.fast)) { isDropTargeted = targeted }
     }
   }
 
@@ -199,9 +199,8 @@ struct JiraTicketCard: View {
         .strokeBorder(borderColor, lineWidth: 1)
     )
     .contentShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
-    .onHover { hovering in
-      withAnimation(.easeOut(duration: 0.12)) { isHovered = hovering }
-    }
+    // Instant, like every hover in the shell (motion plan item 2).
+    .onHover { isHovered = $0 }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("\(ticket.key): \(ticket.summary)")
   }

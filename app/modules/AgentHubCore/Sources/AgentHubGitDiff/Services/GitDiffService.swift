@@ -15,6 +15,8 @@ public enum GitDiffError: LocalizedError, Sendable {
   case notAGitRepository(String)
   case timeout
   case binaryFile(String)
+  /// The file's patch exceeds `GitDiffRenderPolicy.maxPatchBytes`.
+  case patchTooLarge(String)
 
   public var errorDescription: String? {
     switch self {
@@ -28,6 +30,8 @@ public enum GitDiffError: LocalizedError, Sendable {
       return "Git command timed out"
     case .binaryFile(let path):
       return "Binary file: \(path)"
+    case .patchTooLarge(let path):
+      return "Diff too large to show: \(path)"
     }
   }
 }
@@ -41,6 +45,14 @@ public protocol GitDiffServiceProtocol: Sendable {
     mode: DiffMode,
     baseBranch: String?
   ) async throws -> GitDiffRenderPayload
+  /// The file's unified diff text (`diff --git` header plus hunks), for views
+  /// that draw hunks themselves instead of the full-file renderer.
+  func unifiedPatch(
+    for file: GitDiffFileEntry,
+    at repoPath: String,
+    mode: DiffMode,
+    baseBranch: String?
+  ) async throws -> String
   func detectBaseBranch(at repoPath: String) async throws -> String
   func findGitRoot(at path: String) async throws -> String
 }
@@ -59,8 +71,14 @@ public actor GitDiffService: GitDiffServiceProtocol {
   /// faster in-process libgit2 path. `branch` (tree↔tree) is never gated.
   public static let defaultLargeWorktreeIndexByteThreshold: UInt64 = 4 * 1024 * 1024
 
+  /// libgit2's patch for one file; injectable so tests can force the CLI fallback.
+  typealias LibGit2UnifiedPatch = @Sendable (
+    _ file: GitDiffFileEntry, _ gitRoot: String, _ mode: DiffMode, _ baseBranch: String?, _ policy: GitDiffRenderPolicy
+  ) throws -> String
+
   private let renderPolicy: GitDiffRenderPolicy
   private let largeWorktreeIndexByteThreshold: UInt64
+  private let libGit2UnifiedPatch: LibGit2UnifiedPatch
   private var gitRootCache: [String: String] = [:]
   private var largeWorktreeCache: [String: Bool] = [:]
 
@@ -68,8 +86,24 @@ public actor GitDiffService: GitDiffServiceProtocol {
     renderPolicy: GitDiffRenderPolicy = .default,
     largeWorktreeIndexByteThreshold: UInt64 = GitDiffService.defaultLargeWorktreeIndexByteThreshold
   ) {
+    self.init(
+      renderPolicy: renderPolicy,
+      largeWorktreeIndexByteThreshold: largeWorktreeIndexByteThreshold,
+      libGit2UnifiedPatch: { file, gitRoot, mode, baseBranch, policy in
+        try LibGit2DiffBackend.unifiedPatch(
+          for: file, atGitRoot: gitRoot, mode: mode, baseBranch: baseBranch, renderPolicy: policy)
+      }
+    )
+  }
+
+  init(
+    renderPolicy: GitDiffRenderPolicy,
+    largeWorktreeIndexByteThreshold: UInt64,
+    libGit2UnifiedPatch: @escaping LibGit2UnifiedPatch
+  ) {
     self.renderPolicy = renderPolicy
     self.largeWorktreeIndexByteThreshold = largeWorktreeIndexByteThreshold
+    self.libGit2UnifiedPatch = libGit2UnifiedPatch
   }
 
   // MARK: - Public API
@@ -495,7 +529,7 @@ public actor GitDiffService: GitDiffServiceProtocol {
     mode: DiffMode,
     baseBranch: String?
   ) async throws -> GitDiffRenderPayload {
-    let patch = try await unifiedPatch(for: file, at: repoPath, mode: mode, baseBranch: baseBranch)
+    let patch = try await cliUnifiedPatch(for: file, at: repoPath, mode: mode, baseBranch: baseBranch)
     guard let payload = GitDiffPatchRenderAdapter.renderedPayload(
       from: patch,
       limitedContextReason: Self.limitedContextReason
@@ -505,7 +539,38 @@ public actor GitDiffService: GitDiffServiceProtocol {
     return payload
   }
 
-  private func unifiedPatch(
+  /// Throws `GitDiffError.patchTooLarge` above `renderPolicy.maxPatchBytes`
+  /// (never a stand-in hunk, which a hunk view would draw as a real line).
+  public func unifiedPatch(
+    for file: GitDiffFileEntry,
+    at repoPath: String,
+    mode: DiffMode,
+    baseBranch: String? = nil
+  ) async throws -> String {
+    if Task.isCancelled {
+      throw CancellationError()
+    }
+
+    // libgit2 first (same backend as the file list, so renames and untracked
+    // files match); the git CLI is the fallback, as in `renderPayload`.
+    do {
+      let gitRoot = try await findGitRoot(at: repoPath)
+      let branch = mode == .branch ? try await resolvedBaseBranch(baseBranch, repoPath: repoPath) : nil
+      return try libGit2UnifiedPatch(file, gitRoot, mode, branch, renderPolicy)
+    } catch GitDiffError.patchTooLarge(let path) {
+      throw GitDiffError.patchTooLarge(path)
+    } catch {
+      Self.logger.warning("libgit2 unifiedPatch fallback for \(file.relativePath): \(error.localizedDescription)")
+    }
+
+    let patch = try await cliUnifiedPatch(for: file, at: repoPath, mode: mode, baseBranch: baseBranch)
+    guard UInt64(patch.utf8.count) <= renderPolicy.maxPatchBytes else {
+      throw GitDiffError.patchTooLarge(file.relativePath)
+    }
+    return patch
+  }
+
+  private func cliUnifiedPatch(
     for file: GitDiffFileEntry,
     at repoPath: String,
     mode: DiffMode,

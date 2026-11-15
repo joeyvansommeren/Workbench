@@ -67,6 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
       "Geist-Regular", "Geist-Medium", "Geist-SemiBold", "Geist-Bold",
       "GeistMono-Regular", "GeistMono-Medium", "GeistMono-SemiBold", "GeistMono-Bold",
       "SourceCodePro-Regular",
+      "InterDisplay-Regular", "InterDisplay-Medium", "InterDisplay-SemiBold", "InterDisplay-Bold",
     ]
     let ttfFonts = [
       "JetBrainsMono-Regular", "JetBrainsMono-Medium",
@@ -144,7 +145,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 struct AgentHubApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+  /// Which window root this process uses. Read once: the root view, the menus
+  /// and the window style stay fixed until relaunch. The launch argument
+  /// `-com.agenthub.features.appleShell YES|NO` overrides it (argument domain).
+  private let usesAppleShell: Bool
+
   init() {
+    usesAppleShell = AppleShellLaunchFlag.isEnabled
     // Must run before any terminal/watcher/subprocess spawns: Finder-launched
     // apps inherit a 256 open-file soft limit, which a busy hub exhausts.
     FileDescriptorLimits.raiseSoftLimit()
@@ -156,56 +163,7 @@ struct AgentHubApp: App {
   }
 
   var body: some Scene {
-    WindowGroup {
-      AgentHubOperationsView()
-        .agentHub(appDelegate.provider)
-        // Default for any Text without an explicit font, so nothing falls back to SF Pro.
-        .font(.geist(size: 13))
-    }
-    .windowStyle(.hiddenTitleBar)
-    .commands {
-      // Split views have no toolbar toggle; View › Toggle Sidebar (⌃⌘S) replaces it.
-      SidebarCommands()
-
-      CommandMenu("Navigate") {
-        Button("Workflows") {
-          AgentHubAppCommand.selectWorkspace(.workflows)
-        }
-        .keyboardShortcut("1", modifiers: .command)
-
-        Button("Reviews") {
-          AgentHubAppCommand.selectWorkspace(.reviews)
-        }
-        .keyboardShortcut("2", modifiers: .command)
-
-        Button("Sessions") {
-          AgentHubAppCommand.selectWorkspace(.sessions)
-        }
-        .keyboardShortcut("3", modifiers: .command)
-
-        Button("Sprint") {
-          AgentHubAppCommand.selectWorkspace(.sprint)
-        }
-        .keyboardShortcut("4", modifiers: .command)
-
-        Button("Linear") {
-          AgentHubAppCommand.selectWorkspace(.linear)
-        }
-        .keyboardShortcut("5", modifiers: .command)
-
-        Divider()
-
-        Button("Resume Session by ID…") {
-          AgentHubAppCommand.resumeSessionByID()
-        }
-        .keyboardShortcut("r", modifiers: [.command, .shift])
-
-        Button("Archive Current Session") {
-          AgentHubAppCommand.archiveCurrentSession()
-        }
-        .keyboardShortcut("a", modifiers: [.command, .option])
-      }
-    }
+    mainWindow
 
     MenuBarExtra(
       isInserted: Binding(
@@ -225,5 +183,107 @@ struct AgentHubApp: App {
         .agentHub(appDelegate.provider)
         .font(.geist(size: 13))
     }
+
+    #if DEBUG
+    Window("Component Gallery", id: "component-gallery") {
+      ComponentGallery()
+    }
+    .defaultSize(width: 1100, height: 800)
+    .commandsRemoved()
+    #endif
+  }
+
+  /// One window group for both roots: scenes cannot branch at this deployment
+  /// target, but views and commands can.
+  private var mainWindow: some Scene {
+    WindowGroup {
+      if usesAppleShell {
+        WorkbenchShellView()
+          .agentHub(appDelegate.provider)
+          // Default for any Text without an explicit style: Inter Display body.
+          .font(WorkbenchTextStyle.body.font())
+      } else {
+        AgentHubOperationsView()
+          .agentHub(appDelegate.provider)
+          // Default for any Text without an explicit font, so nothing falls back to SF Pro.
+          .font(.geist(size: 13))
+      }
+    }
+    // Both roots draw their own top bar. The new shell's is a title band
+    // (height from ShellTitleBarMetrics; AgentHubCore Shell/README.md).
+    .windowStyle(.hiddenTitleBar)
+    .commands {
+      if usesAppleShell {
+        ShellCommands()
+      } else {
+        LegacyWorkspaceCommands()
+      }
+
+      #if DEBUG
+      ComponentGalleryCommands()
+      #endif
+    }
   }
 }
+
+/// The legacy root's menus, unchanged: View › Toggle Sidebar and Navigate.
+private struct LegacyWorkspaceCommands: Commands {
+  var body: some Commands {
+    // Split views have no toolbar toggle; View › Toggle Sidebar (⌃⌘S) replaces it.
+    SidebarCommands()
+
+    CommandMenu("Navigate") {
+      Button("Workflows") {
+        AgentHubAppCommand.selectWorkspace(.workflows)
+      }
+      .keyboardShortcut("1", modifiers: .command)
+
+      Button("Reviews") {
+        AgentHubAppCommand.selectWorkspace(.reviews)
+      }
+      .keyboardShortcut("2", modifiers: .command)
+
+      Button("Sessions") {
+        AgentHubAppCommand.selectWorkspace(.sessions)
+      }
+      .keyboardShortcut("3", modifiers: .command)
+
+      Button("Sprint") {
+        AgentHubAppCommand.selectWorkspace(.sprint)
+      }
+      .keyboardShortcut("4", modifiers: .command)
+
+      Button("Linear") {
+        AgentHubAppCommand.selectWorkspace(.linear)
+      }
+      .keyboardShortcut("5", modifiers: .command)
+
+      Divider()
+
+      Button("Resume Session by ID…") {
+        AgentHubAppCommand.resumeSessionByID()
+      }
+      .keyboardShortcut("r", modifiers: [.command, .shift])
+
+      Button("Archive Current Session") {
+        AgentHubAppCommand.archiveCurrentSession()
+      }
+      .keyboardShortcut("a", modifiers: [.command, .option])
+    }
+  }
+}
+
+#if DEBUG
+/// Debug builds only: Window › Component Gallery (⌥⌘G) opens the P2 component gallery.
+/// A `Window` scene with an id is not reachable without an explicit command.
+private struct ComponentGalleryCommands: Commands {
+  @Environment(\.openWindow) private var openWindow
+
+  var body: some Commands {
+    CommandGroup(after: .windowList) {
+      Button("Component Gallery") { openWindow(id: "component-gallery") }
+        .keyboardShortcut("g", modifiers: [.command, .option])
+    }
+  }
+}
+#endif

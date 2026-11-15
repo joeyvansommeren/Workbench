@@ -329,7 +329,7 @@ public struct CLISessionsListView: View {
     .padding(.vertical, DesignTokens.Spacing.sm)
     .background(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-        .fill(Color.surfaceOverlay)
+        .fill(Color.legacySurfaceFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
@@ -430,7 +430,7 @@ public struct CLISessionsListView: View {
           .frame(maxHeight: 280)
         }
       }
-      .background(Color.surfaceOverlay)
+      .background(Color.legacySurfaceFill)
       .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
       .overlay(
         RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
@@ -636,7 +636,7 @@ public struct CLISessionsListView: View {
           .padding(.vertical, DesignTokens.Spacing.xs + 2)
           .background(
             RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
-              .fill(Color.surfaceOverlay)
+              .fill(Color.legacySurfaceFill)
           )
           .overlay(
             RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
@@ -659,7 +659,7 @@ public struct CLISessionsListView: View {
           .padding(.vertical, DesignTokens.Spacing.xs + 2)
           .background(
             RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
-              .fill(Color.surfaceOverlay)
+              .fill(Color.legacySurfaceFill)
           )
           .overlay(
             RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
@@ -676,7 +676,7 @@ public struct CLISessionsListView: View {
             .frame(width: 28, height: 28)
             .background(
               RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
-                .fill(Color.surfaceOverlay)
+                .fill(Color.legacySurfaceFill)
             )
             .overlay(
               RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
