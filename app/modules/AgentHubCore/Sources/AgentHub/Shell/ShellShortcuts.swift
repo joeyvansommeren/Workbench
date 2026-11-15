@@ -15,6 +15,7 @@ struct ShellShortcut: Equatable {
   /// Key caps in the macOS menu order (⌃ ⌥ ⇧ ⌘), then the key.
   let keyCaps: [String]
 
+  static let nextAttention = ShellShortcut(key: "j", modifiers: .command, keyCaps: ["⌘", "J"])
   static let newSession = ShellShortcut(key: "n", modifiers: .command, keyCaps: ["⌘", "N"])
   static let search = ShellShortcut(key: "k", modifiers: .command, keyCaps: ["⌘", "K"])
   static let resumeSessionByID = ShellShortcut(

@@ -16,7 +16,7 @@ import Foundation
 public enum ApprovalDecision: String, Equatable, Sendable {
   /// "1. Yes": allow this one call.
   case approveOnce
-  /// "2. Yes, and don't ask again…": only sent when the screen shows that option.
+  /// Lasting permission is reviewed in the terminal until its full scope is verified.
   case approveAlways
   /// Escape: "No, and tell Claude what to do differently". The option number
   /// for "No" is not stable across tools, Escape is.
@@ -45,6 +45,8 @@ public enum ApprovalRefusal: Equatable, Sendable {
   /// The app already answered this request. While an approved tool runs, the
   /// request still looks pending; a second key would land in a running turn.
   case alreadyAnswered
+  /// The provider has not supplied a verified target, lifetime and revocation path.
+  case permissionScopeUnconfirmed
 }
 
 public enum ApprovalResponseOutcome: Equatable, Sendable {
@@ -76,10 +78,50 @@ public enum ClaudePermissionMenu {
     return options.contains(where: { $0.hasPrefix(allowAlwaysMarker) })
   }
 
+  /// The provider's exact offered scope, including wrapped lines. This is
+  /// disclosure text only: seeing option 2 does not prove its persistence or
+  /// revocation rules. It must never authorize an in-app persistent grant.
+  public static func persistentOption(in rows: [String]) -> String? {
+    let lines = rows.map(stripDecoration)
+    guard isVisible(in: rows, requiresAllowAlways: true),
+      let question = lines.lastIndex(where: { $0.contains(questionMarker) }),
+      let option = lines.indices.first(where: {
+        $0 > question && lines[$0].hasPrefix(allowAlwaysMarker)
+      })
+    else { return nil }
+    var text = [lines[option]]
+    for line in lines.dropFirst(option + 1) {
+      if line.range(of: #"^\d+\."#, options: .regularExpression) != nil { break }
+      guard !line.isEmpty else { break }
+      text.append(line)
+    }
+    return text.joined(separator: "\n")
+  }
+
   /// Drops box borders, the selection caret and padding: "│ ❯ 1. Yes │" → "1. Yes".
   private static func stripDecoration(_ row: String) -> String {
     let decoration = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "│┃|❯›>▶╭╮╰╯─"))
     return row.trimmingCharacters(in: decoration)
+  }
+}
+
+/// Facts the live provider option actually establishes. Unknown revocation
+/// keeps the lasting permission decision in the provider's own terminal.
+public struct ClaudePermissionScopeDisclosure: Equatable, Sendable {
+  public let providerOption: String?
+  public let duration: String
+  public let revocation = "Not confirmed"
+
+  public init(providerOption: String?) {
+    self.providerOption = providerOption
+    let normalized = providerOption?.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    if normalized == "2. Yes, allow all edits during this session (shift+tab)"
+      || normalized == "2. Yes, allow all edits during this session"
+    {
+      duration = "This session"
+    } else {
+      duration = "Not confirmed"
+    }
   }
 }
 
@@ -215,16 +257,18 @@ public struct TerminalKeystrokeApprovalResponder: ApprovalResponding {
       return .answerInTerminal(request.providerKind == .claude ? .interactiveInput : .unsupportedProvider)
     }
     guard let terminal else { return .answerInTerminal(.terminalUnavailable) }
+    // A readable option is insufficient evidence of lifetime and revocation.
+    // Until the provider exposes those facts, the user must review and choose
+    // lasting permissions in its own terminal. Never send a guessed "2".
+    guard decision != .approveAlways else { return .answerInTerminal(.permissionScopeUnconfirmed) }
 
     // Escape outside the menu interrupts Claude's turn and a stray "1" lands in
     // the prompt, so deny is gated exactly like approve.
     if terminal.canReadScreen {
       guard let tail = terminal.agentScreenTail(maxRows: ClaudePermissionMenu.tailRows),
-        ClaudePermissionMenu.isVisible(in: tail, requiresAllowAlways: decision == .approveAlways)
+        ClaudePermissionMenu.isVisible(in: tail)
       else { return .answerInTerminal(.menuNotVisible) }
     } else {
-      // Without the screen there is no way to tell whether option 2 is "Yes".
-      guard decision != .approveAlways else { return .answerInTerminal(.menuNotVisible) }
       guard sidecar.openRequestToolUseId(sessionId: request.sessionId) == pending.toolUseId else {
         return .answerInTerminal(.noOpenSidecarRequest)
       }
@@ -233,7 +277,7 @@ public struct TerminalKeystrokeApprovalResponder: ApprovalResponding {
     let delivered: Bool
     switch decision {
     case .approveOnce: delivered = terminal.typeTextToAgentSession("1")
-    case .approveAlways: delivered = terminal.typeTextToAgentSession("2")
+    case .approveAlways: return .answerInTerminal(.permissionScopeUnconfirmed)
     case .deny: delivered = terminal.sendEscapeToAgentSession()
     }
     return delivered ? .sent : .answerInTerminal(.terminalUnavailable)

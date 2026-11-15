@@ -141,13 +141,20 @@ enum CommandPaletteEntries {
   static let idleSessionLimit = 4
   static let idleCommandLimit = 3
 
-  /// attention > ready > running > thinking > idle (prototype order).
+  /// Explicit requests precede generic waiting, then running, thinking and inactive.
+  /// Visual attention tint alone does not establish an actionable request.
   static func statusRank(_ presentation: SessionStatusPresentation) -> Int {
-    switch presentation.category {
-    case .attention: return 0
-    case .ready: return 1
-    case .working: return presentation.shape == .spinningArc ? 2 : 3
-    case .idle: return 4
+    switch presentation.outcome {
+    case .needsApproval, .needsInput, .changesRequested: return 0
+    case .readyToInspect: return 1
+    case .accepted, .finished: return 4
+    case .unknown:
+      switch presentation.activity {
+      case .waiting: return 1
+      case .running: return presentation.shape == .spinningArc ? 2 : 3
+      case .starting: return 3
+      case .inactive, .unknown: return 4
+      }
     }
   }
 

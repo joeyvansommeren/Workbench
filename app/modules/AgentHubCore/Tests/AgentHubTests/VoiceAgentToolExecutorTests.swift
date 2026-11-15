@@ -125,6 +125,16 @@ private final class FixedVoiceTargetResolver: VoiceSessionTargetResolving {
 
 @MainActor
 struct VoiceAgentToolExecutorTests {
+  @Test func focusRequestsTerminalContentBeforeKeyboardFocus() {
+    let router = GlobalSessionSelectionRouter(defaults: .init(suiteName: "voice-focus-\(UUID())")!)
+    let (executor, claude, _) = makeExecutor(target: nil, selectionRouter: router)
+    claude.voiceSessions = [session(id: "s1")]
+    #expect(executor.focusSession(sessionId: "s1"))
+    #expect(router.selectionRequest?.focusesTerminal == true)
+    #expect(router.selectionRequest?.itemId == "claude-s1")
+    #expect(!claude.calls.contains("focus"))
+  }
+
   @Test
   func listSessionsProducesCodableSummaryAndResolvedTarget() throws {
     let target = VoiceSessionTarget(
@@ -678,6 +688,7 @@ struct VoiceAgentToolExecutorTests {
 
   private func makeExecutor(
     target: VoiceSessionTarget?,
+    selectionRouter: GlobalSessionSelectionRouter? = nil,
     transcriptReader: any VoiceSessionTranscriptReading =
       StubTranscriptReader(textsByPath: [:]),
     worktreeCreator: (any VoiceWorktreeCreating)? = nil,
@@ -695,7 +706,7 @@ struct VoiceAgentToolExecutorTests {
       VoiceAgentToolExecutor(
         claudeViewModel: claude,
         codexViewModel: codex,
-        selectionRouter: GlobalSessionSelectionRouter(),
+        selectionRouter: selectionRouter ?? GlobalSessionSelectionRouter(),
         targetResolver: resolver,
         transcriptReader: transcriptReader,
         worktreeCreator: worktreeCreator,

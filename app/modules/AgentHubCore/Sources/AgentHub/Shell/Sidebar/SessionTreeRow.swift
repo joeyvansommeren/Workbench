@@ -20,6 +20,8 @@ struct SessionTreeRow: View, Equatable {
 
   @State private var isHovered = false
   @State private var showsPreview = false
+  @State private var showsResult = false
+  @Environment(SessionDetailStateModel.self) private var resultDetailState
 
   nonisolated static func == (lhs: SessionTreeRow, rhs: SessionTreeRow) -> Bool {
     lhs.model == rhs.model && lhs.isSelected == rhs.isSelected && lhs.isElsewhere == rhs.isElsewhere
@@ -79,7 +81,20 @@ struct SessionTreeRow: View, Equatable {
     .popover(isPresented: $showsPreview, arrowEdge: .trailing) {
       SessionTreeHoverPreview(node: node, title: model.title)
     }
-    .contextMenu { SessionRowMenu(node: node, actions: actions) }
+    .contextMenu { SessionRowMenu(node: node, actions: actions, onShowResult: { showsResult = true }) }
+    .sheet(isPresented: $showsResult) {
+      SessionResultView(session: node.session, provider: node.providerKind, agentHub: actions.agentHub,
+        filesActionLabel: "Reveal files",
+        onTerminal: {
+          resultDetailState.setShowsResult(false, for: node.id)
+          resultDetailState.setContentMode(.terminal, for: node.id, defaultProjectPath: node.session.projectPath)
+          showsResult = false
+          actions.open(node)
+        },
+        onFiles: { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: node.session.projectPath) },
+        onChecks: { showsResult = false; actions.showGitHub(path: node.session.projectPath) })
+        .frame(minWidth: 700, minHeight: 550)
+    }
     .accessibilityElement(children: .contain)
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
@@ -109,7 +124,7 @@ struct SessionTreeRow: View, Equatable {
     .contentShape(Rectangle())
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "\(model.title), \(node.providerKind.agentDisplayName) session, \(presentation.word)"
+      "\(model.title), \(node.providerKind.agentDisplayName) session, \(presentation.accessibilityLabel)"
         + (model.roleLabel.map { ", \($0)" } ?? ""))
   }
 
@@ -174,7 +189,7 @@ private struct SessionApprovePill: View {
     let phase = actions.approvalPhase(for: node)
     let presentation = actions.approvalPresentation(for: node)
     AttentionPill(
-      title: "Approve",
+      title: "Review request",
       isBusy: Self.isBusy(phase),
       help: SidebarApprovePillText.help(phase, presentation: presentation),
       accessibilityLabel: SidebarApprovePillText.accessibilityLabel(
@@ -264,10 +279,12 @@ private struct AttentionPillStyle: ButtonStyle {
 private struct SessionRowMenu: View {
   let node: SessionNode
   let actions: SidebarTreeActions
+  let onShowResult: () -> Void
 
   var body: some View {
     Button("Open", systemImage: "arrow.right.circle") { actions.open(node) }
     if !node.isPending {
+      Button("Review result", systemImage: "doc.text.magnifyingglass", action: onShowResult)
       Button("Copy Session ID", systemImage: "doc.on.doc") { actions.copySessionID(node) }
       Button("View Transcript", systemImage: "doc.text") { actions.viewTranscript(node) }
       if node.providerKind == .claude {

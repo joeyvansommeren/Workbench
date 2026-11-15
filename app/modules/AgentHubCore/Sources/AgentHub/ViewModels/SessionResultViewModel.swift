@@ -1,0 +1,158 @@
+import AppKit
+import Foundation
+
+@MainActor
+@Observable
+final class SessionResultViewModel {
+  private(set) var source: ResultSourceSnapshot?
+  private(set) var recipe: ProjectLaunchRecipe?
+  private(set) var suggestedRecipe: ProjectLaunchRecipe?
+  private(set) var error: String?
+  private(set) var isOpening = false
+  private(set) var launchMessage: String?
+  private(set) var restartDestination: String?
+  private var observationGeneration = 0
+  private let sourceService: any ResultSourceInspecting
+  private let health: any ResultHealthChecking
+  private let server: any ResultServerStarting
+  private let opener: any ResultDestinationOpening
+  private let recipeStore: (any ProjectLaunchRecipeStoreProtocol)?
+
+  init(recipeStore: (any ProjectLaunchRecipeStoreProtocol)?,
+    sourceService: any ResultSourceInspecting = ResultSourceService(),
+    health: any ResultHealthChecking = ResultHealthService(),
+    server: (any ResultServerStarting)? = nil, opener: (any ResultDestinationOpening)? = nil) {
+    self.recipeStore = recipeStore
+    self.sourceService = sourceService
+    self.health = health
+    self.server = server ?? ResultServerStarter()
+    self.opener = opener ?? ResultDestinationOpener()
+  }
+
+  func invalidateSource() {
+    observationGeneration += 1
+    if let source {
+      self.source = ResultSourceSnapshot(worktreePath: source.worktreePath,
+        repositoryPath: source.repositoryPath, identity: nil)
+    }
+  }
+
+  func load(projectPath: String) async {
+    let generation = observationGeneration
+    let inspected = await sourceService.inspect(projectPath: projectPath)
+    source = generation == observationGeneration ? inspected : ResultSourceSnapshot(
+      worktreePath: inspected.worktreePath, repositoryPath: inspected.repositoryPath, identity: nil)
+    do {
+      if let source {
+        recipe = try await recipeStore?.loadProjectLaunchRecipe(repositoryPath: source.repositoryPath)
+        if recipe == nil {
+          let detected = await Task.detached { DevServerManager.detectProject(at: projectPath) }.value
+          let prefix = source.worktreePath + "/"
+          let subdirectory = projectPath.hasPrefix(prefix) ? String(projectPath.dropFirst(prefix.count)) : ""
+          var suggestion = ProjectLaunchRecipe(repositoryPath: source.repositoryPath, workingSubdirectory: subdirectory)
+          if detected.framework.requiresDevServer || detected.framework == .unknown {
+            suggestion.executable = detected.command
+            suggestion.arguments = detected.arguments
+            if suggestion.arguments.last == "--port" || suggestion.arguments.last == "-p" {
+              suggestion.arguments.append(String(detected.defaultPort))
+            }
+          }
+          suggestedRecipe = suggestion
+        }
+      }
+      error = nil
+    } catch { self.error = error.localizedDescription }
+  }
+
+  func save(_ definition: SessionResult, recipe: ProjectLaunchRecipe?, library: SessionResultLibrary) async -> Bool {
+    source = await sourceService.inspect(projectPath: definition.projectPath)
+    var result = definition
+    result.revise(sourceIdentity: source?.identity)
+    do {
+      if var recipe {
+        guard let recipeStore, let source else { throw ResultLaunchError.unavailableStore }
+        recipe.repositoryPath = source.repositoryPath
+        _ = try recipe.workingPath(in: source.worktreePath)
+        if !recipe.destination.isEmpty {
+          _ = try ProjectLaunchRecipe.destinationURL(recipe.destination, projectPath: source.worktreePath)
+        }
+        try await recipeStore.saveProjectLaunchRecipe(recipe)
+        self.recipe = recipe
+      }
+      try await library.save(result)
+      error = nil
+      return true
+    } catch { self.error = error.localizedDescription; return false }
+  }
+
+  func decide(_ decision: SessionProductDecision, result: SessionResult,
+    correction: String = "", library: SessionResultLibrary) async {
+    let generation = observationGeneration
+    source = await sourceService.inspect(projectPath: result.projectPath)
+    guard generation == observationGeneration,
+      library.records[result.id]?.revision == result.revision else {
+      invalidateSource()
+      error = "The result changed during review. Refresh the evidence and try again."
+      return
+    }
+    guard decision != .accepted || result.freshness(comparedTo: source?.identity) != .stale else {
+      error = ResultLaunchError.stale.localizedDescription; return
+    }
+    var updated = result
+    updated.decision = decision
+    updated.decidedAt = Date()
+    updated.correction = correction
+    do { try await library.save(updated); error = nil }
+    catch { self.error = error.localizedDescription }
+  }
+
+  func open(result: SessionResult, destination override: String? = nil, restart: Bool = false) async {
+    guard !isOpening else { return }
+    isOpening = true
+    restartDestination = nil
+    launchMessage = nil
+    var requestedDestination: String?
+    defer { isOpening = false }
+    do {
+      await load(projectPath: result.projectPath)
+      let destination = override ?? (result.destination.isEmpty ? recipe?.destination ?? "" : result.destination)
+      requestedDestination = destination
+      let root = source?.worktreePath ?? result.projectPath
+      let url = try ProjectLaunchRecipe.destinationURL(destination, projectPath: root)
+      var launchRecipe = recipe
+      launchRecipe?.destination = url.absoluteString
+      if let launchRecipe, !launchRecipe.executable.isEmpty, !url.isFileURL,
+        ["localhost", "127.0.0.1", "::1"].contains(url.host?.lowercased() ?? "") {
+        if restart {
+          try await server.restart(recipe: launchRecipe, key: result.id + ":result", worktreePath: root)
+        } else {
+          try server.validate(recipe: launchRecipe, key: result.id + ":result", worktreePath: root)
+        }
+      }
+      if url.isFileURL {
+        guard FileManager.default.fileExists(atPath: url.path) else { throw ResultLaunchError.missingFile }
+      } else if !(await health.isReachable(url)) {
+        guard var recipe, !recipe.executable.isEmpty else { throw ResultLaunchError.unreachable }
+        // The exact selected route is also the launch health target; never silently use a homepage.
+        recipe.destination = url.absoluteString
+        if !restart { try await server.start(recipe: recipe, key: result.id + ":result", worktreePath: root) }
+        var reached = false
+        for _ in 0..<10 {
+          try Task.checkCancellation()
+          if await health.isReachable(url) { reached = true; break }
+          try await Task.sleep(for: .milliseconds(400))
+        }
+        guard reached else { throw ResultLaunchError.unreachable }
+      }
+      try Task.checkCancellation()
+      guard opener.open(url) else { throw ResultLaunchError.unsupportedDestination }
+      launchMessage = "Opened the requested destination. Check the version and starting state."
+      error = nil
+    } catch is CancellationError { launchMessage = "Opening cancelled." }
+    catch ResultRecipeError.changed {
+      restartDestination = requestedDestination
+      error = ResultRecipeError.changed.localizedDescription
+    }
+    catch { self.error = error.localizedDescription }
+  }
+}

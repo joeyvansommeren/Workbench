@@ -54,7 +54,7 @@ struct SidebarTreeOrEmptyState: View {
       SidebarFirstRunEmptyState(openProject: openProject)
     } else {
       VStack(alignment: .leading, spacing: 0) {
-        SessionTreeView()
+        SessionAttentionSidebar()
           .frame(maxHeight: .infinity, alignment: .top)
         SidebarFooter(openProject: openProject)
       }

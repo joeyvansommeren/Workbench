@@ -276,9 +276,9 @@ public final class VoiceAgentToolExecutor: VoiceAgentToolExecuting {
     selectionRouter.select(
       providerKind: record.provider,
       sessionId: sessionId,
-      projectPath: record.session.projectPath
+      projectPath: record.session.projectPath,
+      focusesTerminal: true
     )
-    record.viewModel.focusTerminal(forKey: sessionId)
     return true
   }
 

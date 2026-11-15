@@ -22,6 +22,10 @@ public struct AccessorySessionPaneContext: Equatable, Sendable {
 public protocol EmbeddedTerminalSurface: AnyObject {
   var view: NSView { get }
   var currentProcessPID: Int32? { get }
+  /// Actual backend exit evidence. Nil also covers a terminal that has not launched.
+  var confirmedProcessExitAt: Date? { get }
+  /// Owned PTY roots for every pane. Nil means the backend cannot prove completeness.
+  var processIDsForExitVerification: [Int32]? { get }
   var onUserInteraction: (() -> Void)? { get set }
   var onRequestShowEditor: (() -> Void)? { get set }
   var consumeQueuedWebPreviewContextOnSubmit: (() -> String?)? { get set }
@@ -107,6 +111,9 @@ public protocol EmbeddedTerminalSurface: AnyObject {
 }
 
 public extension EmbeddedTerminalSurface {
+  var confirmedProcessExitAt: Date? { nil }
+  var processIDsForExitVerification: [Int32]? { nil }
+
   /// Fail closed: a surface that does not know which tab is the agent's must
   /// not guess. Typing into "whatever is active" is how a child session gets
   /// the parent's approval. Backends with a protected agent tab override this.

@@ -17,6 +17,7 @@ final class SidebarTreeActions {
   let shellModel: WorkbenchShellModel
   let navigationModel: SessionNavigationModel
   let coordinator: SessionsActionCoordinator
+  let detailState: SessionDetailStateModel?
 
   /// Called when `open(_:)` focuses a workspace pane, which clears
   /// `primarySessionId`; the tree keeps the row highlighted with it.
@@ -29,12 +30,14 @@ final class SidebarTreeActions {
     agentHub: AgentHubProvider,
     shellModel: WorkbenchShellModel,
     navigationModel: SessionNavigationModel,
-    coordinator: SessionsActionCoordinator
+    coordinator: SessionsActionCoordinator,
+    detailState: SessionDetailStateModel? = nil
   ) {
     self.agentHub = agentHub
     self.shellModel = shellModel
     self.navigationModel = navigationModel
     self.coordinator = coordinator
+    self.detailState = detailState
   }
 
   /// Progress of the last approval click on `node`'s current request.
@@ -74,6 +77,8 @@ final class SidebarTreeActions {
   /// arrow keys: workspace-owned sessions focus their workspace pane (like the
   /// legacy sidebar), everything else goes through `selectSession`.
   func open(_ node: SessionNode) {
+    detailState?.routePendingRequest(for: node.id, projectPath: node.session.projectPath,
+      status: node.status, hasPermissionRequest: node.showsApprovePill)
     MainThreadStallMonitor.breadcrumb("tree: select \(node.id.prefix(20))")
     if !node.isPending,
       let workspaceID = workspaces.focusWorkspaceSession(
@@ -322,14 +327,16 @@ enum SidebarApprovePillText {
     case .answerInTerminal: return "The app could not confirm Claude's menu. Answer in the terminal."
     case .checkTerminal: return "Sent once. Check the terminal."
     default:
-      guard let detail = presentation?.detail else { return "Open the session to approve" }
-      return "Open the session to approve:\n\(detail)"
+      guard let detail = presentation?.detail else {
+        return "Open the session to review this request"
+      }
+      return "Open the session to review this request:\n\(detail)"
     }
   }
 
   static func accessibilityLabel(toolName: String?, presentation: ApprovalRequestPresentation?) -> String {
     let what = presentation?.detail ?? toolName
-    return what.map { "Review approval: \($0)" } ?? "Review approval"
+    return what.map { "Review request: \($0)" } ?? "Review request"
   }
 }
 

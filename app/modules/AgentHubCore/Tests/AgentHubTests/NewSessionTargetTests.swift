@@ -284,6 +284,103 @@ struct NewSessionTargetTests {
     #expect(!model.canStart)
     #expect(model.applyToLaunchViewModel() == nil)
   }
+  @Test("Only creation of a new pending terminal routes this request")
+  func successfulCreationWitness() {
+    let vm = makeLaunchViewModel()
+    let gate = NewSessionNavigationGate()
+    let shell = WorkbenchShellModel()
+    shell.select(.reviews)
+    let request = UUID()
+    gate.begin(request)
+    var callbacks = 0
+    vm.onSessionCreated = { _, _ in
+      callbacks += 1
+      if gate.complete(request) { shell.select(.sessions) }
+    }
+    let old = UUID()
+    vm.recordCreatedSession(previous: old, current: nil, provider: .claude)
+    vm.recordCreatedSession(previous: old, current: old, provider: .claude)
+    #expect(callbacks == 0)
+    #expect(shell.destination == .reviews)
+    vm.recordCreatedSession(previous: old, current: UUID(), provider: .claude)
+    #expect(callbacks == 1)
+    #expect(shell.destination == .sessions)
+  }
+
+  @Test("Cancel during More options prevents a late successful launch from routing")
+  func cancelledPresentationCannotNavigate() {
+    let vm = makeLaunchViewModel()
+    let gate = NewSessionNavigationGate()
+    let shell = WorkbenchShellModel()
+    shell.select(.linear)
+    let first = UUID()
+    gate.begin(first)
+    vm.onLaunchPresentationCancelled = { gate.cancel(first) }
+    vm.onSessionCreated = { _, _ in
+      if gate.complete(first) { shell.select(.sessions) }
+    }
+    vm.cancelLaunch()
+    vm.recordCreatedSession(previous: nil, current: UUID(), provider: .codex)
+    #expect(shell.destination == .linear)
+    let second = UUID()
+    gate.begin(second)
+    vm.recordCreatedSession(previous: nil, current: UUID(), provider: .claude)
+    #expect(gate.requestID == second)
+    #expect(shell.destination == .linear)
+  }
+
+  @Test("Missing provider selection preserves all session choices")
+  func missingProviderRecoveryPreservesForm() {
+    let model = NewSessionSheetModel(launchViewModel: makeLaunchViewModel(
+      claudeAvailable: true, codexAvailable: false), repositories: [repository], preselectedWorktree: feature)
+    model.prompt = "Check this result"
+    model.agent = .codex
+    #expect(!model.isAgentAvailable(.codex))
+    #expect(!model.canStart)
+    #expect(model.worktreeChoice == .existing(feature))
+    #expect(model.project?.path == repository.path)
+    #expect(model.prompt == "Check this result")
+    #expect(SessionProviderKind.codex.installationGuideURL.host == "github.com")
+  }
+
+  @Test("Cancel during suspended registration creates no terminal", arguments: ["compact", "moreOptions"])
+  func cancellationDuringRegistration(context: String) async {
+    let vm = makeLaunchViewModel()
+    vm.waitsForCreatedSession = true
+    let gate = NewSessionNavigationGate()
+    let shell = WorkbenchShellModel()
+    let origin: ShellDestination = context == "compact" ? .reviews : .linear
+    shell.select(origin)
+    let request = UUID()
+    gate.begin(request)
+    var creations = 0
+    vm.onSessionCreated = { _, _ in
+      creations += 1
+      if gate.complete(request) { shell.select(.sessions) }
+    }
+    vm.onLaunchPresentationCancelled = { gate.cancel(request) }
+    let registrar = SuspendedLaunchRegistrar()
+    let launch = Task { @MainActor in
+      do {
+        _ = try await SessionLaunchRegistration.register(using: registrar,
+          name: "feature", path: "/tmp/feature", parentRepositoryPath: "/tmp/repo")
+        try Task.checkCancellation()
+        vm.recordCreatedSession(previous: nil, current: UUID(), provider: .codex)
+        return false
+      } catch is CancellationError { return true }
+      catch { return false }
+    }
+    await registrar.waitUntilSuspended()
+    launch.cancel()
+    vm.cancelLaunch()
+    registrar.resume()
+    #expect(await launch.value)
+    #expect(creations == 0)
+    #expect(vm.createdSessionCount == 0)
+    #expect(shell.destination == origin)
+    #expect(gate.requestID == nil)
+  }
+
 }
 
 // MARK: - Fixture
@@ -336,4 +433,27 @@ private final class NewSessionFileWatcher: SessionFileWatcherProtocol, @unchecke
   func getState(sessionId: String) async -> SessionMonitorState? { nil }
   func refreshState(sessionId: String) async {}
   func setApprovalTimeout(_ seconds: Int) async {}
+}
+
+
+@MainActor
+private final class SuspendedLaunchRegistrar: SessionLaunchWorktreeRegistering {
+  private var didStart = false
+  private var started: CheckedContinuation<Void, Never>?
+  private var registration: CheckedContinuation<WorktreeBranch, Never>?
+
+  func registerCreatedWorktree(name: String, path: String, parentRepositoryPath: String) async -> WorktreeBranch {
+    didStart = true
+    started?.resume()
+    started = nil
+    return await withCheckedContinuation { registration = $0 }
+  }
+  func waitUntilSuspended() async {
+    if didStart { return }
+    await withCheckedContinuation { started = $0 }
+  }
+  func resume() {
+    registration?.resume(returning: WorktreeBranch(name: "feature", path: "/tmp/feature", isWorktree: true))
+    registration = nil
+  }
 }

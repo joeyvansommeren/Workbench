@@ -543,7 +543,7 @@ struct AgentWorkflowDashboardViewModelTests {
     #expect(detectedBranch.reviewerSessions.map(\.id) == ["claude:review-session"])
     #expect(
       detectedBranch.primaryReviewer?.roleReason
-        == "Started by AgentHub as the independent reviewer"
+        == "Started by Workbench as the independent reviewer"
     )
 
     let handoff = try #require(recorder.sentPrompts.first)

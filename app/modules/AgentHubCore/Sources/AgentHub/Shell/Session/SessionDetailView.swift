@@ -247,7 +247,8 @@ struct SessionDetailView: View {
       colorScheme: colorScheme,
       // The new shell has no auxiliary shell dock.
       setAuxiliaryShellVisible: { _ in },
-      selectedProviderRawSetter: { selectedProviderRaw = $0 }
+      selectedProviderRawSetter: { selectedProviderRaw = $0 },
+      revealTerminal: { stateModel.revealTerminal(for: $0) }
     )
     navigationModel.consumeGlobalWorkflowComparisonIfNeeded(
       router: agentHub?.globalSessionSelectionRouter,
@@ -314,6 +315,7 @@ private struct SessionDetailContent: View {
   @State private var showingFilePicker = false
   @State private var gitHubPopOut: SessionGitHubPopOut?
   @State private var transcript: SessionTranscript?
+  @State private var commitReview: CommitChangesReviewModel?
   @State private var claudeTheme: String?
   @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
   @AppStorage(AgentHubDefaults.diffDisplayMode)
@@ -362,6 +364,7 @@ private struct SessionDetailContent: View {
     Binding(
       get: { effectiveContentMode },
       set: { mode in
+        stateModel.setShowsResult(false, for: item.id)
         stateModel.setContentMode(mode, for: item.id, defaultProjectPath: session.projectPath)
         if mode == .terminal { viewModel.focusTerminal(forKey: terminalKey) }
       }
@@ -406,6 +409,13 @@ private struct SessionDetailContent: View {
           onCreatePullRequest: createPullRequest
         )
       }
+      if !item.isPending {
+        HStack {
+          Button("Result") { stateModel.setShowsResult(true, for: item.id) }
+            .buttonStyle(.bordered)
+          Spacer()
+        }.padding(.horizontal, 12).padding(.vertical, 4)
+      }
       if showsClaudeThemeHint {
         ClaudeThemeHintBanner()
       }
@@ -420,7 +430,22 @@ private struct SessionDetailContent: View {
         // Stays mounted while the side panel is expanded (hidden, zero width),
         // so the terminal view is not torn down.
         let hidesContent = shellModel.sidePanelVisible && isSidePanelExpanded
-        contentArea
+        ZStack {
+          contentArea
+            .environment(\.isTerminalConcealed, stateModel.showsResult(for: item.id) || hidesContent)
+            .opacity(stateModel.showsResult(for: item.id) ? 0 : 1)
+            .allowsHitTesting(!stateModel.showsResult(for: item.id))
+            .accessibilityHidden(stateModel.showsResult(for: item.id))
+          if stateModel.showsResult(for: item.id), let hubProvider {
+            SessionResultView(session: session, provider: providerKind, agentHub: hubProvider,
+              onTerminal: { contentModeBinding.wrappedValue = .terminal },
+              onFiles: { contentModeBinding.wrappedValue = .editor },
+              onChecks: {
+                stateModel.setSidePanelSegment(.gitHub, for: item.id)
+                if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
+              })
+          }
+        }
           .frame(width: hidesContent ? 0 : nil)
           .frame(maxWidth: hidesContent ? 0 : .infinity)
           .opacity(hidesContent ? 0 : 1)
@@ -483,6 +508,16 @@ private struct SessionDetailContent: View {
         onDismiss: { showingNameSheet = false }
       )
     }
+    .sheet(item: $commitReview) { review in
+      CommitChangesSheet(model: review) {
+        Task {
+          await viewModel.ensureLocalDiffSummary(for: review.projectPath, forceRefresh: true)
+          await viewModel.ensureDiffAvailability(for: review.projectPath, forceRefresh: true)
+        }
+      }
+    }
+    .onDisappear { commitReview?.invalidate() }
+    .onChange(of: session.projectPath) { _, _ in commitReview?.invalidate() }
     .modalPanel(
       item: $gitHubPopOut,
       title: "GitHub",
@@ -754,13 +789,10 @@ private struct SessionDetailContent: View {
   }
 
   private func commitChanges() {
-    CommitChangesAction.perform(
-      session: session,
-      terminalKey: terminalKey,
-      fileCount: viewModel.localDiffSummary(for: session.projectPath)?.fileCount ?? 0,
-      viewModel: viewModel,
-      showTerminal: { contentModeBinding.wrappedValue = .terminal }
-    )
+    guard commitReview == nil, let service = hubProvider?.commitChangesService else { return }
+    commitReview = CommitChangesReviewModel(
+      sessionID: session.id, providerID: providerKind.rawValue,
+      projectPath: session.projectPath, service: service)
   }
 
   private func createPullRequest() {

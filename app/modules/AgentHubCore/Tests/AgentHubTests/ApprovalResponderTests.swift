@@ -20,17 +20,59 @@ struct ApprovalResponderTests {
     #expect(terminal.escapes == 0)
   }
 
-  @Test("Always allow types 2 only when option 2 is a Yes")
-  func approveAlways() {
-    let edit = MockApprovalTerminal(screen: ClaudePermissionMenuFixtures.edit)
-    #expect(responder().respond(to: request(tool: "Edit"), decision: .approveAlways, terminal: edit) == .sent)
-    #expect(edit.agentTyped == ["2"])
+  @Test("Lasting permission requires verified scope and never types a guessed option 2")
+  func persistentPermissionRequiresScopeEvidence() {
+    for screen in [
+      ClaudePermissionMenuFixtures.edit, ClaudePermissionMenuFixtures.bashPlain,
+      ClaudePermissionMenuFixtures.yesNoOnly,
+    ] {
+      let terminal = MockApprovalTerminal(screen: screen)
+      #expect(
+        responder().respond(to: request(), decision: .approveAlways, terminal: terminal)
+          == .answerInTerminal(.permissionScopeUnconfirmed))
+      #expect(terminal.sentNothing)
+    }
+  }
 
-    let yesNo = MockApprovalTerminal(screen: ClaudePermissionMenuFixtures.yesNoOnly)
+  @Test("Permission disclosure keeps the provider's materially different scopes")
+  func persistentOptionDisclosure() {
     #expect(
-      responder().respond(to: request(tool: "WebFetch"), decision: .approveAlways, terminal: yesNo)
-        == .answerInTerminal(.menuNotVisible))
-    #expect(yesNo.agentTyped.isEmpty)
+      ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.edit)
+        == "2. Yes, allow all edits during this session (shift+tab)")
+    #expect(
+      ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.bashPlain)
+        == "2. Yes, and don't ask again for ls commands in /Users/me/repo")
+    #expect(
+      ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.yesNoOnly) == nil)
+    #expect(
+      ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.idlePrompt) == nil)
+    #expect(ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.question) == nil)
+    let wrapped = [
+      "Do you want to proceed?", "1. Yes", "2. Yes, and don't ask again for ls commands",
+      "in /tmp/a long directory", "3. No",
+    ]
+    #expect(
+      ClaudePermissionMenu.persistentOption(in: wrapped)
+        == "2. Yes, and don't ask again for ls commands\nin /tmp/a long directory")
+    // An earlier readable menu must not provide scope for a later request.
+    let replaced =
+      ClaudePermissionMenuFixtures.edit + ["Do you want to proceed?", "1. Yes", "2. No"]
+    #expect(ClaudePermissionMenu.persistentOption(in: replaced) == nil)
+  }
+
+  @Test("Disclosure reports an explicit session lifetime and leaves other facts unknown")
+  func scopeFactsFollowProviderText() {
+    let session = ClaudePermissionScopeDisclosure(
+      providerOption: ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.edit))
+    #expect(session.duration == "This session")
+    #expect(session.revocation == "Not confirmed")
+    let directory = ClaudePermissionScopeDisclosure(
+      providerOption: ClaudePermissionMenu.persistentOption(
+        in: ClaudePermissionMenuFixtures.bashPlain))
+    #expect(directory.duration == "Not confirmed")
+    #expect(directory.revocation == "Not confirmed")
+    #expect(ClaudePermissionScopeDisclosure(providerOption: nil).providerOption == nil)
+    #expect(ClaudePermissionScopeDisclosure(providerOption: nil).duration == "Not confirmed")
   }
 
   @Test("Deny sends Escape, never a number")
@@ -54,7 +96,7 @@ struct ApprovalResponderTests {
   @Test("Refuses when the tail lacks the menu, for approve and deny")
   func refusesWithoutMenu() {
     let terminal = MockApprovalTerminal(screen: ClaudePermissionMenuFixtures.idlePrompt)
-    for decision in [ApprovalDecision.approveOnce, .approveAlways, .deny] {
+    for decision in [ApprovalDecision.approveOnce, .deny] {
       #expect(
         responder().respond(to: request(), decision: decision, terminal: terminal)
           == .answerInTerminal(.menuNotVisible))
@@ -99,7 +141,7 @@ struct ApprovalResponderTests {
     // SwiftTerm scrolled back: the backend reads text, but the live rows aren't readable now.
     let terminal = MockApprovalTerminal(screen: nil, canReadScreen: true)
     let withOpenSidecar = responder(openToolUseId: "t1")
-    for decision in [ApprovalDecision.approveOnce, .approveAlways, .deny] {
+    for decision in [ApprovalDecision.approveOnce, .deny] {
       #expect(
         withOpenSidecar.respond(to: request(), decision: decision, terminal: terminal)
           == .answerInTerminal(.menuNotVisible))
@@ -132,7 +174,7 @@ struct ApprovalResponderTests {
     let terminal = MockApprovalTerminal(screen: nil)
     #expect(
       responder(openToolUseId: "t1").respond(to: request(), decision: .approveAlways, terminal: terminal)
-        == .answerInTerminal(.menuNotVisible))
+        == .answerInTerminal(.permissionScopeUnconfirmed))
     #expect(terminal.sentNothing)
   }
 
@@ -245,7 +287,7 @@ struct ApprovalResponderTests {
     try await seedPending(viewModel, watcher, toolUseId: "t1")
 
     #expect(viewModel.respondToApproval(sessionId: "s1", decision: .approveOnce) == .sent)
-    for decision in [ApprovalDecision.approveOnce, .deny] {
+    for decision in [ApprovalDecision.approveOnce, .approveAlways, .deny] {
       #expect(viewModel.respondToApproval(sessionId: "s1", decision: decision) == .answerInTerminal(.alreadyAnswered))
     }
     #expect(surface.agentTyped == ["1"])
@@ -310,12 +352,16 @@ struct ApprovalResponderTests {
     let presentation = ApprovalRequestPresentation(toolName: "Bash", input: "make test && rm -rf build")
     #expect(
       SidebarApprovePillText.help(nil, presentation: presentation)
-        == "Open the session to approve:\nmake test && rm -rf build")
+        == "Open the session to review this request:\nmake test && rm -rf build")
     #expect(
       SidebarApprovePillText.accessibilityLabel(toolName: "Bash", presentation: presentation)
-        == "Review approval: make test && rm -rf build")
-    #expect(SidebarApprovePillText.help(nil, presentation: nil) == "Open the session to approve")
-    #expect(SidebarApprovePillText.accessibilityLabel(toolName: "Bash", presentation: nil) == "Review approval: Bash")
+        == "Review request: make test && rm -rf build")
+    #expect(
+      SidebarApprovePillText.help(nil, presentation: nil)
+        == "Open the session to review this request")
+    #expect(
+      SidebarApprovePillText.accessibilityLabel(toolName: "Bash", presentation: nil)
+        == "Review request: Bash")
     #expect(
       SidebarApprovePillText.help(.checkTerminal, presentation: presentation) == "Sent once. Check the terminal.")
   }

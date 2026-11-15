@@ -166,10 +166,9 @@ public struct EmbeddedTerminalView: NSViewRepresentable {
       nsView.mount(terminal, key: terminalKey)
     }
     // A hidden view stops drawing; opacity(0) alone kept repainting every frame.
-    if nsView.isHidden != isConcealed {
-      nsView.isHidden = isConcealed
-      if !isConcealed { terminal.view.needsDisplay = true }
-    }
+    let wasConcealed = nsView.isHidden
+    nsView.setConcealed(isConcealed)
+    if wasConcealed && !isConcealed { terminal.view.needsDisplay = true }
     terminal.syncAppearance(isDark: colorScheme == .dark, fontSize: CGFloat(terminalFontSize), fontFamily: terminalFontFamily, theme: runtimeTheme)
 
     // Use terminalKey (not sessionId) since it works for both pending and real sessions.
@@ -269,6 +268,20 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
   /// The PID of the current terminal process, if running
   public var currentProcessPID: Int32? {
     protectedAgentTab?.terminalView.currentProcessId ?? activeTab?.terminalView.currentProcessId
+  }
+
+  public var processIDsForExitVerification: [Int32]? {
+    let terminals = allTerminalViews
+    guard !terminals.isEmpty,
+      terminals.allSatisfy({ $0.currentProcessId != nil || $0.confirmedProcessExitAt != nil }) else { return nil }
+    return terminals.compactMap(\.currentProcessId)
+  }
+
+  public var confirmedProcessExitAt: Date? {
+    let terminals = allTerminalViews
+    guard !terminals.isEmpty,
+      terminals.allSatisfy({ $0.currentProcessId == nil && $0.confirmedProcessExitAt != nil }) else { return nil }
+    return terminals.compactMap(\.confirmedProcessExitAt).max()
   }
 
   // MARK: - Lifecycle
@@ -659,7 +672,7 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
         self.syncSelection(to: focusedTab)
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let isTerminalVisible = terminal.superview != nil && !terminal.isHidden && terminal.alphaValue > 0
+        let isTerminalVisible = terminal.superview != nil && !terminal.isHiddenOrHasHiddenAncestor && terminal.alphaValue > 0
         let terminalTextInputActive = isTerminalVisible
           && self.isTerminalResponderActive(window: window, terminal: terminal)
 

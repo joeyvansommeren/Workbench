@@ -47,6 +47,27 @@ final class SessionDetailStateModel {
   /// still loading (restore, pending → resolved) is never replaced.
   @ObservationIgnored private var everAvailableIDs: Set<String> = []
 
+  private var resultVisibility: [String: Bool] = [:]
+
+  func showsResult(for id: String) -> Bool { resultVisibility[id] ?? !Self.isPending(id) }
+  func setShowsResult(_ shows: Bool, for id: String) { resultVisibility[id] = shows }
+
+  /// A request must open its actual controls, even before this task has a result record.
+  @discardableResult
+  func routePendingRequest(for id: String, projectPath: String, status: SessionStatus?, hasPermissionRequest: Bool) -> Bool {
+    let hasInput: Bool
+    if case .awaitingApproval = status { hasInput = true } else { hasInput = false }
+    guard hasInput || hasPermissionRequest else { return false }
+    setShowsResult(false, for: id)
+    setContentMode(.terminal, for: id, defaultProjectPath: projectPath)
+    return true
+  }
+
+  func revealTerminal(for request: GlobalSessionSelectionRequest) {
+    setShowsResult(false, for: request.itemId)
+    setContentMode(.terminal, for: request.itemId, defaultProjectPath: request.projectPath)
+  }
+
   init() {}
 
   // MARK: - Per-session state
@@ -95,8 +116,11 @@ final class SessionDetailStateModel {
   func migrateResolvedPendingSessions(_ history: [UUID: String], provider: SessionProviderKind) {
     for (pendingID, sessionID) in history {
       let pendingKey = SidebarSessionItemID.pending(provider: provider, pendingId: pendingID)
-      guard editorStates[pendingKey] != nil || sidePanelSegments[pendingKey] != nil else { continue }
+      guard editorStates[pendingKey] != nil || sidePanelSegments[pendingKey] != nil
+        || resultVisibility[pendingKey] != nil else { continue }
       let resolvedKey = SidebarSessionItemID.monitored(provider: provider, sessionId: sessionID)
+      resultVisibility[resolvedKey] = resultVisibility[resolvedKey] ?? resultVisibility[pendingKey]
+      resultVisibility[pendingKey] = nil
       editorStates[resolvedKey] = editorStates[resolvedKey] ?? editorStates[pendingKey]
       sidePanelSegments[resolvedKey] = sidePanelSegments[resolvedKey] ?? sidePanelSegments[pendingKey]
       editorStates[pendingKey] = nil
@@ -108,6 +132,7 @@ final class SessionDetailStateModel {
   /// Launching sessions keep theirs: it moves to the real id on resolution.
   func prune(availableIDs: Set<String>) {
     let isKept: (String) -> Bool = { availableIDs.contains($0) || Self.isPending($0) }
+    resultVisibility = resultVisibility.filter { isKept($0.key) }
     if editorStates.keys.contains(where: { !isKept($0) }) {
       editorStates = editorStates.filter { isKept($0.key) }
     }

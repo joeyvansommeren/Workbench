@@ -13,8 +13,9 @@ enum SidebarGroupMode: String, CaseIterable {
 enum StatusGroupCategory: String, CaseIterable, Identifiable {
   case needsAttention = "Needs Attention"
   case working = "Working"
-  case ready = "Ready"
-  case idle = "Idle"
+  case ready = "Waiting for you"
+  case idle = "Inactive"
+  case unknown = "Status unknown"
 
   var id: String { rawValue }
 
@@ -26,8 +27,10 @@ enum StatusGroupCategory: String, CaseIterable, Identifiable {
       return .ready
     case .awaitingApproval:
       return .needsAttention
-    case .idle, .none:
+    case .idle:
       return .idle
+    case .none:
+      return .unknown
     }
   }
 }

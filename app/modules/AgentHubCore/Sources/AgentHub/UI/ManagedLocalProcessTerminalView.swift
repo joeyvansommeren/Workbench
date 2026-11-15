@@ -40,6 +40,7 @@ public protocol ManagedLocalProcessTerminalViewDelegate: AnyObject {
 /// Local-process terminal view with explicit process control.
 open class ManagedLocalProcessTerminalView: TerminalView, TerminalViewDelegate, LocalProcessDelegate {
   private var process: LocalProcess!
+  public private(set) var confirmedProcessExitAt: Date?
   private static let fileOpenLogPrefix = "[AH-OPEN][AgentHub]"
 
   /// Delegate for process-related events.
@@ -250,6 +251,7 @@ open class ManagedLocalProcessTerminalView: TerminalView, TerminalViewDelegate, 
     environment: [String]? = nil,
     execName: String? = nil
   ) {
+    confirmedProcessExitAt = nil
     process.startProcess(
       executable: executable,
       args: args,
@@ -276,6 +278,7 @@ open class ManagedLocalProcessTerminalView: TerminalView, TerminalViewDelegate, 
   // MARK: - LocalProcessDelegate
 
   open func processTerminated(_ source: LocalProcess, exitCode: Int32?) {
+    confirmedProcessExitAt = Date()
     processDelegate?.processTerminated(source: self, exitCode: exitCode)
   }
 
