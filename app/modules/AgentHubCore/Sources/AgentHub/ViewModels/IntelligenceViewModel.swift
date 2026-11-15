@@ -74,7 +74,7 @@ public final class IntelligenceViewModel {
     return ClaudeCLIClient(
       command: "claude",
       additionalPaths: ClaudeCodePathResolver.searchPaths(additionalPaths: []),
-      environmentOverridesProvider: { CLIEnvironmentOverrides.environment },
+      environmentOverridesProvider: { CLIEnvironmentOverrides.environment(for: .claude) },
       debugLogger: debugLogger
     )
   }

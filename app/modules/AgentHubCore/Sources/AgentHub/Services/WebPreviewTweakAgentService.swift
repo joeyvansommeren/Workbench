@@ -143,6 +143,11 @@ private actor TweakAgentProgressMonitor {
 final class TweakAgentProcessRunner: TweakAgentCommandRunning, @unchecked Sendable {
   private let lock = NSLock()
   private var runningProcess: Process?
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
 
   func run(
     prompt: String,
@@ -193,7 +198,10 @@ final class TweakAgentProcessRunner: TweakAgentCommandRunning, @unchecked Sendab
         if !paths.isEmpty {
           environment["PATH"] = [paths, environment["PATH"]].compactMap { $0 }.joined(separator: ":")
         }
-        environment.merge(CLIEnvironmentOverrides.environment) { _, new in new }
+        environment.merge(CLIEnvironmentOverrides.environment(
+          for: SessionProviderKind(cliMode: cliConfiguration.mode),
+          defaults: defaults
+        )) { _, new in new }
         process.environment = environment
 
         let handleActivity: @Sendable (FileHandle) -> Void = { handle in

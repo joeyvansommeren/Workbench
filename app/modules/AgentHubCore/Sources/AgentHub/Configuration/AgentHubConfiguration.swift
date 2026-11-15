@@ -114,6 +114,23 @@ public enum CLIEnvironmentOverrides {
     environment(from: variables)
   }
 
+  public static func environment(
+    for provider: SessionProviderKind?,
+    defaults: UserDefaults = .standard
+  ) -> [String: String] {
+    var environment = environment(from: variables(defaults: defaults))
+    if provider == .claude {
+      // The dedicated preference wins over inherited and custom values for this key.
+      environment["CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES"] =
+        claudeProgressSummariesDisableValue(defaults: defaults)
+    }
+    return environment
+  }
+
+  static func claudeProgressSummariesDisableValue(defaults: UserDefaults) -> String {
+    defaults.bool(forKey: AgentHubDefaults.claudeAgentProgressSummariesEnabled) ? "0" : "1"
+  }
+
   public static func variables(defaults: UserDefaults) -> [CLIEnvironmentVariable] {
     guard let data = defaults.data(forKey: AgentHubDefaults.cliEnvironmentVariables) else {
       return defaultVariables

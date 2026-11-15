@@ -17,6 +17,24 @@ struct EmbeddedTerminalLaunchBuilderAgentHubCLITests {
     #expect(CLIEnvironmentOverrides.environment(from: CLIEnvironmentOverrides.variables(defaults: defaults)).isEmpty)
   }
 
+  @Test("Claude launch disables progress summaries despite custom environment")
+  func claudeLaunchDisablesProgressSummaries() {
+    let suite = EphemeralDefaultsSuite(prefix: "AgentHubTests.ClaudeLaunch")
+    defer { suite.cleanUp() }
+    CLIEnvironmentOverrides.save([
+      CLIEnvironmentVariable(name: "CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES", value: "0")
+    ], defaults: suite.defaults)
+
+    let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
+      additionalPaths: [],
+      agentHubCLIPath: nil,
+      providerKind: .claude,
+      defaults: suite.defaults
+    )
+
+    #expect(environment["CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES"] == "1")
+  }
+
   @Test("Invalid CLI environment variable names are filtered")
   func invalidCLIEnvironmentVariableNamesAreFiltered() {
     let environment = CLIEnvironmentOverrides.environment(from: [
