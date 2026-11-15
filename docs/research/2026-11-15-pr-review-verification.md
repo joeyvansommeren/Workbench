@@ -24,8 +24,18 @@ Darwin may buffer sparse plain text for MIME detection until 512 bytes or EOF. R
 - The configured dependency linters report zero violations in 92 and 157 files. Xcode also reports two plugin command errors because an `Output` folder is absent, while returning a successful focused test result. This is not described as an entirely clean plugin gate.
 - Changed Swift lines pass formatter checks; unchanged formatter warnings remain. Parser and whitespace checks pass. No hooks or test quarantines are bypassed.
 
-## Remaining delivery
+## Session-row verification
 
-The PR 37 fixes have independent static review and a local affected run: **111 total, 107 passed, zero failed, four existing quarantined skips**, across fourteen suites. They coalesce a trailing diff refresh, retry a captured visible read cursor, and retain the recorded-result action when a linked PR is ineligible. The scan test does not explicitly gate invalidator entry before the first evaluation finishes. Retries stop after five attempts; persistent database failure needs a later visibility/activity event.
+The three PR 37 fixes have independent static review and a local affected run: **111 total, 107 passed, zero failed, four existing quarantined skips**, across fourteen suites. They coalesce a trailing diff refresh, retry a captured visible read cursor, and retain the recorded-result action when a linked PR is ineligible. The scan test does not explicitly gate invalidator entry before the first evaluation finishes. Retries stop after five attempts; persistent database failure needs a later visibility/activity event.
 
-PR 36 launch/review checks and the final combined application compilation remain in progress at this record's commit. Direct keyboard activation, VoiceOver, RTL and large-text interaction remain unverified. The installed app is untouched. No all-green Core or CI result is claimed.
+## Review/launch and final app verification
+
+The fresh PR 36 launch/review/diff batch reports **197 total, 194 passed, zero failed, three existing quarantined skips**, across nineteen suites. It runs on the integrated feature checkout. The native restored-selection regression passes.
+
+The complete Debug macOS application builds successfully at `a234864a154a008f1f906dbb1579031a540f389e`. That integration contains the three merged predecessor PRs, the session-row feature, and all five retained review fixes. The integration's only source difference from the focused-test checkout is the already-reviewed workspace-switch crash fix; its metadata store is byte-for-byte unchanged. Subsequent edits for this verification record change documentation only.
+
+Both dependency linters report zero violations in the app build. Creating their declared generated `Output` directories resolves the earlier plugin output-directory error for this build; no linter, hook or quarantine is disabled and no dependency source is patched.
+
+Core tests use the module's prescribed lockfile; the complete app uses the app workspace's lockfile. They have four different common dependency revisions (TextStory, Swift Collections, Rearrange and Swift Async Algorithms). No lockfiles are changed here. A compile pass does not establish runtime equivalence across those versions.
+
+Direct keyboard activation, VoiceOver, RTL and large-text interaction remain unverified. The installed app is untouched. No all-green Core or CI result is claimed. Separate drawer and commit-tree work is outside this review and remains in its own worktrees.
