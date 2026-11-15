@@ -98,7 +98,8 @@ public enum EmbeddedTerminalLaunchBuilder {
     studioGuidanceEnabled: Bool = StudioAgentGuidance.isEnabled(),
     codexGlobalApprovalPolicy: String? = CodexGlobalConfigReader.approvalPolicy(),
     xcodeBuildMCPToolingAvailable: () -> Bool = { XcodeBuildMCPPreflight.nodeToolingAvailable() },
-    notifyXcodeBuildMCPToolingMissing: () -> Void = { Task { @MainActor in XcodeBuildMCPNodeNotice.notifyOnce() } }
+    notifyXcodeBuildMCPToolingMissing: () -> Void = { Task { @MainActor in XcodeBuildMCPNodeNotice.notifyOnce() } },
+    defaults: UserDefaults = .standard
   ) -> Result<EmbeddedTerminalLaunch, EmbeddedTerminalLaunchError> {
     let executablePath: String?
     switch cliConfiguration.mode {
@@ -133,7 +134,8 @@ public enum EmbeddedTerminalLaunchBuilder {
       agentHubCLIPath: resolvedAgentHubCLIPath,
       providerKind: providerKind,
       projectPath: workingDirectory,
-      sessionId: sessionId
+      sessionId: sessionId,
+      defaults: defaults
     )
     let escapedPath = shellEscape(workingDirectory)
     let escapedCLIPath = shellEscape(executablePath)
@@ -243,7 +245,8 @@ public enum EmbeddedTerminalLaunchBuilder {
     agentHubCLIPath: String? = AgentHubCLILocator.bundledCLIPath(),
     providerKind: SessionProviderKind? = nil,
     projectPath: String? = nil,
-    sessionId: String? = nil
+    sessionId: String? = nil,
+    defaults: UserDefaults = .standard
   ) -> [String: String] {
     var environment = ProcessInfo.processInfo.environment
     environment["TERM"] = "xterm-256color"
@@ -276,7 +279,7 @@ public enum EmbeddedTerminalLaunchBuilder {
     } else {
       environment["PATH"] = pathString
     }
-    environment.merge(CLIEnvironmentOverrides.environment) { _, new in new }
+    environment.merge(CLIEnvironmentOverrides.environment(for: providerKind, defaults: defaults)) { _, new in new }
     return environment
   }
 

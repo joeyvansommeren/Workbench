@@ -2,9 +2,8 @@
 //  ReviewsTableView.swift
 //  AgentHub
 //
-//  The new shell's Reviews table: sortable column headers and 40 pt rows
-//  with every column the legacy table had (pull request, checks, status,
-//  priority, repository, author, updated, session, review).
+//  The new shell's Reviews table: sortable optional columns and rows that
+//  grow to show complete pull request titles.
 //
 //  Layout-loop rules (CLAUDE.md, plan section 4): a `ScrollView` with a
 //  `LazyVStack`, not `Table` (an AppKit table view). Columns have fixed
@@ -28,6 +27,7 @@ struct ReviewsTableView: View {
   let rows: [ReviewsTableRowPresentation]
   let selectedID: String?
   let sort: ReviewsTableSort?
+  let columns: [ReviewsTableColumn]
   let context: (String) -> ReviewsTableRowContext
   let onSort: (ReviewsTableColumn) -> Void
   let onSelect: (String) -> Void
@@ -71,6 +71,7 @@ struct ReviewsTableView: View {
                 presentation: row,
                 tileColor: rowContext.tileColor,
                 review: rowContext.review,
+                columns: columns,
                 isSelected: row.id == selectedID,
                 isTableFocused: isFocused,
                 hidesDivider: hidesDivider(at: index),
@@ -91,7 +92,7 @@ struct ReviewsTableView: View {
               .id(row.id)
             }
           } header: {
-            ReviewsTableHeader(sort: sort, onSort: onSort)
+            ReviewsTableHeader(sort: sort, columns: columns, onSort: onSort)
               .padding(.horizontal, ReviewsTableLayout.outerInset)
               .background(Color.wbSurfaceContent)
               .overlay(alignment: .bottom) {
@@ -136,10 +137,11 @@ struct ReviewsTableView: View {
 
 private struct ReviewsTableHeader: View {
   let sort: ReviewsTableSort?
+  let columns: [ReviewsTableColumn]
   let onSort: (ReviewsTableColumn) -> Void
 
   var body: some View {
-    ReviewsColumnSetFit(content: header)
+    ReviewsColumnSetFit(columns: columns, content: header)
       .padding(.horizontal, ReviewsTableLayout.rowPadding)
       .frame(height: ReviewsTableLayout.headerHeight)
   }
@@ -199,6 +201,7 @@ private struct ReviewsTableRow: View {
   let presentation: ReviewsTableRowPresentation
   let tileColor: RepositoryTileColor
   let review: PullRequestReviewControl
+  let columns: [ReviewsTableColumn]
   let isSelected: Bool
   /// A focused table rings its selected row, so the user sees where ↑/↓ go.
   /// The fill stays grey either way (one selection colour everywhere).
@@ -211,9 +214,10 @@ private struct ReviewsTableRow: View {
   @State private var isHovered = false
 
   var body: some View {
-    ReviewsColumnSetFit(content: cells)
+    ReviewsColumnSetFit(columns: columns, content: cells)
     .padding(.horizontal, ReviewsTableLayout.rowPadding)
-    .frame(height: ReviewsTableLayout.rowHeight)
+    .padding(.vertical, DesignTokens.Spacing.sm)
+    .frame(minHeight: ReviewsTableLayout.rowHeight)
     // Not a Button: the session and review cells hold their own controls.
     .contentShape(Rectangle())
     .onTapGesture(perform: onSelect)
@@ -231,6 +235,11 @@ private struct ReviewsTableRow: View {
     .onHover { hovering in
       isHovered = hovering
       onHover(hovering)
+    }
+    .contextMenu {
+      PullRequestChangesButton(pullRequestURL: presentation.url)
+      Menu("Ask agent to review") { PullRequestReviewMenuItems(review: review) }
+        .disabled(review.isStarting)
     }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("\(presentation.title), \(presentation.repositoryName) \(presentation.number)")
@@ -291,8 +300,8 @@ private struct ReviewsTableRow: View {
       Text(presentation.title)
         .wbText(.bodyEmphasis)
         .foregroundStyle(Color.wbTextPrimary)
-        .lineLimit(1)
-        .truncationMode(.tail)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityIdentifier("reviews.title.\(presentation.id)")
       Text(verbatim: presentation.number)
         .wbText(.codeSmall)
         .foregroundStyle(Color.wbTextTertiary)
@@ -387,7 +396,7 @@ private struct ReviewsRowReviewMenu: View {
             .frame(width: 12, height: 12)
             .accessibilityLabel("Starting review")
         } else {
-          Text("Review")
+          Text("Ask agent to review")
             .wbText(.callout)
             .fontWeight(.medium)
             .lineLimit(1)
@@ -410,8 +419,8 @@ private struct ReviewsRowReviewMenu: View {
     .fixedSize()
     .disabled(review.isStarting)
     .onHover { isHovered = $0 }
-    .help("Review with \(PullRequestReviewControl.displayName(review.agent))")
-    .accessibilityLabel("Review with \(PullRequestReviewControl.displayName(review.agent))")
+    .help("Ask \(PullRequestReviewControl.displayName(review.agent)) to review in a new session")
+    .accessibilityLabel("Ask \(PullRequestReviewControl.displayName(review.agent)) to review")
   }
 }
 
@@ -421,10 +430,11 @@ private struct ReviewsRowReviewMenu: View {
 /// `ReviewsTableLayout.columnSets`, so the header and the rows always have
 /// the same candidates, however many sets there are.
 private struct ReviewsColumnSetFit<Content: View>: View {
+  let columns: [ReviewsTableColumn]
   let content: ([ReviewsTableColumn]) -> Content
 
   var body: some View {
-    let sets = ReviewsTableLayout.columnSets
+    let sets = ReviewsTableLayout.columnSets(for: columns)
     ViewThatFits(in: .horizontal) {
       ForEach(sets.indices, id: \.self) { index in
         content(sets[index])
@@ -447,6 +457,8 @@ struct ReviewsTagChip: View {
       .frame(height: 20)
       .foregroundStyle(textColor)
       .background(tintColor, in: Capsule())
+      .help(tag.sourceDetail ?? tag.text)
+      .accessibilityValue(tag.sourceDetail ?? "")
   }
 
   private var textColor: Color {
@@ -483,15 +495,13 @@ extension ReviewsTableColumn {
 extension View {
   /// The column's fixed width, or for the title a flexible width whose ideal
   /// is fixed, so `ViewThatFits` measures the same width on every row. The
-  /// cell sits in an overlay on a fixed slot: an empty cell (no checks icon)
-  /// still takes its width, and no cell's content can change the row's size.
+  /// title keeps its natural height. Metadata sits in fixed slots, so empty
+  /// values still take their column width.
   fileprivate func reviewsColumnFrame(_ column: ReviewsTableColumn) -> some View {
     Group {
       if column == .title {
-        Color.clear
-          .frame(minWidth: 0, idealWidth: column.width, maxWidth: .infinity)
-          .frame(height: ReviewsTableLayout.cellHeight)
-          .overlay(alignment: .leading) { self }
+        self
+          .frame(minWidth: 0, idealWidth: column.width, maxWidth: .infinity, alignment: .leading)
       } else {
         Color.clear
           .frame(width: column.width, height: ReviewsTableLayout.cellHeight)

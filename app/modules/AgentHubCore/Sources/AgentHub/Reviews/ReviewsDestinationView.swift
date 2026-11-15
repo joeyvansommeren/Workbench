@@ -52,6 +52,7 @@ struct ReviewsDestinationView: View {
   @State private var bulkLauncher = ReviewsBulkLaunchRunner()
   @State private var isFiltersOpen = false
   @State private var linkCache = ReviewsSessionLinkCache()
+  @State private var columnPreferences = ReviewsColumnPreferences()
 
   private var viewModel: GitHubReviewsViewModel { agentHub.gitHubReviewsViewModel }
   private var support: ReviewSessionSupport { ReviewSessionSupport(agentHub: agentHub) }
@@ -76,6 +77,8 @@ struct ReviewsDestinationView: View {
     VStack(spacing: 0) {
       ReviewsBar(
         viewModel: viewModel,
+        columnPreferences: columnPreferences,
+        rows: rows,
         isFiltersOpen: $isFiltersOpen,
         feedback: bulkFeedback,
         onRetry: { await support.recoverAndRestoreSessions() }
@@ -232,6 +235,7 @@ struct ReviewsDestinationView: View {
       rows: presentations,
       selectedID: viewModel.selectedPullRequestID,
       sort: viewModel.tableSort,
+      columns: columnPreferences.columns(for: rows),
       context: { id in
         let pullRequest = pullRequestsByID[id]
         let link = links[id]?.first
@@ -489,6 +493,8 @@ struct ReviewsDestinationView: View {
 /// popover, above the table.
 private struct ReviewsBar<Actions: View>: View {
   @Bindable var viewModel: GitHubReviewsViewModel
+  let columnPreferences: ReviewsColumnPreferences
+  let rows: [GitHubReviewTableRow]
   /// Lifted, so the "Choose a project view" state can open Filters too.
   @Binding var isFiltersOpen: Bool
   let feedback: String?
@@ -517,6 +523,7 @@ private struct ReviewsBar<Actions: View>: View {
           .lineLimit(1)
       }
       actions()
+      columnsMenu
       refreshButton
       FiltersButton(
         activeCount: isSearching ? 1 : 0,
@@ -543,6 +550,22 @@ private struct ReviewsBar<Actions: View>: View {
 
   private var isSearching: Bool {
     !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private var columnsMenu: some View {
+    Menu("Columns", systemImage: "tablecells") {
+      ForEach(ReviewsColumnPreferences.optionalColumns, id: \.self) { column in
+        Toggle(column.header, isOn: Binding(
+          get: { columnPreferences.columns(for: rows).contains(column) },
+          set: { columnPreferences.setVisible($0, column: column, rows: rows) }
+        ))
+      }
+      Divider()
+      Button("Reset columns") { columnPreferences.reset() }
+    }
+    .fixedSize()
+    .help("Choose visible columns. Narrow windows may hide columns temporarily.")
+    .accessibilityIdentifier("reviews.columns")
   }
 
   /// ⌘R, as in Jira and Linear. While a refresh runs, a spinner takes its
@@ -640,8 +663,11 @@ private struct ReviewsQueueContent<Table: View>: View {
       WBLoadingState("Loading pull requests")
     } else if viewModel.selectedProject == nil {
       state(
-        "rectangle.3.group", title: "No GitHub Projects",
-        description: "Sign in to gh with the project scope.")
+        "rectangle.3.group", title: "Reviews uses GitHub Projects",
+        description: "This queue shows pull requests from a GitHub Project view. Pull requests outside a Project do not appear here."
+      ) {
+        Button("Open Filters", action: onOpenFilters).buttonStyle(.wbSecondary)
+      }
     } else if viewModel.selectedView == nil {
       state("line.3.horizontal.decrease", title: "Choose a project view") {
         Button("Open Filters", action: onOpenFilters).buttonStyle(.wbSecondary)
@@ -661,7 +687,9 @@ private struct ReviewsQueueContent<Table: View>: View {
             .disabled(viewModel.isRefreshing)
         }
       } else {
-        state("checkmark.circle", title: "No pull requests")
+        state(
+          "checkmark.circle",
+          title: viewModel.reviewScope == .all ? "No pull requests in this view" : "No pull requests in this scope")
       }
     } else {
       table()

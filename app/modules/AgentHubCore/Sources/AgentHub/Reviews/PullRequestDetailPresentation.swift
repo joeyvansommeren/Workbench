@@ -35,6 +35,7 @@ struct ReviewsTag: Equatable, Hashable, Sendable, Identifiable {
   let text: String
   let tone: ReviewsTagTone
   let kind: Kind
+  var sourceDetail: String? = nil
 
   var id: String { "\(kind.rawValue)-\(text)" }
 }
@@ -46,7 +47,7 @@ enum PullRequestDetailPresentation {
     switch pullRequest.state.uppercased() {
     case "MERGED": tags.append(ReviewsTag(text: "Merged", tone: .working, kind: .state))
     case "CLOSED": tags.append(ReviewsTag(text: "Closed", tone: .error, kind: .state))
-    default: tags.append(ReviewsTag(text: "Open", tone: .ready, kind: .state))
+    default: tags.append(ReviewsTag(text: "Open", tone: .neutral, kind: .state))
     }
     if pullRequest.isDraft {
       tags.append(ReviewsTag(text: "Draft", tone: .neutral, kind: .draft))
@@ -64,11 +65,13 @@ enum PullRequestDetailPresentation {
     if tags.contains(where: { $0.kind == .draft }) {
       tags.removeAll { $0.kind == .state && $0.text == "Open" }
     }
-    // A project status that repeats a state chip ("Draft") is noise.
-    if let status = nonEmpty(pullRequest.projectStatus),
-      !tags.contains(where: { $0.text.caseInsensitiveCompare(status) == .orderedSame })
-    {
-      tags.append(ReviewsTag(text: status, tone: .neutral, kind: .projectStatus))
+    if let status = nonEmpty(pullRequest.projectStatus) {
+      if let index = tags.firstIndex(where: { equivalentStatus(status, $0.text) }) {
+        // Keep the Project's exact wording available when its chip is consolidated.
+        tags[index].sourceDetail = "GitHub Project status: \(pullRequest.projectStatus ?? status)"
+      } else {
+        tags.append(ReviewsTag(text: status, tone: .neutral, kind: .projectStatus))
+      }
     }
     if let priority = nonEmpty(pullRequest.projectPriority) {
       let urgent = GitHubReviewRecommendation.isUrgent(priority)
@@ -81,6 +84,22 @@ enum PullRequestDetailPresentation {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty
     else { return nil }
     return trimmed
+  }
+
+  private static func equivalentStatus(_ source: String, _ displayed: String) -> Bool {
+    let canonical = ["open", "closed", "merged", "draft", "approved", "changes requested", "review required"]
+    guard canonical.contains(displayed.lowercased()) else { return false }
+    let undecorated = source.drop(while: isDecoration).reversed().drop(while: isDecoration).reversed()
+    let words = String(undecorated).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    return words.caseInsensitiveCompare(displayed) == .orderedSame
+  }
+
+  private static func isDecoration(_ character: Character) -> Bool {
+    if character.isWhitespace { return true }
+    // ASCII digits, # and * have isEmoji set too; they remain meaningful text.
+    return character.unicodeScalars.contains {
+      $0.properties.isEmojiPresentation || ($0.value > 0x7F && $0.properties.isEmoji)
+    }
   }
 
   static func reviewDecisionTag(_ decision: String?) -> ReviewsTag? {

@@ -4,7 +4,7 @@
 //
 //  The session header (`.session-header` in the prototype): title and status
 //  chip, a meta line (provider · repository · branch in mono), then the
-//  trailing group: content modes, Context meter, the "…" menu and the
+//  trailing group: content modes, context details, the "…" menu and the
 //  side-panel toggle (⌥⌘0).
 //
 
@@ -59,12 +59,14 @@ struct SessionHeaderView<ActionsMenu: View>: View {
       separator
       Text(presentation.repositoryName)
         .lineLimit(1)
+        .help(presentation.repositoryPath)
       if let branch = presentation.branchName {
         separator
         Text(branch)
           .wbText(.codeSmall)
           .lineLimit(1)
           .truncationMode(.middle)
+          .help(branch)
       }
     }
     .wbText(.callout)
@@ -78,12 +80,7 @@ struct SessionHeaderView<ActionsMenu: View>: View {
 
   private var trailing: some View {
     HStack(spacing: DesignTokens.Spacing.xs) {
-      // In a narrow window the meter compacts before the title truncates.
-      ViewThatFits(in: .horizontal) {
-        modesAndContext(showsLabel: true, showsDots: true)
-        modesAndContext(showsLabel: false, showsDots: true)
-        modesAndContext(showsLabel: false, showsDots: false)
-      }
+      modesAndContext
       ToolbarDivider()
       IconButton(
         systemImage: "ellipsis",
@@ -107,7 +104,7 @@ struct SessionHeaderView<ActionsMenu: View>: View {
     }
   }
 
-  private func modesAndContext(showsLabel: Bool, showsDots: Bool) -> some View {
+  private var modesAndContext: some View {
     HStack(spacing: DesignTokens.Spacing.xs) {
       if availableContentModes.count > 1 {
         // Icon-only segments: each mode's label is its tooltip and VoiceOver name.
@@ -120,44 +117,47 @@ struct SessionHeaderView<ActionsMenu: View>: View {
           size: .small,
           accessibilityLabel: "Session view"
         )
-          .padding(.trailing, DesignTokens.Spacing.xs)
+        .padding(.trailing, DesignTokens.Spacing.xs)
       }
-      if let contextFraction {
-        ContextMeter(fraction: contextFraction, showsLabel: showsLabel, showsDots: showsDots)
+      if let contextFraction, contextFraction.isFinite, contextFraction > 0 {
+        ContextUsageButton(fraction: contextFraction)
       }
     }
     .fixedSize()
   }
 }
 
-/// `.context-meter`: label, 20×3 dot meter, percentage.
-private struct ContextMeter: View {
+/// Compact usage with the calculation detail available on demand.
+private struct ContextUsageButton: View {
   let fraction: Double
-  var showsLabel = true
-  var showsDots = true
+  @State private var isShowingDetail = false
 
   var body: some View {
-    HStack(spacing: DesignTokens.Spacing.sm) {
-      if showsLabel {
-        Text("Context")
-          .wbText(.callout)
-          .foregroundStyle(Color.wbTextSecondary)
-      }
-      if showsDots {
-        DotMeter(fraction: fraction)
-      }
-      Text("\(percent)%")
+    Button {
+      isShowingDetail = true
+    } label: {
+      Text("Context \(percent)%")
         .wbText(.callout)
         .fontWeight(.medium)
         .monospacedDigit()
-        .foregroundStyle(Color.wbTextPrimary)
-        .frame(minWidth: 28, alignment: .trailing)
+        .foregroundStyle(Color.wbTextSecondary)
     }
+    .buttonStyle(.plain)
     .padding(.horizontal, DesignTokens.Spacing.smPlus)
     .frame(height: DesignTokens.Size.control)
-    .accessibilityElement(children: .ignore)
     .accessibilityLabel("Context used")
     .accessibilityValue("\(percent) percent")
+    .accessibilityHint("Show context usage details")
+    .popover(isPresented: $isShowingDetail, arrowEdge: .bottom) {
+      VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+        Text("Estimated from recorded input tokens and the model's context size.")
+        Text("The CLI may show a different value.")
+      }
+      .wbText(.callout)
+      .foregroundStyle(Color.wbTextSecondary)
+      .padding(DesignTokens.Spacing.md)
+      .frame(width: DesignTokens.Width.popover)
+    }
   }
 
   /// Clamped once, so the screen and VoiceOver say the same number.

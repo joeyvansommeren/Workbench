@@ -54,19 +54,19 @@ struct SidePanelDiffView: View {
   }
 
   private var loadedContent: some View {
-    ScrollView(.vertical) {
-      VStack(alignment: .leading, spacing: 0) {
-        listHeader
-        if model.files.isEmpty {
-          WBEmptyState(systemImage: "plusminus", title: "No changes")
-            .frame(maxWidth: .infinity)
-            .padding(.top, DesignTokens.Spacing.xxl)
-        } else {
-          fileList
+    VStack(alignment: .leading, spacing: 0) {
+      listHeader
+      if model.files.isEmpty {
+        WBEmptyState(systemImage: "plusminus", title: "No changes")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        fileList
+        ScrollView(.vertical) {
           SidePanelFileDiffBody(state: model.fileDiff, onShowFullDiff: onShowFullDiff)
+            .padding(.bottom, DesignTokens.Spacing.lg)
         }
+        .frame(minHeight: DesignTokens.Size.row * 2, maxHeight: .infinity)
       }
-      .padding(.bottom, DesignTokens.Spacing.lg)
     }
   }
 
@@ -85,40 +85,58 @@ struct SidePanelDiffView: View {
       selectedIndex: files.firstIndex { $0.relativePath == model.selectedPath },
       isExpanded: isFileListExpanded
     )
-    return LazyVStack(spacing: 0) {
-      ForEach(files.prefix(visibleCount)) { file in
-        let isSelected = file.relativePath == model.selectedPath
-        SidePanelDiffFileRow(file: file, isSelected: isSelected) {
-          model.select(path: file.relativePath)
-          isListFocused = true
+    let rowCount = visibleCount + (visibleCount < files.count ? 1 : 0)
+    let listHeight =
+      CGFloat(min(rowCount, SidePanelFileListWindow.collapsedLimit))
+      * DesignTokens.Size.row
+    return ScrollViewReader { scrollProxy in
+      ScrollView(.vertical) {
+        LazyVStack(spacing: 0) {
+          ForEach(files.prefix(visibleCount)) { file in
+            let isSelected = file.relativePath == model.selectedPath
+            SidePanelDiffFileRow(file: file, isSelected: isSelected) {
+              model.select(path: file.relativePath)
+              isListFocused = true
+            }
+            .id(file.relativePath)
+            // Focus shows as a ring on the selected file; the fill stays grey.
+            .wbFocusRing(isListFocused && isSelected, cornerRadius: DesignTokens.Radius.item)
+          }
+          if visibleCount < files.count {
+            SidePanelShowAllFilesRow(count: files.count) { isFileListExpanded = true }
+          }
         }
-        // Focus shows as a ring on the selected file; the fill stays grey.
-        .wbFocusRing(isListFocused && isSelected, cornerRadius: DesignTokens.Radius.item)
+        .padding(.horizontal, DesignTokens.Spacing.sm)
       }
-      if visibleCount < files.count {
-        SidePanelShowAllFilesRow(count: files.count) { isFileListExpanded = true }
+      .frame(maxHeight: listHeight)
+      .focusable()
+      .focused($isListFocused)
+      .focusEffectDisabled()
+      .onKeyPress(.upArrow) {
+        model.moveSelection(by: -1)
+        return .handled
       }
+      .onKeyPress(.downArrow) {
+        model.moveSelection(by: 1)
+        return .handled
+      }
+      .onChange(of: model.selectedPath) { _, path in
+        if let path { scrollProxy.scrollTo(path, anchor: .center) }
+      }
+      .task(id: model.selectedPath) {
+        guard let path = model.selectedPath else { return }
+        await Task.yield()
+        scrollProxy.scrollTo(path, anchor: .center)
+      }
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Changed files")
     }
-    .padding(.horizontal, DesignTokens.Spacing.sm)
-    .focusable()
-    .focused($isListFocused)
-    .focusEffectDisabled()
-    .onKeyPress(.upArrow) {
-      model.moveSelection(by: -1)
-      return .handled
-    }
-    .onKeyPress(.downArrow) {
-      model.moveSelection(by: 1)
-      return .handled
-    }
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel("Changed files")
   }
 }
 
 // MARK: - List header
 
-/// The diff mode as a compact menu (no toolbar row), plus the full diff.
+/// The diff mode and a direct path to the full diff.
 private struct SidePanelDiffListHeader: View {
   let mode: DiffMode
   let onSelectMode: (DiffMode) -> Void
@@ -133,8 +151,6 @@ private struct SidePanelDiffListHeader: View {
           }
         }
         .pickerStyle(.inline)
-        Divider()
-        Button("Show full diff", action: onShowFullDiff)
       } label: {
         HStack(spacing: DesignTokens.Spacing.xs) {
           Text(mode.rawValue)
@@ -151,9 +167,12 @@ private struct SidePanelDiffListHeader: View {
       .fixedSize()
       .accessibilityLabel("Changes: \(mode.rawValue)")
       Spacer(minLength: 0)
+      Button("Expand diff", action: onShowFullDiff)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
     }
     .padding(.horizontal, DesignTokens.Spacing.lg)
-    .frame(height: DesignTokens.Size.controlSmall)
+    .frame(height: DesignTokens.Size.control)
   }
 }
 

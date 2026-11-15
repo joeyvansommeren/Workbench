@@ -41,16 +41,66 @@ struct ReviewsTableTests {
     #expect(!ReviewsTableLayout.columns(fitting: justUnder).contains(.author))
     #expect(ReviewsTableLayout.columns(fitting: justUnder).contains(.priority))
 
-    // 1152 pt window: content 856 pt. Author and priority go, the rest stays.
+    // The explicit agent action takes more space; repository drops at this width too.
     let wide = ReviewsTableLayout.columns(fitting: 856)
     #expect(!wide.contains(.author))
     #expect(!wide.contains(.priority))
-    #expect(wide.contains(.repository))
+    #expect(!wide.contains(.repository))
     #expect(wide.contains(.session))
     #expect(wide.contains(.review))
 
     // Narrower than the last set: the last set, which truncates its title.
     #expect(ReviewsTableLayout.columns(fitting: 100) == [.title, .checks])
+  }
+
+  @MainActor
+  @Test("Unused columns stay hidden until the user chooses them, and choices restore")
+  func columnChoicesPersist() throws {
+    let suite = "reviews-columns-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let preferences = ReviewsColumnPreferences(userDefaults: defaults)
+    let rows = ReviewsTableRows.make(pullRequests: [pullRequest("one")], links: [:], sort: nil)
+    #expect(preferences.columns(for: rows) == [.title, .checks, .updated])
+
+    preferences.setVisible(true, column: .priority, rows: rows)
+    preferences.setVisible(false, column: .updated, rows: rows)
+    let restored = ReviewsColumnPreferences(userDefaults: defaults)
+    #expect(restored.columns(for: rows) == [.title, .checks, .priority])
+    #expect(defaults.stringArray(forKey: ReviewsColumnPreferences.storageKey) == ["priority"])
+
+    // Layout temporarily hides the choice. It does not save that temporary visibility.
+    let requested = restored.columns(for: rows)
+    #expect(ReviewsTableLayout.columns(fitting: 180, requested: requested) == [.title, .checks])
+    #expect(ReviewsTableLayout.columns(fitting: 1_144, requested: requested) == requested)
+    #expect(ReviewsColumnPreferences(userDefaults: defaults).columns(for: rows) == requested)
+
+    restored.setVisible(false, column: .title, rows: rows)
+    restored.setVisible(false, column: .checks, rows: rows)
+    #expect(restored.columns(for: rows) == requested)
+    restored.reset()
+    #expect(defaults.object(forKey: ReviewsColumnPreferences.storageKey) == nil)
+    #expect(ReviewsColumnPreferences(userDefaults: defaults).columns(for: rows) == [.title, .checks, .updated])
+  }
+
+  @MainActor
+  @Test("Default columns reflect meaningful Project and session data")
+  func usefulDefaultColumns() throws {
+    let suite = "reviews-columns-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let preferences = ReviewsColumnPreferences(userDefaults: defaults)
+    let otherOwner = GitHubProjectPullRequest(
+      id: "other", number: 2, title: "Another review", url: "https://github.com/other/workspace/pull/2",
+      repositoryName: "workspace", repositoryNameWithOwner: "other/workspace", authorLogin: "author",
+      updatedAt: nil, isDraft: false, state: "open", projectStatus: nil, projectPriority: nil)
+    let rows = ReviewsTableRows.make(
+      pullRequests: [pullRequest("one", status: "In review"), otherOwner],
+      links: ["one": [link("Review workspace")]], sort: nil)
+    #expect(preferences.columns(for: rows) == [.title, .checks, .status, .repository, .updated, .session])
+    #expect(ReviewsTableLayout.columnSets(for: preferences.columns(for: rows)).last == [.title, .checks])
+    preferences.setVisible(false, column: .session, rows: rows)
+    #expect(!preferences.columns(for: rows).contains(.session))
   }
 
   // MARK: - Sort

@@ -572,7 +572,7 @@ public final class AgentHubProvider {
       command: configuration.cliCommand,
       additionalPaths: ClaudeCodePathResolver.searchPaths(
         additionalPaths: configuration.additionalCLIPaths),
-      environmentOverridesProvider: { CLIEnvironmentOverrides.environment },
+      environmentOverridesProvider: { CLIEnvironmentOverrides.environment(for: .claude) },
       debugLogger: debugLogger
     )
   }

@@ -60,7 +60,8 @@ public struct TerminalLauncher {
     projectPath: String,
     prompt: String,
     onOutput: @escaping @MainActor (String) -> Void,
-    onComplete: @escaping @MainActor (Error?) -> Void
+    onComplete: @escaping @MainActor (Error?) -> Void,
+    defaults: UserDefaults = .standard
   ) {
     guard
       let claudeExecutablePath = findExecutable(
@@ -105,7 +106,10 @@ public struct TerminalLauncher {
           environment["PATH"] = additionalPaths
         }
       }
-      environment.merge(CLIEnvironmentOverrides.environment) { _, new in new }
+      environment.merge(CLIEnvironmentOverrides.environment(
+        for: SessionProviderKind(cliMode: cliConfiguration.mode),
+        defaults: defaults
+      )) { _, new in new }
       process.environment = environment
 
       let stdoutPipe = Pipe()
@@ -209,6 +213,11 @@ public struct TerminalLauncher {
     let args = cliConfiguration.argumentsForSession(sessionId: sessionId, prompt: initialPrompt)
     let joinedArgs = args.map { shellEscapeSingleQuotedAllowingNewlines($0) }.joined(separator: " ")
 
+    let cliCommand = commandWithLaunchEnvironment(
+      "\(escapedExecPath) \(joinedArgs)",
+      provider: SessionProviderKind(cliMode: cliConfiguration.mode)
+    )
+
     // Build command
     let command: String
     if !projectPath.isEmpty {
@@ -221,9 +230,9 @@ public struct TerminalLauncher {
           ]
         )
       }
-      command = "cd \(escapedPath) && \(escapedExecPath) \(joinedArgs)"
+      command = "cd \(escapedPath) && \(cliCommand)"
     } else {
-      command = "\(escapedExecPath) \(joinedArgs)"
+      command = cliCommand
     }
 
     return launchTerminalScript(command: command, scriptPrefix: "cli_resume")
@@ -288,19 +297,19 @@ public struct TerminalLauncher {
     )
     let joinedArgs = args.map { shellEscapeSingleQuotedAllowingNewlines($0) }.joined(separator: " ")
 
+    let invocation = joinedArgs.isEmpty ? escapedClaudePath : "\(escapedClaudePath) \(joinedArgs)"
+    let cliCommand = commandWithLaunchEnvironment(
+      invocation,
+      provider: SessionProviderKind(cliMode: cliConfiguration.mode)
+    )
+
     // Build the command - for worktrees or when skipCheckout is true, just cd and run claude
     // Otherwise, checkout the branch first
     let command: String
     if isWorktree || skipCheckout {
-      command =
-        joinedArgs.isEmpty
-        ? "cd \(escapedPath) && \(escapedClaudePath)"
-        : "cd \(escapedPath) && \(escapedClaudePath) \(joinedArgs)"
+      command = "cd \(escapedPath) && \(cliCommand)"
     } else {
-      command =
-        joinedArgs.isEmpty
-        ? "cd \(escapedPath) && git checkout \(escapedBranch) && \(escapedClaudePath)"
-        : "cd \(escapedPath) && git checkout \(escapedBranch) && \(escapedClaudePath) \(joinedArgs)"
+      command = "cd \(escapedPath) && git checkout \(escapedBranch) && \(cliCommand)"
     }
 
     return launchTerminalScript(command: command, scriptPrefix: "claude_open")
@@ -341,6 +350,28 @@ public struct TerminalLauncher {
     )
   }
 
+  static func commandWithLaunchEnvironment(
+    _ command: String,
+    provider: SessionProviderKind,
+    defaults: UserDefaults = .standard
+  ) -> String {
+    guard provider == .claude else { return command }
+    let value = CLIEnvironmentOverrides.claudeProgressSummariesDisableValue(defaults: defaults)
+    // Scope the app preference to the CLI, including when a Terminal script runs other commands.
+    return "/usr/bin/env CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=\(value) \(command)"
+  }
+
+  static func terminalScriptContent(
+    command: String,
+    includeCLIEnvironmentOverrides: Bool = true,
+    defaults: UserDefaults = .standard
+  ) -> String {
+    let exports = includeCLIEnvironmentOverrides
+      ? cliEnvironmentExports(environment: CLIEnvironmentOverrides.environment(for: nil, defaults: defaults))
+      : ""
+    return "#!/bin/bash\n\(exports)\n\(command)\n"
+  }
+
   /// Creates and executes a terminal script using secure temp-file creation.
   /// Uses O_CREAT | O_EXCL to atomically create the file, eliminating TOCTOU races.
   private static func launchTerminalScript(
@@ -352,8 +383,10 @@ public struct TerminalLauncher {
     let scriptPath = (tempDir as NSString).appendingPathComponent(
       "\(scriptPrefix)_\(UUID().uuidString).command")
 
-    let cliEnvironmentExports = includeCLIEnvironmentOverrides ? Self.cliEnvironmentExports : ""
-    let scriptContent = "#!/bin/bash\n\(cliEnvironmentExports)\n\(command)\n"
+    let scriptContent = terminalScriptContent(
+      command: command,
+      includeCLIEnvironmentOverrides: includeCLIEnvironmentOverrides
+    )
 
     // Atomically create the file with O_CREAT | O_EXCL (fails if path exists)
     // and set permissions to 0o700 at creation time — no separate chmod step.

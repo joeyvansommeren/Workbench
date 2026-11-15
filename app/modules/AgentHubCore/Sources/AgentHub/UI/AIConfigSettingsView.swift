@@ -167,6 +167,8 @@ public final class AIConfigSettingsViewModel {
 
 struct ClaudeAIConfigView: View {
   @Bindable var viewModel: AIConfigSettingsViewModel
+  @AppStorage(AgentHubDefaults.claudeAgentProgressSummariesEnabled)
+  private var agentProgressSummariesEnabled = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -190,6 +192,8 @@ struct ClaudeAIConfigView: View {
         .frame(maxWidth: 180, alignment: .leading)
       }
 
+      agentProgressSummariesSetting
+
       settingsMultilineEditor(
         title: "Allowed Tools",
         placeholder: "One pattern per line or comma-separated, e.g. Bash(npm *)\nRead\nEdit",
@@ -210,6 +214,19 @@ struct ClaudeAIConfigView: View {
       if viewModel.claudeModels.isEmpty {
         await viewModel.refreshClaudeModels()
       }
+    }
+  }
+
+  private var agentProgressSummariesSetting: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Toggle("Agent progress summaries", isOn: $agentProgressSummariesEnabled)
+        .accessibilityIdentifier("claude-agent-progress-summaries")
+        .accessibilityHint("Requires Claude Code 2.1.318 or later. Claude user, project, or managed settings can override this preference.")
+        .help("Requires Claude Code 2.1.318 or later. Claude user, project, or managed settings can override this preference.")
+      Text("Generate short updates for background agents. Applies the next time Workbench starts or resumes Claude. Claude settings can override this preference.")
+        .font(.geist(size: 10))
+        .foregroundColor(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 

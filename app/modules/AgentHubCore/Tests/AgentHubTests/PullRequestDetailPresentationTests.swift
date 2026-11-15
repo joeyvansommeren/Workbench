@@ -11,7 +11,7 @@ struct PullRequestDetailPresentationTests {
     let draft = try pullRequest(state: "OPEN", isDraft: true, decision: "CHANGES_REQUESTED")
     #expect(
       PullRequestDetailPresentation.stateTags(for: draft) == [
-        ReviewsTag(text: "Open", tone: .ready, kind: .state),
+        ReviewsTag(text: "Open", tone: .neutral, kind: .state),
         ReviewsTag(text: "Draft", tone: .neutral, kind: .draft),
         ReviewsTag(text: "Changes requested", tone: .error, kind: .reviewDecision),
       ])
@@ -28,6 +28,32 @@ struct PullRequestDetailPresentationTests {
     #expect(PullRequestDetailPresentation.reviewDecisionTag("REVIEW_REQUIRED")?.tone == .attention)
   }
 
+  @Test("Emoji decoration does not duplicate a review decision")
+  func decoratedProjectStatusMatchesDecision() throws {
+    let detail = try pullRequest(state: "OPEN", isDraft: false, decision: "CHANGES_REQUESTED")
+    for status in ["🔴 Changes requested", "Changes requested ⚠️", "  🔴  changes   requested  "] {
+      let projectPullRequest = projectPullRequest(status: status)
+      let tags = PullRequestDetailPresentation.headerTags(detail: detail, pullRequest: projectPullRequest)
+
+      #expect(tags.map(\.text) == ["Open", "Changes requested"])
+      #expect(tags.filter { $0.kind == .reviewDecision }.count == 1)
+      #expect(tags.first { $0.kind == .reviewDecision }?.sourceDetail == "GitHub Project status: \(status)")
+      #expect(projectPullRequest.projectStatus == status)
+    }
+  }
+
+  @Test("Different project workflows retain their exact labels")
+  func distinctProjectStatusesStayDistinct() throws {
+    let detail = try pullRequest(state: "OPEN", isDraft: false, decision: "REVIEW_REQUIRED")
+    for status in ["Code review", "Ready", "Done", "🔴", "要レビュー", "Review-required", "1Review required", "#Review required", "*Review required"] {
+      let tags = PullRequestDetailPresentation.headerTags(
+        detail: detail, pullRequest: projectPullRequest(status: status))
+
+      #expect(tags.map(\.text) == ["Open", "Review required", status])
+      #expect(tags.last?.kind == .projectStatus)
+    }
+  }
+
   @Test("Header tags: no repeats; Draft drops Open, a status equal to a chip is left out")
   func headerTagsWithoutRepeats() throws {
     let draft = try pullRequest(state: "OPEN", isDraft: true, decision: nil)
@@ -39,6 +65,7 @@ struct PullRequestDetailPresentationTests {
 
     #expect(tags.map(\.text) == ["Draft", "Urgent"])
     #expect(Set(tags.map(\.id)).count == tags.count)
+    #expect(tags.first?.sourceDetail == "GitHub Project status: draft")
     #expect(tags.last == ReviewsTag(text: "Urgent", tone: .attention, kind: .priority))
 
     // An open pull request keeps Open, and a different status still shows.
@@ -148,6 +175,14 @@ struct PullRequestDetailPresentationTests {
   }
 
   // MARK: - Helpers
+
+  private func projectPullRequest(status: String) -> GitHubProjectPullRequest {
+    GitHubProjectPullRequest(
+      id: "review-fixture", number: 42, title: "Improve workspace navigation",
+      url: "https://github.com/example/workspace/pull/42", repositoryName: "workspace",
+      repositoryNameWithOwner: "example/workspace", authorLogin: "contributor", updatedAt: nil,
+      isDraft: false, state: "open", projectStatus: status, projectPriority: nil)
+  }
 
   private func pullRequest(state: String, isDraft: Bool, decision: String?) throws -> GitHubPullRequest {
     let decisionField = decision.map { #","reviewDecision":"\#($0)""# } ?? ""

@@ -87,6 +87,10 @@ public enum AgentHubDefaults {
   /// Type: Data (JSON-encoded [CLIEnvironmentVariable])
   public static let cliEnvironmentVariables = "\(keyPrefix)cli.environmentVariables"
 
+  /// Whether Workbench-launched Claude processes generate agent progress summaries.
+  /// Type: Bool (default: false)
+  public static let claudeAgentProgressSummariesEnabled = "\(keyPrefix)cli.claudeAgentProgressSummariesEnabled"
+
   /// Extra CLI arguments applied to Claude command invocations
   /// Type: String (shell-style arguments, default: "")
   public static let claudeCommandArgs = "\(keyPrefix)cli.claudeCommandArgs"

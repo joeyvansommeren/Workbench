@@ -36,7 +36,7 @@ enum ReviewsTableColumn: String, CaseIterable, Sendable {
     case .author: return "Author"
     case .updated: return "Updated"
     case .session: return "Session"
-    case .review: return "Review"
+    case .review: return "Agent review"
     }
   }
 
@@ -51,7 +51,7 @@ enum ReviewsTableColumn: String, CaseIterable, Sendable {
     case .author: return 104
     case .updated: return 60
     case .session: return 136
-    case .review: return 72
+    case .review: return 148
     }
   }
 
@@ -87,14 +87,19 @@ enum ReviewsTableLayout {
 
   /// Every column, then one fewer at each step, down to title and checks.
   static let columnSets: [[ReviewsTableColumn]] = {
-    var sets: [[ReviewsTableColumn]] = [ReviewsTableColumn.allCases]
-    var current = ReviewsTableColumn.allCases
+    columnSets(for: ReviewsTableColumn.allCases)
+  }()
+
+  static func columnSets(for columns: [ReviewsTableColumn]) -> [[ReviewsTableColumn]] {
+    var sets = [columns]
+    var current = columns
     for column in dropOrder {
+      guard current.contains(column) else { continue }
       current.removeAll { $0 == column }
       sets.append(current)
     }
     return sets
-  }()
+  }
 
   /// The width a set needs at its ideal size (title at its ideal width).
   static func width(of columns: [ReviewsTableColumn]) -> CGFloat {
@@ -105,8 +110,11 @@ enum ReviewsTableLayout {
 
   /// The set `ViewThatFits` picks for `available` points: the first that
   /// fits, else the last. For tests; the view never calls it.
-  static func columns(fitting available: CGFloat) -> [ReviewsTableColumn] {
-    columnSets.first { width(of: $0) <= available } ?? columnSets[columnSets.count - 1]
+  static func columns(
+    fitting available: CGFloat, requested: [ReviewsTableColumn] = ReviewsTableColumn.allCases
+  ) -> [ReviewsTableColumn] {
+    let sets = columnSets(for: requested)
+    return sets.first { width(of: $0) <= available } ?? sets[sets.count - 1]
   }
 }
 
@@ -211,6 +219,7 @@ enum ReviewsTableRows {
 struct ReviewsTableRowPresentation: Equatable {
   let id: String
   let title: String
+  let url: String
   /// `#1843`, shown in mono after the title.
   let number: String
   let repositoryName: String
@@ -233,6 +242,7 @@ struct ReviewsTableRowPresentation: Equatable {
     let pullRequest = row.pullRequest
     id = pullRequest.id
     title = pullRequest.title
+    url = pullRequest.url
     number = "#\(pullRequest.number)"
     repositoryName = pullRequest.repositoryName
     repositoryFullName = pullRequest.repositoryNameWithOwner
