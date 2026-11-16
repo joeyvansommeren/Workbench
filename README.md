@@ -70,6 +70,19 @@ GitHub features are optional, but any GitHub access in AgentHub depends on the G
 2. Authenticate with `gh auth login`.
 3. Open any GitHub repository in AgentHub and use the `GitHub` action from the session UI.
 
+## Result launch recipes
+
+Open **Result → Record or edit result** to save a repository launch recipe. Workbench reuses it in other sessions and worktrees of that repository. Existing framework detection fills the executable and arguments when no saved recipe exists.
+
+- Set the working subdirectory, executable and arguments (one argument per line). Arguments are literal, not a shell command.
+- Save the exact URL, including route, query and fragment. Relative file paths use the recipe's working subdirectory in the current worktree.
+- Record required login, fixture, modal or component state as manual starting steps. Record the result's version or build label separately.
+- For a native result, save a `.app` target relative to the working directory, or set a result-specific path. **Reveal native build** checks that the build exists and selects it in Finder. Build it first. Simulator launch uses the separate Simulator action; external build folders and arbitrary native schemes are unsupported here.
+
+**Open result** checks the exact web destination before opening it. It can start the saved local server when unavailable, then check the same route again. It never silently substitutes a homepage. Failures provide **Retry opening result**, **Edit launch recipe**, and **Terminal** actions. Changed managed launch settings offer an explicit server restart; Workbench does not restart an external server.
+
+A successful HTTP check confirms reachability only. It does not confirm the server's source version, login state or visible component. Redirects to a different URL fail the health check. Version and state remain visible review checks. The 90% task success target still needs the TES-266 design exercise and real-task measurements.
+
 ## File Explorer
 
 AgentHub includes a built-in file explorer and editor for supported text files. Open the quick file picker with **Cmd+P** to jump directly to a file, then edit and save changes from inside the side panel without leaving the app.
