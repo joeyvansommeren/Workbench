@@ -23,10 +23,15 @@ struct SessionAttentionSidebar: View {
           selectedID: navigationModel?.primarySessionId ?? shellModel.attentionTargetID,
           resultIDs: Set(agentHub.sessionResultLibrary.records.keys),
           onOpen: { open($0, agentHub: agentHub) },
-          onResult: { showResult($0, agentHub: agentHub) })
+          onResult: { showResult(id: $0.id, agentHub: agentHub) })
       } else {
         SessionTreeView()
       }
+    }
+    .onChange(of: coordinator?.attentionResultRequestID, initial: true) { _, id in
+      guard let id, let agentHub, let coordinator else { return }
+      showResult(id: id, agentHub: agentHub)
+      coordinator.attentionResultRequestID = nil
     }
     .sheet(item: $resultItem) { target in
       if let agentHub {
@@ -39,12 +44,18 @@ struct SessionAttentionSidebar: View {
               .terminal, for: target.id, defaultProjectPath: target.session.projectPath)
             resultItem = nil
             if let navigationModel, let coordinator,
-              let item = agentHub.sessionAttentionModel.items.first(where: { $0.id == target.id })
+              let item = ShellSessionItems.items(
+                claude: agentHub.claudeSessionsViewModel, codex: agentHub.codexSessionsViewModel
+              ).first(where: { $0.id == target.id })
             {
-              agentHub.sessionAttentionModel.open(
-                item, agentHub: agentHub, navigationModel: navigationModel,
-                shellModel: shellModel, coordinator: coordinator, detailState: resultDetailState,
-                routeToReason: false)
+              let node = SessionNode(
+                id: item.id, session: item.session, providerKind: item.providerKind,
+                isPending: item.isPending, status: item.status, pendingID: item.pendingID,
+                pendingToolName: item.pendingToolName)
+              SidebarTreeActions(
+                agentHub: agentHub, shellModel: shellModel, navigationModel: navigationModel,
+                coordinator: coordinator, detailState: resultDetailState
+              ).open(node)
             }
           },
           onFiles: {
@@ -52,12 +63,13 @@ struct SessionAttentionSidebar: View {
           },
           onChecks: {
             resultItem = nil
-            if let navigationModel, let coordinator {
-              SidebarTreeActions(
-                agentHub: agentHub, shellModel: shellModel,
-                navigationModel: navigationModel, coordinator: coordinator
-              ).showGitHub(path: target.session.projectPath)
-            }
+            let linkedPullRequests = agentHub.sessionAttentionModel.checksReferences(
+              session: target.session, provider: target.provider, agentHub: agentHub)
+            coordinator?.gitHubSheetItem = GitHubSheetItem(
+              projectPath: target.session.projectPath, branchName: target.session.branchName,
+              session: target.session, provider: target.provider,
+              workspaceID: navigationModel?.selectedWorkspaceID,
+              linkedPullRequests: linkedPullRequests)
           }
         )
         .frame(minWidth: 700, minHeight: 550)
@@ -73,11 +85,11 @@ struct SessionAttentionSidebar: View {
       coordinator: coordinator, detailState: resultDetailState)
   }
 
-  private func showResult(_ item: SessionAttentionItem, agentHub: AgentHubProvider) {
+  private func showResult(id: String, agentHub: AgentHubProvider) {
     if let target = ShellSessionItems.items(
       claude: agentHub.claudeSessionsViewModel,
       codex: agentHub.codexSessionsViewModel
-    ).first(where: { $0.id == item.id }) {
+    ).first(where: { $0.id == id }) {
       resultItem = AttentionResultTarget(
         id: target.id, session: target.session, provider: target.providerKind)
     }

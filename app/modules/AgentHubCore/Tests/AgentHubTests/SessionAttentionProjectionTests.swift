@@ -236,10 +236,11 @@ struct SessionAttentionModelTests {
     }
   }
 
-  @Test func reasonsOpenTheirChecksOrRecordedResult() {
+  @Test func reasonsOpenTheirChecksOrRecordedResult() throws {
     let model = SessionAttentionModel(announce: { _ in })
     let navigation = SessionNavigationModel()
     let coordinator = SessionsActionCoordinator()
+    let otherWindow = SessionsActionCoordinator()
     let detail = SessionDetailStateModel()
     let shell = WorkbenchShellModel()
     shell.toggleSidePanel()
@@ -250,19 +251,57 @@ struct SessionAttentionModelTests {
       projectPath: "/tmp/work", navigationModel: navigation, shellModel: shell,
       coordinator: coordinator,
       detailState: detail)
-    #expect(navigation.primarySessionId == "claude-result")
-    #expect(navigation.selectedWorkspaceID == nil)
-    #expect(detail.showsResult(for: "claude-result"))
+    #expect(navigation.primarySessionId == nil)
+    #expect(navigation.selectedWorkspaceID == "workspace")
+    #expect(coordinator.attentionResultRequestID == "claude-result")
+    #expect(otherWindow.attentionResultRequestID == nil)
     #expect(coordinator.gitHubSheetItem == nil)
+    let pullRequest = try #require(
+      GitHubPullRequestURLReference(
+        urlString: "https://github.com/owner/repo/pull/42"))
     model.routeReason(
       .init(id: "claude-checks", title: "Checks", reason: "Failed", category: .checks),
-      projectPath: "/tmp/work", navigationModel: navigation, shellModel: shell,
-      coordinator: coordinator,
+      projectPath: "/tmp/work", branchName: "feature",
+      session: CLISession(id: "checks", projectPath: "/tmp/work", branchName: "feature"),
+      provider: .codex, linkedPullRequests: [pullRequest],
+      navigationModel: navigation, shellModel: shell, coordinator: coordinator,
       detailState: detail)
-    #expect(coordinator.gitHubSheetItem == nil)
-    #expect(navigation.primarySessionId == "claude-checks")
-    #expect(detail.sidePanelSegment(for: "claude-checks") == .gitHub)
+    #expect(coordinator.gitHubSheetItem?.branchName == "feature")
+    #expect(coordinator.gitHubSheetItem?.session?.id == "checks")
+    #expect(coordinator.gitHubSheetItem?.provider == .codex)
+    #expect(coordinator.gitHubSheetItem?.workspaceID == "workspace")
+    #expect(coordinator.gitHubSheetItem?.linkedPullRequests == [pullRequest])
+    #expect(
+      SessionAttentionModel.checksReferences(linked: [pullRequest], observed: pullRequest) == [
+        pullRequest
+      ])
+    #expect(coordinator.gitHubSheetItem?.projectPath == "/tmp/work")
+    #expect(navigation.primarySessionId == nil)
+    #expect(navigation.selectedWorkspaceID == "workspace")
+  }
+
+  @Test func standaloneReasonsKeepTheirSelectedSession() {
+    let model = SessionAttentionModel(announce: { _ in })
+    let navigation = SessionNavigationModel()
+    let coordinator = SessionsActionCoordinator()
+    let detail = SessionDetailStateModel()
+    let shell = WorkbenchShellModel()
+    navigation.selectSession("claude-result")
+    model.routeReason(
+      .init(id: "claude-result", title: "Result", reason: "Review", category: .result),
+      projectPath: "/tmp/work", navigationModel: navigation, shellModel: shell,
+      coordinator: coordinator, detailState: detail)
+    #expect(navigation.primarySessionId == "claude-result")
+    #expect(detail.showsResult(for: "claude-result"))
+    #expect(coordinator.attentionResultRequestID == nil)
+    model.routeReason(
+      .init(id: "claude-result", title: "Checks", reason: "Failed", category: .checks),
+      projectPath: "/tmp/work", navigationModel: navigation, shellModel: shell,
+      coordinator: coordinator, detailState: detail)
+    #expect(navigation.primarySessionId == "claude-result")
+    #expect(detail.sidePanelSegment(for: "claude-result") == .gitHub)
     #expect(shell.sidePanelVisible)
+    #expect(coordinator.gitHubSheetItem == nil)
   }
 
   @Test func failedChecksKeepTheirPlaceDuringRefresh() {

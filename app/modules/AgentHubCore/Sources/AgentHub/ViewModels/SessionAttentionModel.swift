@@ -135,16 +135,55 @@ final class SessionAttentionModel {
       navigationModel: navigationModel, coordinator: coordinator, detailState: detailState
     ).open(node)
     if routeToReason {
+      let linkedPullRequests =
+        item.category == .checks
+        ? checksReferences(
+          session: session.session, provider: session.providerKind, agentHub: agentHub)
+        : []
       routeReason(
-        item, projectPath: session.session.projectPath,
-        navigationModel: navigationModel, shellModel: shellModel, coordinator: coordinator,
+        item, projectPath: session.session.projectPath, branchName: session.session.branchName,
+        session: session.session, provider: session.providerKind,
+        linkedPullRequests: linkedPullRequests,
+        navigationModel: navigationModel,
+        shellModel: shellModel, coordinator: coordinator,
         detailState: detailState)
     }
     shellModel.showNeedsYou(targetID: item.id)
   }
 
+  func checksReferences(
+    session: CLISession, provider: SessionProviderKind, agentHub: AgentHubProvider
+  ) -> [GitHubPullRequestURLReference] {
+    let viewModel =
+      provider == .claude ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
+    let linked = SessionCardEffects.linkedPullRequests(
+      session: session, state: viewModel.monitorStates[session.id],
+      providerKind: provider, hubProvider: agentHub)
+    let itemID = SidebarSessionItemID.monitored(provider: provider, sessionId: session.id)
+    let observed: GitHubPullRequestURLReference?
+    if let snapshot = snapshots[itemID],
+      case .session(let path, let branch, _) = snapshot.target,
+      path == session.projectPath, branch == session.branchName,
+      let pullRequest = snapshot.pullRequest, pullRequest.headRefName == branch
+    {
+      observed = GitHubPullRequestURLReference(urlString: pullRequest.url)
+    } else {
+      observed = nil
+    }
+    return Self.checksReferences(linked: linked, observed: observed)
+  }
+
+  static func checksReferences(
+    linked: [GitHubPullRequestURLReference], observed: GitHubPullRequestURLReference?
+  ) -> [GitHubPullRequestURLReference] {
+    guard let observed else { return linked }
+    return linked.filter { $0 != observed } + [observed]
+  }
+
   func routeReason(
-    _ item: SessionAttentionItem, projectPath: String,
+    _ item: SessionAttentionItem, projectPath: String, branchName: String? = nil,
+    session: CLISession? = nil, provider: SessionProviderKind? = nil,
+    linkedPullRequests: [GitHubPullRequestURLReference] = [],
     navigationModel: SessionNavigationModel, shellModel: WorkbenchShellModel,
     coordinator: SessionsActionCoordinator, detailState: SessionDetailStateModel?
   ) {
@@ -153,16 +192,24 @@ final class SessionAttentionModel {
       detailState?.setShowsResult(false, for: item.id)
       detailState?.setContentMode(.terminal, for: item.id, defaultProjectPath: projectPath)
     } else if item.category == .checks, let detailState {
-      // Keep the queue reachable while showing the checks for this session's branch.
-      navigationModel.selectSession(item.id)
-      detailState.setSidePanelSegment(.gitHub, for: item.id)
-      if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
+      if navigationModel.selectedWorkspaceID != nil {
+        coordinator.gitHubSheetItem = GitHubSheetItem(
+          projectPath: projectPath, branchName: branchName, session: session, provider: provider,
+          workspaceID: navigationModel.selectedWorkspaceID, linkedPullRequests: linkedPullRequests)
+      } else {
+        detailState.setSidePanelSegment(.gitHub, for: item.id)
+        if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
+      }
     } else if item.category == .checks {
-      coordinator.gitHubSheetItem = GitHubSheetItem(projectPath: projectPath)
+      coordinator.gitHubSheetItem = GitHubSheetItem(
+        projectPath: projectPath, branchName: branchName, session: session, provider: provider,
+        workspaceID: navigationModel.selectedWorkspaceID, linkedPullRequests: linkedPullRequests)
     } else if item.category == .result {
-      // Result review must also work for sessions owned by terminal workspaces.
-      navigationModel.selectSession(item.id)
-      detailState?.setShowsResult(true, for: item.id)
+      if navigationModel.selectedWorkspaceID != nil {
+        coordinator.attentionResultRequestID = item.id
+      } else {
+        detailState?.setShowsResult(true, for: item.id)
+      }
     }
   }
 
