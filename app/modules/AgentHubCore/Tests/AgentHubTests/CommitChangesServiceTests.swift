@@ -482,6 +482,40 @@ struct CommitChangesServiceTests {
     }
   }
 
+  @Test("Replacing a repository at the same path cannot reuse its commit approval")
+  func replacedRepositoryAtSamePath() async throws {
+    let repo = try CommitTestRepository()
+    let replacement = try CommitTestRepository()
+    defer {
+      repo.remove()
+      replacement.remove()
+    }
+    try repo.write("tracked", "approved")
+    try replacement.write("tracked", "different repository")
+    let service = CommitChangesService()
+    let snapshot = try await repo.prepare(service)
+    let relocated = repo.path + "-original"
+    try FileManager.default.moveItem(atPath: repo.path, toPath: relocated)
+    defer { try? FileManager.default.moveItem(atPath: relocated, toPath: repo.path) }
+    try FileManager.default.moveItem(atPath: replacement.path, toPath: repo.path)
+    defer { try? FileManager.default.moveItem(atPath: repo.path, toPath: replacement.path) }
+    let head = try repo.git(["rev-parse", "HEAD"])
+    let index = try repo.index()
+
+    await #expect(throws: CommitChangesError.stale) {
+      try await service.commit(snapshot: snapshot, message: "Save")
+    }
+
+    #expect(try repo.git(["rev-parse", "HEAD"]) == head)
+    #expect(try repo.index() == index)
+    #expect(try repo.git(["diff", "--name-only"]) == "tracked")
+    #expect(
+      try String(contentsOfFile: repo.path + "/tracked", encoding: .utf8)
+        == "different repository")
+    #expect(!FileManager.default.fileExists(atPath: repo.path + "/.git/HEAD.lock"))
+    #expect(!FileManager.default.fileExists(atPath: repo.path + "/.git/index.lock"))
+  }
+
   @Test("Commit temporary directories and runner stream files are private")
   func temporaryPermissions() async throws {
     let repo = try CommitTestRepository()
