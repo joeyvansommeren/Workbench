@@ -89,7 +89,8 @@ struct ApprovalResponderTests {
       #expect(disclosure.isRecognized)
       #expect(disclosure.duration == "Until you remove the saved rule; includes future sessions")
       #expect(disclosure.storage.contains(".claude/settings.local.json"))
-      #expect(disclosure.storage.contains("main checkout for worktrees"))
+      #expect(disclosure.storage.contains("Exact location not confirmed"))
+      #expect(!disclosure.storage.contains("repository root"))
       #expect(disclosure.revocation.contains("/permissions"))
       #expect(disclosure.revocation.contains("remove the matching Allow rule"))
     }

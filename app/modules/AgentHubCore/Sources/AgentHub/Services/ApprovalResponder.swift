@@ -146,7 +146,7 @@ public struct ClaudePermissionScopeDisclosure: Equatable, Sendable {
     } else if isSavedRule {
       duration = "Until you remove the saved rule; includes future sessions"
       storage =
-        "Claude's .claude/settings.local.json (repository root; main checkout for worktrees)"
+        "Claude's local settings (.claude/settings.local.json). Exact location not confirmed."
       revocation = "In Claude's terminal, open /permissions and remove the matching Allow rule."
     } else {
       duration = "Not confirmed"
