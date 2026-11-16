@@ -217,6 +217,11 @@ tab, behind `ApprovalResponding` (`Services/ApprovalResponder.swift`).
   launcher. The request lives on the window's `SessionsActionCoordinator`
   (`newSessionSheetRequest`), so any view can open the sheet with
   `ShellSessionActions.startNewSession(preselectedWorktree:)` (branch-row "+").
+  Opening the sheet preserves the current destination. Cancel and Escape use
+  the same cancel action. Only creation of a pending terminal switches to
+  Sessions; a failed or cancelled launch leaves the destination unchanged
+  (TES-275). `NewSessionNavigationGate` rejects callbacks from cancelled or
+  superseded requests.
 - **Shortcuts**: `ShellShortcuts.swift` is the one table of key equivalents and
   destination titles; `ShellCommands` binds it and the palette shows it.
 - **Appearance**: Settings › Appearance shows System / Light / Dark and

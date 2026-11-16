@@ -52,6 +52,10 @@ struct SessionResultEditor: View {
           TextField("Arguments — one per line", text: $argumentLines, axis: .vertical)
           TextField("Default exact URL or path", text: $recipe.destination)
           TextField("Required state", text: $recipe.expectedState, axis: .vertical)
+          TextField("Native .app target (relative to working directory)", text: Binding(
+            get: { recipe.nativeTarget ?? "" }, set: { recipe.nativeTarget = $0.isEmpty ? nil : $0 }))
+          Text("Native targets reveal an existing build. Build it first. Use the Simulator action for mobile launch.")
+            .font(.caption).foregroundStyle(.secondary)
         }
         if saveFailed { Text("Could not save. Check the paths and try again.").foregroundStyle(.red) }
       }.formStyle(.grouped)

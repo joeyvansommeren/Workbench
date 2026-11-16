@@ -284,12 +284,15 @@ struct NewSessionTargetTests {
     #expect(!model.canStart)
     #expect(model.applyToLaunchViewModel() == nil)
   }
-  @Test("Only creation of a new pending terminal routes this request")
-  func successfulCreationWitness() {
+  @Test(
+    "Only creation of a new pending terminal changes the originating destination",
+    arguments: ShellDestination.allCases, SessionProviderKind.allCases
+  )
+  func successfulCreationWitness(origin: ShellDestination, provider: SessionProviderKind) {
     let vm = makeLaunchViewModel()
     let gate = NewSessionNavigationGate()
     let shell = WorkbenchShellModel()
-    shell.select(.reviews)
+    shell.select(origin)
     let request = UUID()
     gate.begin(request)
     var callbacks = 0
@@ -298,35 +301,43 @@ struct NewSessionTargetTests {
       if gate.complete(request) { shell.select(.sessions) }
     }
     let old = UUID()
-    vm.recordCreatedSession(previous: old, current: nil, provider: .claude)
-    vm.recordCreatedSession(previous: old, current: old, provider: .claude)
+    vm.recordCreatedSession(previous: old, current: nil, provider: provider)
+    vm.recordCreatedSession(previous: old, current: old, provider: provider)
     #expect(callbacks == 0)
-    #expect(shell.destination == .reviews)
-    vm.recordCreatedSession(previous: old, current: UUID(), provider: .claude)
+    #expect(shell.destination == origin)
+    vm.recordCreatedSession(previous: old, current: UUID(), provider: provider)
     #expect(callbacks == 1)
     #expect(shell.destination == .sessions)
   }
 
-  @Test("Cancel during More options prevents a late successful launch from routing")
-  func cancelledPresentationCannotNavigate() {
+  @Test(
+    "Cancel preserves every originating destination and rejects late session creation",
+    arguments: ShellDestination.allCases, SessionProviderKind.allCases
+  )
+  func cancelledPresentationCannotNavigate(origin: ShellDestination, provider: SessionProviderKind) {
     let vm = makeLaunchViewModel()
     let gate = NewSessionNavigationGate()
     let shell = WorkbenchShellModel()
-    shell.select(.linear)
+    shell.select(origin)
     let first = UUID()
     gate.begin(first)
     vm.onLaunchPresentationCancelled = { gate.cancel(first) }
     vm.onSessionCreated = { _, _ in
       if gate.complete(first) { shell.select(.sessions) }
     }
+    // Both the compact sheet and More options cancel through this callback.
+    // Escape invokes the compact sheet's Cancel button via .cancelAction.
+    #expect(shell.destination == origin)
     vm.cancelLaunch()
-    vm.recordCreatedSession(previous: nil, current: UUID(), provider: .codex)
-    #expect(shell.destination == .linear)
+    #expect(gate.requestID == nil)
+    #expect(shell.destination == origin)
+    vm.recordCreatedSession(previous: nil, current: UUID(), provider: provider)
+    #expect(shell.destination == origin)
     let second = UUID()
     gate.begin(second)
     vm.recordCreatedSession(previous: nil, current: UUID(), provider: .claude)
     #expect(gate.requestID == second)
-    #expect(shell.destination == .linear)
+    #expect(shell.destination == origin)
   }
 
   @Test("Missing provider selection preserves all session choices")

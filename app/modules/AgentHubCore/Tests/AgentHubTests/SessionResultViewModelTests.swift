@@ -6,9 +6,14 @@ private actor ResultTestStore: SessionResultRecipeStoreProtocol, ProjectLaunchRe
   var results: [SessionResult] = []
   var recipe: ProjectLaunchRecipe?
   var failAtomicSave = false
+  var failRecipeLoad = false
+  func setFailRecipeLoad() { failRecipeLoad = true }
   func loadSessionResults() -> [SessionResult] { results }
   func saveSessionResult(_ result: SessionResult) { results = [result] }
-  func loadProjectLaunchRecipe(repositoryPath: String) -> ProjectLaunchRecipe? { recipe }
+  func loadProjectLaunchRecipe(repositoryPath: String) throws -> ProjectLaunchRecipe? {
+    if failRecipeLoad { throw CocoaError(.fileReadUnknown) }
+    return recipe
+  }
   func saveProjectLaunchRecipe(_ recipe: ProjectLaunchRecipe) { self.recipe = recipe }
   func setFailAtomicSave(_ value: Bool) { failAtomicSave = value }
   func saveSessionResult(_ result: SessionResult, recipe: ProjectLaunchRecipe) throws {
@@ -139,6 +144,8 @@ private final class ResultTestServer: ResultServerStarting {
 @MainActor
 private final class ResultTestOpener: ResultDestinationOpening {
   var urls: [URL] = []
+  var revealed: [URL] = []
+  func reveal(_ url: URL) { revealed.append(url) }
   func open(_ url: URL) -> Bool { urls.append(url); return true }
 }
 
@@ -231,5 +238,82 @@ struct ResultLaunchViewModelTests {
     #expect(server.launches.isEmpty)
     #expect(opener.urls.isEmpty)
     #expect(model.error != nil)
+  }
+}
+
+@MainActor
+struct LaunchRecipeRecoveryTests {
+  @Test func revealsSavedNativeBuildWithoutStartingWebServer() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let app = root.appendingPathComponent("app/build/Example.app")
+    try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+    try Data().write(to: app.appendingPathComponent("Contents/Info.plist"))
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = ResultTestStore()
+    await store.saveProjectLaunchRecipe(ProjectLaunchRecipe(repositoryPath: "/tmp/main",
+      workingSubdirectory: "app", executable: "bun", nativeTarget: "build/Example.app"))
+    let server = ResultTestServer()
+    let health = ResultTestHealth([false])
+    let opener = ResultTestOpener()
+    let model = SessionResultViewModel(recipeStore: store, sourceService: ResultTestSource(identity: "source"),
+      health: health, server: server, opener: opener)
+    var result = SessionResult(provider: .codex, sessionID: "s", projectPath: root.path)
+    result.kind = .native
+    await model.open(result: result)
+    #expect(opener.revealed.map(\.path) == [app.resolvingSymlinksInPath().path])
+    #expect(opener.urls.isEmpty && server.launches.isEmpty)
+    #expect(await health.requested.isEmpty)
+    #expect(model.error == nil)
+  }
+
+  @Test func unsupportedNativeTargetsNeverOpenAWebPageOrRunACommand() async {
+    for target in ["http://localhost:3000/", "simulator:Example", "build/not-an-app", "../Other.app"] {
+      let server = ResultTestServer()
+      let opener = ResultTestOpener()
+      let model = SessionResultViewModel(recipeStore: nil, sourceService: ResultTestSource(identity: "source"),
+        health: ResultTestHealth([true]), server: server, opener: opener)
+      var result = SessionResult(provider: .codex, sessionID: "s", projectPath: "/tmp/work")
+      result.kind = .native
+      result.destination = target
+      await model.open(result: result)
+      #expect(model.error != nil)
+      #expect(opener.urls.isEmpty && opener.revealed.isEmpty && server.launches.isEmpty)
+    }
+  }
+
+  @Test func relativeWebFileUsesSavedWorkingDirectory() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let file = root.appendingPathComponent("web/result.html")
+    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data().write(to: file)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = ResultTestStore()
+    await store.saveProjectLaunchRecipe(ProjectLaunchRecipe(repositoryPath: "/tmp/main",
+      workingSubdirectory: "web", destination: "result.html"))
+    let opener = ResultTestOpener()
+    let model = SessionResultViewModel(recipeStore: store, sourceService: ResultTestSource(identity: "source"),
+      opener: opener)
+    await model.open(result: SessionResult(provider: .codex, sessionID: "s", projectPath: root.path))
+    #expect(opener.urls.map(\.path) == [file.resolvingSymlinksInPath().path])
+    #expect(model.error == nil)
+  }
+
+  @Test func failedRecipeLoadClearsCachedRecipeAndDoesNotLaunch() async {
+    let store = ResultTestStore()
+    await store.saveProjectLaunchRecipe(ProjectLaunchRecipe(repositoryPath: "/tmp/main", executable: "bun",
+      destination: "http://localhost:3000/old"))
+    let opener = ResultTestOpener()
+    let server = ResultTestServer()
+    let model = SessionResultViewModel(recipeStore: store, sourceService: ResultTestSource(identity: "source"),
+      health: ResultTestHealth([true]), server: server, opener: opener)
+    await model.load(projectPath: "/tmp/work")
+    #expect(model.recipe != nil)
+    await store.setFailRecipeLoad()
+    var result = SessionResult(provider: .codex, sessionID: "s", projectPath: "/tmp/other")
+    result.destination = "http://localhost:3000/new"
+    await model.open(result: result)
+    #expect(model.recipe == nil && model.suggestedRecipe == nil)
+    #expect(model.error != nil)
+    #expect(opener.urls.isEmpty && server.launches.isEmpty)
   }
 }

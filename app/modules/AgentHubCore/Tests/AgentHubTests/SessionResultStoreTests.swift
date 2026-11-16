@@ -66,7 +66,8 @@ struct SessionResultStoreTests {
     var codexResult = result
     codexResult.provider = .codex
     try await store.saveSessionResult(codexResult)
-    let recipe = ProjectLaunchRecipe(repositoryPath: "/tmp/main", destination: "http://localhost:3000/route")
+    let recipe = ProjectLaunchRecipe(repositoryPath: "/tmp/main", destination: "http://localhost:3000/route",
+      expectedState: "Open settings", nativeTarget: "build/Example.app")
     try await store.saveProjectLaunchRecipe(recipe)
     let archive = WorkflowFinishArchiveRecord(workflowID: "task", repositoryPath: "/tmp/main",
       branchName: "feature", pullRequestURL: "https://github.com/example/repo/pull/1",
