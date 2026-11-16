@@ -2,9 +2,7 @@
 //  SessionStatusPresentation.swift
 //  AgentHub
 //
-//  Pure mapping from SessionStatus to glyph shape, colour tokens and
-//  display word. Does not touch SessionStatus.displayName, which voice
-//  and the columns still use.
+//  Pure mapping of independent activity and outcome to accessible status UI.
 //
 
 import SwiftUI
@@ -21,8 +19,10 @@ public enum StatusGlyphShape: String, Sendable, CaseIterable {
   case filledCheck
   /// Filled circle with an exclamation mark. Used for approval / input.
   case filledBang
-  /// Empty ring. Used for idle.
+  /// Empty ring. Used for inactive activity and results awaiting inspection.
   case ring
+  /// Question mark. Missing activity must remain distinct from inactivity.
+  case questionMark
 }
 
 // MARK: - Visual category
@@ -47,7 +47,7 @@ public enum SessionActivity: String, Equatable, Sendable {
 }
 
 /// Only explicit, current-version evidence may supply a product outcome.
-public enum SessionOutcome: String, Codable, Equatable, Sendable {
+public enum SessionOutcome: String, Codable, Equatable, Sendable, CaseIterable {
   case unknown
   case needsInput
   case needsApproval
@@ -127,51 +127,71 @@ public struct SessionStatusPresentation: Equatable, Sendable {
       return
     }
 
+    // A recorded outcome cannot establish a connection to the provider.
+    // Keep missing activity visible even when an explicit outcome is supplied.
+    if activity == .unknown {
+      shape = .questionMark
+      category = .idle
+      word =
+        self.outcome == .unknown
+        ? "Status unknown" : "Status unknown · \(self.outcome.displayName)"
+      accessibilityLabel = "Status unknown, \(self.outcome.displayName.lowercased())"
+      return
+    }
+
+    let outcomeWord: String
     switch self.outcome {
     case .needsInput, .needsApproval, .changesRequested:
       shape = .filledBang
       category = .attention
-      word = self.outcome.displayName
+      outcomeWord = self.outcome.displayName
     case .accepted, .finished:
       shape = .filledCheck
       category = .ready
-      word = self.outcome.displayName
+      outcomeWord = self.outcome.displayName
     case .readyToInspect:
       shape = .ring
       category = .idle
-      word = self.outcome.displayName
+      outcomeWord = self.outcome.displayName
     case .unknown:
       switch activity {
       case .waiting:
         shape = .filledBang
         category = .attention
-        word = "Waiting for you"
+        outcomeWord = "Waiting for you"
       case .inactive:
         shape = .ring
         category = .idle
-        word = "Inactive"
+        outcomeWord = "Inactive"
       case .unknown:
         shape = .ring
         category = .idle
-        word = "Status unknown"
+        outcomeWord = "Status unknown"
       case .starting, .running:
         // Handled above; kept exhaustive without deriving an outcome.
         shape = .breathingDot
         category = .working
-        word = "Working"
+        outcomeWord = "Working"
       }
     }
-    accessibilityLabel = self.outcome == .unknown ? "\(word), outcome unknown" : word
+    if self.outcome == .unknown {
+      word = outcomeWord
+      accessibilityLabel = "\(word), outcome unknown"
+    } else {
+      let activityWord = activity == .waiting ? "Waiting" : "Inactive"
+      word = "\(activityWord) · \(self.outcome.displayName)"
+      accessibilityLabel = "\(activityWord), \(self.outcome.displayName.lowercased())"
+    }
   }
 
   /// The fill colour for the glyph.
   @MainActor
   public var fillColor: Color {
     switch category {
-    case .working:   return .wbStatusWorkingFill
-    case .ready:     return .wbStatusReadyFill
+    case .working: return .wbStatusWorkingFill
+    case .ready: return .wbStatusReadyFill
     case .attention: return .wbStatusAttentionFill
-    case .idle:      return .wbStatusIdleFill
+    case .idle: return .wbStatusIdleFill
     }
   }
 
@@ -179,10 +199,10 @@ public struct SessionStatusPresentation: Equatable, Sendable {
   @MainActor
   public var textColor: Color {
     switch category {
-    case .working:   return .wbStatusWorkingText
-    case .ready:     return .wbStatusReadyText
+    case .working: return .wbStatusWorkingText
+    case .ready: return .wbStatusReadyText
     case .attention: return .wbStatusAttentionText
-    case .idle:      return .wbStatusIdleText
+    case .idle: return .wbStatusIdleText
     }
   }
 
@@ -190,10 +210,10 @@ public struct SessionStatusPresentation: Equatable, Sendable {
   @MainActor
   public var tintColor: Color {
     switch category {
-    case .working:   return .wbStatusWorkingTint
-    case .ready:     return .wbStatusReadyTint
+    case .working: return .wbStatusWorkingTint
+    case .ready: return .wbStatusReadyTint
     case .attention: return .wbStatusAttentionTint
-    case .idle:      return .wbStatusIdleTint
+    case .idle: return .wbStatusIdleTint
     }
   }
 

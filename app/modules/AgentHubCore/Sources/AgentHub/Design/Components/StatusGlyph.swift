@@ -94,6 +94,12 @@ public struct StatusGlyph: View {
       FilledBangGlyph(presentation: presentation, size: size)
     case .ring:
       RingGlyph(presentation: presentation, size: size)
+    case .questionMark:
+      Image(systemName: "questionmark.circle")
+        .font(.system(size: size))
+        .foregroundStyle(presentation.fillColor)
+        .frame(width: size, height: size)
+        .accessibilityLabel(presentation.accessibilityLabel)
     }
   }
 }

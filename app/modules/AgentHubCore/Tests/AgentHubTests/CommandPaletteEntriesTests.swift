@@ -39,7 +39,7 @@ struct CommandPaletteEntriesTests {
         "session-attention", "session-waiting", "session-running", "session-thinking",
         "session-idle",
       ])
-    #expect(entries.first?.trailingText == "Needs approval")
+    #expect(entries.first?.trailingText == "Waiting · Needs approval")
     #expect(entries.first { $0.id == "session-waiting" }?.trailingText == "Waiting for you")
   }
 
@@ -57,8 +57,8 @@ struct CommandPaletteEntriesTests {
       entries.map(\.id) == [
         "session-question", "session-approval", "session-waiting-first", "session-waiting-second",
       ])
-    #expect(entries[0].trailingText == "Needs input")
-    #expect(entries[1].trailingText == "Needs approval")
+    #expect(entries[0].trailingText == "Waiting · Needs input")
+    #expect(entries[1].trailingText == "Waiting · Needs approval")
     for entry in entries.dropFirst(2) {
       #expect(entry.trailingText == "Waiting for you")
       guard case .status(let presentation) = entry.lead else {
