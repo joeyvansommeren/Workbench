@@ -28,8 +28,8 @@ import Testing
 @Suite("Shell title bar hit testing", .serialized)
 struct ShellTitleBarHitTests {
   @Test("The window has no NSToolbar")
-  func noToolbar() throws {
-    let host = try ShellTitleBarTestWindow(width: 1440)
+  func noToolbar() async throws {
+    let host = try await ShellTitleBarTestWindow(width: 1440)
     defer { host.close() }
     // A toolbar makes AppKit route band clicks by SwiftUI's opaque region,
     // which drops the row's controls (see the suite comment).
@@ -42,8 +42,8 @@ struct ShellTitleBarHitTests {
   }
 
   @Test("No metrics are measured while the traffic lights are hidden")
-  func noMetricsWithHiddenLights() throws {
-    let host = try ShellTitleBarTestWindow(width: 1440)
+  func noMetricsWithHiddenLights() async throws {
+    let host = try await ShellTitleBarTestWindow(width: 1440)
     defer { host.close() }
     #expect(ShellTitleBarMetrics.measured(in: host.window) != nil)
     host.window.standardWindowButton(.closeButton)?.isHidden = true
@@ -51,45 +51,49 @@ struct ShellTitleBarHitTests {
   }
 
   @Test("Clicks on the destination tabs switch the destination", arguments: [1440.0, 900.0])
-  func tabsReceiveClicks(width: Double) throws {
-    let host = try ShellTitleBarTestWindow(width: width)
+  func tabsReceiveClicks(width: Double) async throws {
+    let host = try await ShellTitleBarTestWindow(width: width)
     defer { host.close() }
-    let centres = host.tabCentres()
+    let centres = await host.tabCentres()
     for destination in ShellDestination.allCases {
       let centre = try #require(centres[destination], "no click selected the \(destination.title) tab at \(width) pt")
       host.expectHitLandsInContent(at: centre, "\(destination.title) tab")
       host.shellModel.select(destination == .sessions ? .linear : .sessions)
-      host.click(at: centre)
-      #expect(host.shellModel.destination == destination, "click on the centre of the \(destination.title) tab")
+      await host.click(at: centre)
+      #expect(
+        host.shellModel.destination == destination,
+        "click on the centre of the \(destination.title) tab")
     }
   }
 
   @Test("A click on Search opens the palette", arguments: [1440.0, 900.0])
-  func searchReceivesClicks(width: Double) throws {
-    let host = try ShellTitleBarTestWindow(width: width)
+  func searchReceivesClicks(width: Double) async throws {
+    let host = try await ShellTitleBarTestWindow(width: width)
     defer { host.close() }
-    let centre = try #require(host.searchCentre(), "no click opened the palette at \(width) pt")
+    let centre = try #require(
+      await host.searchCentre(), "no click opened the palette at \(width) pt")
     host.expectHitLandsInContent(at: centre, "Search")
     host.overlays.closePalette()
-    host.click(at: centre)
+    await host.click(at: centre)
     #expect(host.overlays.isPaletteOpen)
   }
 
   @Test("A click on the sidebar toggle hides and shows the sidebar", arguments: [1440.0, 900.0])
-  func sidebarToggleReceivesClicks(width: Double) throws {
-    let host = try ShellTitleBarTestWindow(width: width)
+  func sidebarToggleReceivesClicks(width: Double) async throws {
+    let host = try await ShellTitleBarTestWindow(width: width)
     defer { host.close() }
-    let centre = try #require(host.sidebarToggleCentre(), "no click toggled the sidebar at \(width) pt")
-    host.click(at: centre)
+    let centre = try #require(
+      await host.sidebarToggleCentre(), "no click toggled the sidebar at \(width) pt")
+    await host.click(at: centre)
     #expect(!host.shellModel.sidebarVisible)
     // The toggle stays put when the sidebar hides.
-    host.click(at: centre)
+    await host.click(at: centre)
     #expect(host.shellModel.sidebarVisible)
   }
 
   @Test("The empty bar drags the window and a double-click zooms it")
-  func emptyBarActsAsTitleBar() throws {
-    let host = try ShellTitleBarTestWindow(width: 1440)
+  func emptyBarActsAsTitleBar() async throws {
+    let host = try await ShellTitleBarTestWindow(width: 1440)
     defer { host.close() }
     // Between the last tab and Search: no control there.
     let point = host.bandPoint(x: 800)
@@ -99,50 +103,76 @@ struct ShellTitleBarHitTests {
     // not depend on this machine's global `AppleActionOnDoubleClick`.
     let dragView = try #require(hit as? TitleBarDragView, "empty bar hit \(String(describing: hit)), not the drag view")
     dragView.doubleClickPreference = { "Maximize" }
-    host.doubleClick(at: point)
+    await host.doubleClick(at: point)
     #expect(host.zoomRequests == 1, "a double-click on the empty bar must zoom")
   }
 
-  @Test("Traffic lights, toggle, tabs and Search share one centre line", arguments: [1440.0, 900.0])
-  func oneLine(width: Double) throws {
-    let host = try ShellTitleBarTestWindow(width: width)
+  enum AlignedControl: CaseIterable {
+    case tabs, search, sidebarToggle
+  }
+
+  @Test(
+    "Each title-bar control shares the traffic-light centre line",
+    arguments: [1440.0, 900.0], AlignedControl.allCases)
+  func oneLine(width: Double, control: AlignedControl) async throws {
+    let host = try await ShellTitleBarTestWindow(width: width)
     defer { host.close() }
-    // The band follows the real window buttons, measured at hookup.
     let measured = try #require(ShellTitleBarMetrics.measured(in: host.window))
     #expect(host.shellModel.titleBar == measured)
     let lightsLine = host.trafficLightsCentreFromTop()
 
-    // Each control's clickable run, swept top to bottom: its middle is the
-    // control's centre line.
-    let tabs = host.tabCentres()
-    let reviews = try #require(tabs[.reviews])
-    let tabLine = try #require(host.verticalCentre(atX: reviews.x) {
-      host.shellModel.select(.sessions)
-    } hit: { host.shellModel.destination == .reviews })
-    #expect(abs(tabLine - lightsLine) <= 1, "tabs centred \(tabLine) pt from the top, lights \(lightsLine)")
+    // Each sweep has its own test case so the real-click coverage stays
+    // within the test runner's time limit at both window widths.
+    switch control {
+    case .tabs:
+      let tabs = await host.tabCentres()
+      let reviews = try #require(tabs[.reviews])
+      let tabLine = try #require(
+        await host.verticalCentre(atX: reviews.x) {
+          host.shellModel.select(.sessions)
+        } hit: {
+          host.shellModel.destination == .reviews
+        })
+      #expect(
+        abs(tabLine - lightsLine) <= 1,
+        "tabs centred \(tabLine) pt from the top, lights \(lightsLine)")
+    case .search:
+      let search = try #require(await host.searchCentre())
+      let searchLine = try #require(
+        await host.verticalCentre(atX: search.x) {
+          host.overlays.closePalette()
+        } hit: {
+          host.overlays.isPaletteOpen
+        })
+      #expect(
+        abs(searchLine - lightsLine) <= 1,
+        "Search centred \(searchLine) pt from the top, lights \(lightsLine)")
+    case .sidebarToggle:
+      let toggle = try #require(await host.sidebarToggleCentre())
+      let toggleLine = try #require(
+        await host.verticalCentre(atX: toggle.x) {
+          if !host.shellModel.sidebarVisible { host.shellModel.toggleSidebar() }
+        } hit: {
+          !host.shellModel.sidebarVisible
+        })
+      #expect(
+        abs(toggleLine - lightsLine) <= 1,
+        "toggle centred \(toggleLine) pt from the top, lights \(lightsLine)")
 
-    let search = try #require(host.searchCentre())
-    let searchLine = try #require(host.verticalCentre(atX: search.x) {
-      host.overlays.closePalette()
-    } hit: { host.overlays.isPaletteOpen })
-    #expect(abs(searchLine - lightsLine) <= 1, "Search centred \(searchLine) pt from the top, lights \(lightsLine)")
-
-    let toggle = try #require(host.sidebarToggleCentre())
-    let toggleLine = try #require(host.verticalCentre(atX: toggle.x) {
-      if !host.shellModel.sidebarVisible { host.shellModel.toggleSidebar() }
-    } hit: { !host.shellModel.sidebarVisible })
-    #expect(abs(toggleLine - lightsLine) <= 1, "toggle centred \(toggleLine) pt from the top, lights \(lightsLine)")
-
-    // Nothing overlaps the lights: the toggle starts the prototype's 12 pt
-    // after the zoom button.
-    let zoom = try #require(host.window.standardWindowButton(.zoomButton))
-    let toggleLeading = toggle.x - DesignTokens.Size.control / 2
-    #expect(abs(toggleLeading - (zoom.convert(zoom.bounds, to: nil).maxX + ShellLayout.trafficLightsToToggleGap)) <= 4)
+      // Keep the prototype's 12 pt gap after the zoom button.
+      let zoom = try #require(host.window.standardWindowButton(.zoomButton))
+      let toggleLeading = toggle.x - DesignTokens.Size.control / 2
+      #expect(
+        abs(
+          toggleLeading
+            - (zoom.convert(zoom.bounds, to: nil).maxX + ShellLayout.trafficLightsToToggleGap)) <= 4
+      )
+    }
   }
 
   @Test("The traffic lights sit in the prototype's 52 pt bar", arguments: [1440.0, 900.0])
-  func lightsInPrototypeBar(width: Double) throws {
-    let host = try ShellTitleBarTestWindow(width: width)
+  func lightsInPrototypeBar(width: Double) async throws {
+    let host = try await ShellTitleBarTestWindow(width: width)
     defer { host.close() }
     #expect(host.shellModel.titleBar.bandHeight == ShellTrafficLights.bandHeight)
     #expect(abs(host.trafficLightsCentreFromTop() - ShellTrafficLights.bandHeight / 2) <= 0.5)
@@ -154,29 +184,29 @@ struct ShellTitleBarHitTests {
   }
 
   @Test("Placing the lights settles: a resize moves them back a few times, then nothing")
-  func lightPlacementSettles() throws {
-    let host = try ShellTitleBarTestWindow(width: 1440)
+  func lightPlacementSettles() async throws {
+    let host = try await ShellTitleBarTestWindow(width: 1440)
     defer { host.close() }
     let chrome = try #require(host.chromeView())
-    host.settle()
+    await host.settle()
     let afterOpen = chrome.lightPlacements
-    host.settle(turns: 10)
+    await host.settle(turns: 10)
     #expect(chrome.lightPlacements == afterOpen, "the lights moved again with nothing changed")
 
     host.window.setContentSize(CGSize(width: 1100, height: 700))
-    host.settle()
+    await host.settle()
     #expect(abs(host.trafficLightsCentreFromTop() - ShellTrafficLights.bandHeight / 2) <= 0.5)
     let afterResize = chrome.lightPlacements
     // AppKit lays the titlebar out a few times per resize (4 on macOS 27);
     // each layout gets one placement back. A loop would never stop.
     #expect(afterResize - afterOpen <= 6, "\(afterResize - afterOpen) placements for one resize")
-    host.settle(turns: 10)
+    await host.settle(turns: 10)
     #expect(chrome.lightPlacements == afterResize, "placement keeps running after the resize")
   }
 
   @Test("When AppKit resets one button, all three go back to their places")
-  func singleButtonResetIsRepaired() throws {
-    let host = try ShellTitleBarTestWindow(width: 1440)
+  func singleButtonResetIsRepaired() async throws {
+    let host = try await ShellTitleBarTestWindow(width: 1440)
     defer { host.close() }
     let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
     let buttons = try types.map { try #require(host.window.standardWindowButton($0)) }
@@ -187,14 +217,15 @@ struct ShellTitleBarHitTests {
       // What a partial AppKit layout does: one button back at the old
       // 32 pt place, the others untouched.
       button.setFrameOrigin(CGPoint(x: 9 + CGFloat(index) * 23, y: 10))
-      host.settle()
-      #expect(buttons.map(\.frame) == placed, "after resetting button \(index): \(buttons.map(\.frame))")
+      await host.settle()
+      #expect(
+        buttons.map(\.frame) == placed, "after resetting button \(index): \(buttons.map(\.frame))")
     }
   }
 
   @Test("In full screen the toggle moves to the edge and the row still takes clicks")
-  func fullScreenRow() throws {
-    let host = try ShellTitleBarTestWindow(width: 1440)
+  func fullScreenRow() async throws {
+    let host = try await ShellTitleBarTestWindow(width: 1440)
     defer { host.close() }
     // A real full-screen window takes over the display, so this sets what
     // full screen changes: the lights hide and the model's flag flips.
@@ -202,14 +233,18 @@ struct ShellTitleBarHitTests {
       host.window.standardWindowButton(button)?.isHidden = true
     }
     host.shellModel.setFullScreen(true)
-    host.settle()
-    let toggle = try #require(host.sidebarToggleCentre(from: 2), "no click toggled the sidebar in full screen")
-    #expect(abs(toggle.x - (ShellLayout.fullScreenSidebarToggleLeading + DesignTokens.Size.control / 2)) <= 4)
+    await host.settle()
+    let toggle = try #require(
+      await host.sidebarToggleCentre(from: 2), "no click toggled the sidebar in full screen")
+    #expect(
+      abs(toggle.x - (ShellLayout.fullScreenSidebarToggleLeading + DesignTokens.Size.control / 2))
+        <= 4)
     // Sidebar hidden: the tabs start right after the toggle.
-    host.click(at: toggle)
+    await host.click(at: toggle)
     #expect(!host.shellModel.sidebarVisible)
-    let tabs = host.tabCentres(from: ShellLayout.toolbarLeading(
-      sidebarVisible: false, isFullScreen: true, titleBar: host.shellModel.titleBar))
+    let tabs = await host.tabCentres(
+      from: ShellLayout.toolbarLeading(
+        sidebarVisible: false, isFullScreen: true, titleBar: host.shellModel.titleBar))
     for destination in ShellDestination.allCases {
       #expect(tabs[destination] != nil, "no click selected the \(destination.title) tab in full screen")
     }
@@ -224,7 +259,7 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
   let overlays = ShellOverlayModel()
   private(set) var zoomRequests = 0
 
-  init(width: Double) throws {
+  init(width: Double) async throws {
     let content = ShellFrame(
       sidebar: { Color.clear.frame(width: DesignTokens.Width.sidebar) },
       toolbar: { ShellToolbar() },
@@ -256,7 +291,7 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     // Offscreen, so the run never shows a window on the user's display.
     window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
     window.orderFrontRegardless()
-    settle()
+    await settle()
   }
 
   func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
@@ -271,11 +306,12 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     window.close()
   }
 
-  /// Lets SwiftUI and AppKit finish layout and animations.
-  func settle(turns: Int = 5) {
+  /// Let SwiftUI and AppKit settle without holding the main actor. A nested
+  /// run loop cannot run another main-actor task while this task holds it.
+  func settle(turns: Int = 5) async {
     for _ in 0..<turns {
       window.contentView?.layoutSubtreeIfNeeded()
-      RunLoop.main.run(until: Date().addingTimeInterval(0.06))
+      try? await Task.sleep(for: .milliseconds(60))
     }
   }
 
@@ -306,64 +342,70 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
   /// Clicks down a column at `x`, from the window's top edge to 20 pt below
   /// the band; the middle of the longest run where `hit` became true, in
   /// points below the top edge. `reset` runs before every click.
-  func verticalCentre(atX x: CGFloat, reset: () -> Void, hit: () -> Bool) -> CGFloat? {
+  func verticalCentre(atX x: CGFloat, reset: () -> Void, hit: () -> Bool) async -> CGFloat? {
     var ys: [CGFloat] = []
     for fromTop in stride(from: 1, through: shellModel.titleBar.bandHeight + 20, by: 1) {
       reset()
-      settle(turns: 1)
-      click(at: bandPoint(x: x, fromTop: fromTop), turns: 2)
+      await settle(turns: 1)
+      await click(at: bandPoint(x: x, fromTop: fromTop), turns: 2)
       if hit() { ys.append(fromTop) }
     }
     reset()
-    settle()
+    await settle()
     return Self.centreOfLongestRun(ys, step: 1)
   }
 
   /// Clicks along the tab strip; the centre of each run of points that
   /// selected a destination.
-  func tabCentres(from start: CGFloat = DesignTokens.Width.sidebar) -> [ShellDestination: CGPoint] {
+  func tabCentres(
+    from start: CGFloat = DesignTokens.Width.sidebar
+  ) async -> [ShellDestination: CGPoint] {
     var hits: [ShellDestination: [CGFloat]] = [:]
     let end = min(window.frame.width - 200, start + 560)
     // Two passes, so every tab, the selected one included, is found.
     for baseline in [ShellDestination.linear, .sessions] {
       for x in stride(from: start + 2, through: end, by: 6) {
         shellModel.select(baseline)
-        click(at: bandPoint(x: x), turns: 2)
-        if shellModel.destination != baseline { hits[shellModel.destination, default: []].append(x) }
+        await click(at: bandPoint(x: x), turns: 2)
+        if shellModel.destination != baseline {
+          hits[shellModel.destination, default: []].append(x)
+        }
       }
     }
     shellModel.select(.sessions)
-    settle()
-    return hits.compactMapValues { xs in Self.centreOfLongestRun(xs, step: 6).map { bandPoint(x: $0) } }
+    await settle()
+    return hits.compactMapValues { xs in
+      Self.centreOfLongestRun(xs, step: 6).map { bandPoint(x: $0) }
+    }
   }
 
   /// Clicks leftward from the window's trailing edge until Search opens the
   /// palette; the centre of the points that did.
-  func searchCentre() -> CGPoint? {
+  func searchCentre() async -> CGPoint? {
     var xs: [CGFloat] = []
     for x in stride(from: window.frame.width - 4, through: window.frame.width - 440, by: -6) {
       overlays.closePalette()
-      click(at: bandPoint(x: x), turns: 2)
+      await click(at: bandPoint(x: x), turns: 2)
       if overlays.isPaletteOpen { xs.append(x) }
     }
     overlays.closePalette()
-    settle()
+    await settle()
     return Self.centreOfLongestRun(xs, step: 6).map { bandPoint(x: $0) }
   }
 
   /// Clicks right of the traffic lights (never on them: that would close the
   /// window) until the sidebar hides; the centre of the points that did.
   /// Pass `from` only while the lights are hidden.
-  func sidebarToggleCentre(from explicitStart: CGFloat? = nil) -> CGPoint? {
+  func sidebarToggleCentre(from explicitStart: CGFloat? = nil) async -> CGPoint? {
     guard let zoom = window.standardWindowButton(.zoomButton) else { return nil }
     let start = explicitStart ?? (zoom.convert(zoom.bounds, to: nil).maxX + 4)
     var xs: [CGFloat] = []
     for x in stride(from: start, through: start + 120, by: 4) {
-      click(at: bandPoint(x: x), turns: 2)
+      await click(at: bandPoint(x: x), turns: 2)
       if !shellModel.sidebarVisible {
         xs.append(x)
         shellModel.toggleSidebar()
-        settle()
+        await settle()
       }
     }
     return Self.centreOfLongestRun(xs, step: 4).map { bandPoint(x: $0) }
@@ -400,17 +442,17 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     #expect(inContent, "\(what) at \(point): the frame view resolves \(String(describing: hit)), not the hosting view")
   }
 
-  func click(at point: CGPoint, turns: Int = 5) {
+  func click(at point: CGPoint, turns: Int = 5) async {
     send(at: point, clickCount: 1)
-    settle(turns: turns)
+    await settle(turns: turns)
   }
 
-  func doubleClick(at point: CGPoint) {
+  func doubleClick(at point: CGPoint) async {
     // The pair a real double-click delivers. The first click starts a
     // window drag that ends at once on its queued mouse-up.
     send(at: point, clickCount: 1)
     send(at: point, clickCount: 2)
-    settle()
+    await settle()
   }
 
   private func send(at point: CGPoint, clickCount: Int) {

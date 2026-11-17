@@ -44,33 +44,61 @@ struct ApprovalResponseTrackerTests {
 
   @Test("Screen text: the menu going away settles as answered, not a terminal hint")
   func menuGoneSettlesAnswered() async throws {
-    let tracker = ApprovalResponseTracker(timeout: .milliseconds(500), pollInterval: .milliseconds(10))
+    let clock = ManualTaskClock()
+    defer { clock.close() }
+    let tracker = makeTracker(timeout: .milliseconds(500), clock: clock)
+    let polls = TestCallbackReceipt()
     var menuVisible = true
-    tracker.record(.sent, decision: .approveOnce, sessionId: "s1", request: request) { menuVisible }
-    try await Task.sleep(for: .milliseconds(40))
+    tracker.record(.sent, decision: .approveOnce, sessionId: "s1", request: request) {
+      polls.record()
+      return menuVisible
+    }
+    let firstPoll = try await clock.nextSleep(for: .milliseconds(10))
+    clock.advance(by: .milliseconds(40))
+    _ = try await clock.nextSleep(for: .milliseconds(10), after: firstPoll.id)
     #expect(tracker.phase(for: "s1", request: request) == .sending(.approveOnce))
 
     menuVisible = false
-    try await waitFor { tracker.phase(for: "s1", request: request) == .answered(.approveOnce) }
+    clock.advance(by: .milliseconds(10))
+    try await polls.wait(for: 2)
+    #expect(tracker.phase(for: "s1", request: request) == .answered(.approveOnce))
     // A long-running approved tool keeps the request pending: still answered.
-    try await Task.sleep(for: .milliseconds(600))
+    clock.advance(by: .milliseconds(600))
     #expect(tracker.phase(for: "s1", request: request) == .answered(.approveOnce))
     #expect(tracker.hasAnswered(sessionId: "s1", request: request))
   }
 
   @Test("No screen text: the timeout shows 'check the terminal', never the buttons again")
   func noScreenTimesOutToCheckTerminal() async throws {
-    let tracker = ApprovalResponseTracker(timeout: .milliseconds(30), pollInterval: .milliseconds(10))
-    tracker.record(.sent, decision: .deny, sessionId: "s1", request: request) { nil }
-    try await waitFor { tracker.phase(for: "s1", request: request) == .checkTerminal }
+    let clock = ManualTaskClock()
+    defer { clock.close() }
+    let tracker = makeTracker(timeout: .milliseconds(30), clock: clock)
+    let polls = TestCallbackReceipt()
+    tracker.record(.sent, decision: .deny, sessionId: "s1", request: request) {
+      polls.record()
+      return nil
+    }
+    _ = try await clock.nextSleep(for: .milliseconds(10))
+    clock.advance(by: .milliseconds(30))
+    try await polls.wait()
+    #expect(tracker.phase(for: "s1", request: request) == .checkTerminal)
     #expect(tracker.hasAnswered(sessionId: "s1", request: request))
   }
 
   @Test("Menu still up at the timeout: check the terminal, still answered")
   func menuStillUpTimesOutToCheckTerminal() async throws {
-    let tracker = ApprovalResponseTracker(timeout: .milliseconds(30), pollInterval: .milliseconds(10))
-    tracker.record(.sent, decision: .approveOnce, sessionId: "s1", request: request) { true }
-    try await waitFor { tracker.phase(for: "s1", request: request) == .checkTerminal }
+    let clock = ManualTaskClock()
+    defer { clock.close() }
+    let tracker = makeTracker(timeout: .milliseconds(30), clock: clock)
+    let polls = TestCallbackReceipt()
+    tracker.record(.sent, decision: .approveOnce, sessionId: "s1", request: request) {
+      polls.record()
+      return true
+    }
+    _ = try await clock.nextSleep(for: .milliseconds(10))
+    clock.advance(by: .milliseconds(30))
+    try await polls.wait()
+    #expect(tracker.phase(for: "s1", request: request) == .checkTerminal)
     #expect(tracker.hasAnswered(sessionId: "s1", request: request))
   }
 
@@ -92,30 +120,46 @@ struct ApprovalResponseTrackerTests {
 
   @Test("A newer click cancels the older click's timeout")
   func newerClickWins() async throws {
-    let first = ApprovalResponseTracker(timeout: .milliseconds(30), pollInterval: .milliseconds(10))
-    // Two clicks on two requests in a row; the first one's watcher must not
-    // settle the second.
+    let firstClock = ManualTaskClock()
+    defer { firstClock.close() }
+    let first = makeTracker(timeout: .milliseconds(30), clock: firstClock)
+    // Two clicks on two requests in a row; the first watcher must not settle the second.
     let older = ApprovalRequestKey(toolUseId: "toolu_0", timestamp: nil)
     first.record(.sent, decision: .approveOnce, sessionId: "s1", request: older) { true }
+    let olderPoll = try await firstClock.nextSleep(for: .milliseconds(10))
     first.record(.answerInTerminal(.menuNotVisible), decision: .approveOnce, sessionId: "s1", request: request)
-    try await Task.sleep(for: .milliseconds(80))
+    firstClock.advance(by: .milliseconds(80))
+    try await firstClock.waitForCompletion(of: olderPoll)
     #expect(first.phase(for: "s1", request: request) == .answerInTerminal)
 
-    // Same request recorded twice: the first watcher's deadline passes while
-    // the second is still in flight, and must not flip it.
-    let tracker = ApprovalResponseTracker(timeout: .milliseconds(150), pollInterval: .milliseconds(10))
+    // The old deadline passes while the second click is still in flight.
+    let clock = ManualTaskClock()
+    defer { clock.close() }
+    let tracker = makeTracker(timeout: .milliseconds(150), clock: clock)
     tracker.record(.sent, decision: .approveOnce, sessionId: "s1", request: request) { true }
-    try await Task.sleep(for: .milliseconds(100))
-    tracker.record(.sent, decision: .approveOnce, sessionId: "s1", request: request) { true }
-    try await Task.sleep(for: .milliseconds(100))  // past the first deadline (150 ms)
+    let initialPoll = try await clock.nextSleep(for: .milliseconds(10))
+    clock.advance(by: .milliseconds(100))
+    let olderPendingPoll = try await clock.nextSleep(for: .milliseconds(10), after: initialPoll.id)
+    let newerPolls = TestCallbackReceipt()
+    tracker.record(.sent, decision: .approveOnce, sessionId: "s1", request: request) {
+      newerPolls.record()
+      return true
+    }
+    let newerPendingPoll = try await clock.nextSleep(for: .milliseconds(10), after: olderPendingPoll.id)
+    clock.advance(by: .milliseconds(100))
+    _ = try await clock.nextSleep(for: .milliseconds(10), after: newerPendingPoll.id)
     #expect(tracker.phase(for: "s1", request: request) == .sending(.approveOnce))
-    try await waitFor { tracker.phase(for: "s1", request: request) == .checkTerminal }
+    clock.advance(by: .milliseconds(60))
+    try await newerPolls.wait(for: 2)
+    #expect(tracker.phase(for: "s1", request: request) == .checkTerminal)
   }
 
-  private func waitFor(_ condition: () -> Bool) async throws {
-    for _ in 0..<150 where !condition() {
-      try await Task.sleep(for: .milliseconds(10))
-    }
-    #expect(condition())
+  private func makeTracker(timeout: Duration, clock: ManualTaskClock) -> ApprovalResponseTracker {
+    ApprovalResponseTracker(
+      timeout: timeout,
+      pollInterval: .milliseconds(10),
+      now: { clock.now },
+      sleep: { try await clock.sleep(for: $0) }
+    )
   }
 }

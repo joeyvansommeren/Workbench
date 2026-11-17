@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentHubCore
@@ -14,7 +15,15 @@ struct SessionInvestigationViewModelTests {
     let viewModel = SessionInvestigationViewModel(service: service)
 
     viewModel.start(snapshot: makeSnapshot())
-    try await waitUntil { viewModel.report != nil }
+    try #require(viewModel.isRunning)
+    let completion = TestCallbackReceipt()
+    // Register after start resets state, before its task can publish a result.
+    withObservationTracking {
+      _ = viewModel.isRunning
+    } onChange: {
+      completion.record()
+    }
+    try await completion.wait()
 
     #expect(viewModel.isRunning == false)
     #expect(viewModel.statusMessage == "Local fallback complete")
@@ -28,7 +37,9 @@ struct SessionInvestigationViewModelTests {
 
     viewModel.start(snapshot: makeSnapshot())
     viewModel.cancel()
-    try await waitUntil { await service.cancelCount() == 1 }
+    try await service.cancellationReceipt.wait()
+
+    #expect(await service.cancelCount() == 1)
 
     #expect(viewModel.isRunning == false)
     #expect(viewModel.statusMessage == "Investigation cancelled")
@@ -51,24 +62,11 @@ struct SessionInvestigationViewModelTests {
       actions: []
     )
   }
-
-  private func waitUntil(
-    timeout: Duration = .seconds(2),
-    condition: @escaping @MainActor () async -> Bool
-  ) async throws {
-    let start = ContinuousClock.now
-    while ContinuousClock.now - start < timeout {
-      if await condition() {
-        return
-      }
-      try await Task.sleep(for: .milliseconds(20))
-    }
-    Issue.record("Condition was not met before timeout")
-  }
 }
 
 private actor StubSessionInvestigationService: SessionInvestigationServiceProtocol {
   private let report: SessionInvestigationReport
+  nonisolated let cancellationReceipt = TestCallbackReceipt()
   private var cancellations = 0
 
   init(report: SessionInvestigationReport) {
@@ -82,6 +80,7 @@ private actor StubSessionInvestigationService: SessionInvestigationServiceProtoc
 
   func cancelActiveInvestigation() async {
     cancellations += 1
+    cancellationReceipt.record()
   }
 
   func cancelCount() -> Int {

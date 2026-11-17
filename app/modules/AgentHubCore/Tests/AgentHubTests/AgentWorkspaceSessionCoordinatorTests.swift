@@ -150,7 +150,9 @@ struct AgentWorkspaceSessionCoordinatorTests {
       watcher: WorkspaceCoordinatorWatcherSpy(),
       store: store
     )
-    await waitForCoordinatorCondition { viewModel.hasReadPersistedWorkspaceState }
+    let launchRead = acknowledgeCoordinatorLaunchRead(viewModel, store: store)
+    try await launchRead.wait()
+    #expect(viewModel.hasReadPersistedWorkspaceState)
     viewModel.startMonitoring(session: session)
     viewModel.togglePin(for: session)
     #expect(viewModel.pinnedSessionIds.contains(session.id))
@@ -163,10 +165,9 @@ struct AgentWorkspaceSessionCoordinatorTests {
     #expect(viewModel.isMonitoring(sessionId: session.id))
     #expect(viewModel.pinnedSessionIds.contains(session.id))
     #expect(viewModel.archivedSessionIds.isEmpty)
-    await waitForCoordinatorCondition {
-      let state = store.getWorkspaceStateSync(for: .claude)
-      return state.monitoredSessionIds == [session.id] && state.archivedSessionIds.isEmpty
-    }
+    await viewModel.awaitCurrentWorkspaceStateSave()
+    let state = store.getWorkspaceStateSync(for: .claude)
+    #expect(state.monitoredSessionIds == [session.id] && state.archivedSessionIds.isEmpty)
   }
 
   @Test("Archived sessions stay closed when a workspace link is restored")
@@ -196,15 +197,16 @@ struct AgentWorkspaceSessionCoordinatorTests {
     )
 
     // Saves stay gated until the launch read finishes; archive only after that.
-    await waitForCoordinatorCondition { viewModel.hasReadPersistedWorkspaceState }
+    let launchRead = acknowledgeCoordinatorLaunchRead(viewModel, store: store)
+    try await launchRead.wait()
+    #expect(viewModel.hasReadPersistedWorkspaceState)
     viewModel.startMonitoring(session: session)
     viewModel.stopMonitoring(session: session)
 
-    await waitForCoordinatorCondition {
-      let state = store.getWorkspaceStateSync(for: .claude)
-      return state.monitoredSessionIds.isEmpty
-        && state.archivedSessionIds == [session.id]
-    }
+    await viewModel.awaitCurrentWorkspaceStateSave()
+    let archivedState = store.getWorkspaceStateSync(for: .claude)
+    #expect(archivedState.monitoredSessionIds.isEmpty
+      && archivedState.archivedSessionIds == [session.id])
 
     await coordinator.restorePersistedSessions([reference])
 
@@ -213,11 +215,10 @@ struct AgentWorkspaceSessionCoordinatorTests {
     #expect(await monitor.loadedSessionRequests().isEmpty)
 
     viewModel.startMonitoring(session: session)
-    await waitForCoordinatorCondition {
-      let state = store.getWorkspaceStateSync(for: .claude)
-      return state.monitoredSessionIds == [session.id]
-        && state.archivedSessionIds.isEmpty
-    }
+    await viewModel.awaitCurrentWorkspaceStateSave()
+    let resumedState = store.getWorkspaceStateSync(for: .claude)
+    #expect(resumedState.monitoredSessionIds == [session.id]
+      && resumedState.archivedSessionIds.isEmpty)
   }
 
   @Test("Persisted workspace references are visible while session files are loading")
@@ -300,6 +301,19 @@ struct AgentWorkspaceSessionCoordinatorTests {
     #expect(viewModel.monitoredSessions.first?.session.sessionFilePath == nil)
     #expect(await monitor.loadedSessionRequests() == [Set(["missing-session"])])
   }
+}
+
+@MainActor
+private func acknowledgeCoordinatorLaunchRead(
+  _ viewModel: CLISessionsViewModel, store: SessionMetadataStore
+) -> TestCallbackReceipt {
+  let receipt = TestCallbackReceipt()
+  viewModel.workspaceStateReadOverride = { provider in
+    let state = try store.readWorkspaceState(for: provider)
+    receipt.record()
+    return state
+  }
+  return receipt
 }
 
 @MainActor

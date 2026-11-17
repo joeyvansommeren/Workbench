@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentHubCore
@@ -44,7 +45,7 @@ struct LazyBrowseSessionsLoadingTests {
       approvalNotificationService: NoOpApprovalNotificationService()
     )
 
-    await waitUntil {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.monitoredSessions.count == 1
     }
 
@@ -105,7 +106,7 @@ struct LazyBrowseSessionsLoadingTests {
       approvalNotificationService: NoOpApprovalNotificationService()
     )
 
-    await waitUntil {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.monitoredSessions.count == 2
     }
 
@@ -155,7 +156,7 @@ struct LazyBrowseSessionsLoadingTests {
       hookInstaller: hookInstaller
     )
 
-    await waitUntil {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.selectedRepositories.count == 1
     }
     await waitUntilAsync {
@@ -259,7 +260,7 @@ struct LazyBrowseSessionsLoadingTests {
       approvalNotificationService: NoOpApprovalNotificationService()
     )
 
-    await waitUntil {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.monitoredSessions.count == 1
     }
 
@@ -306,7 +307,7 @@ struct LazyBrowseSessionsLoadingTests {
       approvalNotificationService: NoOpApprovalNotificationService()
     )
 
-    await waitUntil {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.monitoredSessions.count == 1
     }
 
@@ -353,7 +354,7 @@ struct LazyBrowseSessionsLoadingTests {
     var calls = await monitor.calls()
     #expect(calls.refreshCount == 0)
 
-    await waitUntil { viewModel.browseSessionsLoadState == .loaded }
+    try await waitUntil { viewModel.browseSessionsLoadState == .loaded }
 
     calls = await monitor.calls()
     #expect(calls.restoreSkeletonCount == 1)
@@ -385,13 +386,13 @@ struct LazyBrowseSessionsLoadingTests {
       approvalNotificationService: NoOpApprovalNotificationService()
     )
 
-    await waitUntil {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.selectedRepositories.count == 1
     }
     #expect(viewModel.browseSessionsLoadState == .notLoaded)
 
     viewModel.ensureBrowseSessionsLoaded()
-    await waitUntil { viewModel.browseSessionsLoadState == .loaded }
+    try await waitUntil { viewModel.browseSessionsLoadState == .loaded }
 
     var calls = await monitor.calls()
     #expect(calls.refreshCount == 1)
@@ -403,7 +404,7 @@ struct LazyBrowseSessionsLoadingTests {
     #expect(calls.refreshCount == 1)
 
     viewModel.refreshBrowseSessions()
-    await waitUntil { viewModel.browseSessionsLoadState == .loaded }
+    try await waitUntil { viewModel.browseSessionsLoadState == .loaded }
     calls = await monitor.calls()
     #expect(calls.refreshCount == 2)
   }
@@ -432,7 +433,7 @@ struct LazyBrowseSessionsLoadingTests {
       approvalNotificationService: NoOpApprovalNotificationService()
     )
 
-    await waitUntil {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.selectedRepositories.count == 1
     }
     #expect(viewModel.browseSessionsLoadState == .notLoaded)
@@ -442,7 +443,7 @@ struct LazyBrowseSessionsLoadingTests {
       let calls = await monitor.calls()
       return calls.addRepositoriesCount == 1
     }
-    await waitUntil { viewModel.loadingState == .idle }
+    try await waitUntil { viewModel.loadingState == .idle }
 
     let calls = await monitor.calls()
     #expect(calls.refreshCount == 0)
@@ -555,7 +556,7 @@ struct LazyBrowseSessionsLoadingTests {
 
     viewModel.addRepository(at: projectURL.path)
 
-    await waitUntil(timeout: .seconds(6)) {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.selectedRepositories.count == 1
     }
 
@@ -565,7 +566,7 @@ struct LazyBrowseSessionsLoadingTests {
 
     viewModel.startNewSessionInHub(worktree, initialPrompt: "pending codex")
 
-    await waitUntil {
+    try await waitUntil {
       viewModel.pendingHubSessions.count == 1
     }
 
@@ -591,7 +592,7 @@ struct LazyBrowseSessionsLoadingTests {
       encoding: .utf8
     )
 
-    await waitUntil(timeout: .seconds(8)) {
+    try await waitUntil {
       viewModel.resolvedPendingSessions[pending.id] == sessionId
         && !viewModel.pendingHubSessions.contains(where: { $0.id == pending.id })
         && viewModel.monitoredSessions.contains(where: { $0.session.id == sessionId })
@@ -624,7 +625,7 @@ struct LazyBrowseSessionsLoadingTests {
     )
     viewModel.addRepository(at: projectURL.path)
 
-    await waitUntil(timeout: .seconds(6)) {
+    try await waitUntil {
       viewModel.loadingState == .idle && viewModel.selectedRepositories.count == 1
     }
     let worktree = try #require(
@@ -656,7 +657,7 @@ struct LazyBrowseSessionsLoadingTests {
         atomically: true,
         encoding: .utf8
       )
-    await waitUntil(timeout: .seconds(8)) {
+    try await waitUntil {
       viewModel.resolvedPendingSessionHistory.count == 1
     }
 
@@ -666,7 +667,7 @@ struct LazyBrowseSessionsLoadingTests {
         atomically: true,
         encoding: .utf8
       )
-    await waitUntil(timeout: .seconds(8)) {
+    try await waitUntil {
       viewModel.resolvedPendingSessionHistory[firstPendingID] != nil
         && viewModel.resolvedPendingSessionHistory[secondPendingID] != nil
     }
@@ -854,12 +855,17 @@ private func repositoryWithWorktree(path: String, worktreePath: String) -> Selec
 
 @MainActor
 private func waitUntil(
-  timeout: Duration = .seconds(2),
   condition: @escaping @MainActor () -> Bool
-) async {
-  let start = ContinuousClock.now
-  while !condition(), ContinuousClock.now - start < timeout {
-    try? await Task.sleep(for: .milliseconds(20))
+) async throws {
+  while true {
+    let changed = TestCallbackReceipt()
+    let isReady = withObservationTracking {
+      condition()
+    } onChange: {
+      changed.record()
+    }
+    if isReady { break }
+    try await changed.wait()
   }
   #expect(condition())
 }

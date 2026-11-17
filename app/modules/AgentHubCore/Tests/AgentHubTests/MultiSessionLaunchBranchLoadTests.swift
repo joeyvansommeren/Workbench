@@ -15,7 +15,7 @@ struct MultiSessionLaunchBranchLoadTests {
 
   @Test("Fork configures synchronously and the branch load preserves the seeded base")
   func forkConfiguresSynchronouslyAndLoadPreservesSeededBase() async throws {
-    let repo = try BranchLoadGitRepoFixture.create()
+    let repo = try await Task.detached { try BranchLoadGitRepoFixture.create() }.value
     defer { repo.cleanup() }
 
     let viewModel = makeBranchLoadFixtureViewModel()
@@ -46,7 +46,7 @@ struct MultiSessionLaunchBranchLoadTests {
 
   @Test("Default branch load still applies a base branch when nothing was seeded")
   func defaultBranchLoadAppliesBase() async throws {
-    let repo = try BranchLoadGitRepoFixture.create()
+    let repo = try await Task.detached { try BranchLoadGitRepoFixture.create() }.value
     defer { repo.cleanup() }
 
     let viewModel = makeBranchLoadFixtureViewModel()

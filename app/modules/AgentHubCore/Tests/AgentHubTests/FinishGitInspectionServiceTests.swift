@@ -80,30 +80,63 @@ struct FinishGitInspectionServiceTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("finish-cancel-\(UUID())")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
+    let marker = try configureBlockingStatusHook(in: directory)
+    let runner = FinishStatusStartRecordingRunner()
+    let service = FinishGitInspectionService(runner: runner)
+    let markerWatcher = PendingSessionDirectoryWatcher()
+    let inspectionExit = TestCallbackReceipt()
+    let task = Task {
+      defer {
+        inspectionExit.record()
+        markerWatcher.cancel()
+      }
+      return try await service.inspect(at: directory.path)
+    }
+    defer {
+      markerWatcher.cancel()
+      task.cancel()
+    }
+
+    let markerOutcome = await markerWatcher.waitForNewJSONLFile(
+      inDirectory: directory.path, excluding: [])
+    let expectedMarker = PendingSessionDirectoryWatcher.Outcome.found(marker.lastPathComponent)
+    let statusStartedAt = runner.statusStartedAt
+    let exitedBeforeCancel = inspectionExit.hasRecorded
+    if markerOutcome != expectedMarker || statusStartedAt == nil || exitedBeforeCancel {
+      task.cancel()
+      _ = try? await task.value
+    }
+    try #require(markerOutcome == expectedMarker)
+    let statusStart = try #require(statusStartedAt)
+    try #require(!exitedBeforeCancel)
+    #expect(FileManager.default.fileExists(atPath: marker.path))
+    let cancelledAt = Date()
+    task.cancel()
+    let cancellationCompletedAt = Date()
+    #expect(cancellationCompletedAt.timeIntervalSince(statusStart) < 5)
+    do {
+      _ = try await task.value
+      Issue.record("Cancelled inspection must not return safety evidence")
+    } catch {
+      #expect(Date().timeIntervalSince(cancelledAt) < 2)
+      let statusFinish = try #require(runner.statusFinishedAt)
+      #expect(statusFinish.timeIntervalSince(statusStart) < 5)
+    }
+  }
+
+  private func configureBlockingStatusHook(in directory: URL) throws -> URL {
     try git(["init", "-b", "feature"], directory)
     try git(["config", "user.name", "Finish test"], directory)
     try git(["config", "user.email", "finish@example.test"], directory)
     try "first".write(to: directory.appendingPathComponent("tracked"), atomically: true, encoding: .utf8)
     try git(["add", "--", "tracked"], directory)
     try git(["-c", "commit.gpgsign=false", "commit", "-m", "Initial"], directory)
-    let marker = directory.appendingPathComponent("hook-started")
+    let marker = directory.appendingPathComponent("hook-started.jsonl")
     let hook = directory.appendingPathComponent("fsmonitor.sh")
     try "#!/bin/sh\n/usr/bin/touch '\(marker.path)'\n/bin/sleep 10\nprintf 'token\\0'\n".write(to: hook, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: hook.path)
     try git(["config", "core.fsmonitor", hook.path], directory)
-    let service = FinishGitInspectionService(runner: CommitGitRunner(timeout: 5))
-    let task = Task { try await service.inspect(at: directory.path) }
-    let deadline = Date().addingTimeInterval(2)
-    while !FileManager.default.fileExists(atPath: marker.path), Date() < deadline {
-      try await Task.sleep(for: .milliseconds(10))
-    }
-    #expect(FileManager.default.fileExists(atPath: marker.path))
-    let cancelledAt = Date()
-    task.cancel()
-    do {
-      _ = try await task.value
-      Issue.record("Cancelled inspection must not return safety evidence")
-    } catch { #expect(Date().timeIntervalSince(cancelledAt) < 2) }
+    return marker
   }
 
   private func git(_ arguments: [String], _ directory: URL) throws {
@@ -115,5 +148,46 @@ struct FinishGitInspectionServiceTests {
     try process.run()
     process.waitUntilExit()
     #expect(process.terminationStatus == 0)
+  }
+}
+
+private final class FinishStatusStartRecordingRunner: CommitGitRunning, @unchecked Sendable {
+  private let runner = CommitGitRunner(timeout: 5)
+  private let lock = NSLock()
+  private var startedAt: Date?
+  private var finishedAt: Date?
+
+  var statusStartedAt: Date? {
+    lock.lock()
+    defer { lock.unlock() }
+    return startedAt
+  }
+
+  var statusFinishedAt: Date? {
+    lock.lock()
+    defer { lock.unlock() }
+    return finishedAt
+  }
+
+  func run(
+    at path: String,
+    arguments: [String],
+    environment: [String: String],
+    input: Data?
+  ) throws -> CommitGitOutput {
+    if arguments == ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all"] {
+      lock.lock()
+      // The real runner starts its deadline after setup and spawn. This
+      // earlier timestamp makes the cancellation deadline check conservative.
+      if startedAt == nil { startedAt = Date() }
+      lock.unlock()
+      defer {
+        lock.lock()
+        finishedAt = Date()
+        lock.unlock()
+      }
+      return try runner.run(at: path, arguments: arguments, environment: environment, input: input)
+    }
+    return try runner.run(at: path, arguments: arguments, environment: environment, input: input)
   }
 }

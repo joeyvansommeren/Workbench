@@ -128,10 +128,27 @@ struct SimulatorHotReloadControllerTests {
     rebuildResult: Bool = true,
     rebuilds: RebuildLog = RebuildLog(),
     seededFiles: [String] = [],
-    autoRunDebounce: Duration = .seconds(2)
+    autoRunDebounce: Duration = .seconds(2),
+    clock: ManualTaskClock? = nil
   ) -> (SimulatorHotReloadController, MockSourceWatcher, MockConsoleTail) {
     let watcher = MockSourceWatcher()
     let tail = MockConsoleTail()
+    if let clock {
+      let controller = SimulatorHotReloadController(
+        artifactStore: MockArtifactStore(cached: cached),
+        sourceWatcher: watcher,
+        consoleTail: tail,
+        previewClient: MockPreviewClient(),
+        seedChangedFiles: { _ in seededFiles },
+        rebuildExecutor: { udid, projectPath, _ in
+          rebuilds.append("\(udid)|\(projectPath)")
+          return rebuildResult
+        },
+        autoRunDebounce: autoRunDebounce,
+        sleep: { try await clock.sleep(for: $0) }
+      )
+      return (controller, watcher, tail)
+    }
     let controller = SimulatorHotReloadController(
       artifactStore: MockArtifactStore(cached: cached),
       sourceWatcher: watcher,
@@ -327,96 +344,6 @@ struct SimulatorHotReloadControllerTests {
     #expect(controller.monitor.reloadGeneration == 1)
   }
 
-  @Test("auto-run: unarmed source change debounces into one Build & Run request")
-  func autoRunFiresWhenUnarmed() async {
-    let (controller, watcher, _) = makeController(
-      cached: Self.artifacts, autoRunDebounce: .milliseconds(20))
-    var requests = 0
-    controller.onRequestAutoRun = {
-      requests += 1
-      return true
-    }
-
-    controller.setAutoRunEnabled(true, projectPath: "/p")
-    #expect(watcher.startedProjectPath == "/p") // auto-run alone starts observation
-
-    // A burst of saves coalesces into a single request.
-    watcher.onChange?([.injectable(path: "/p/A.swift")])
-    watcher.onChange?([.injectable(path: "/p/B.swift")])
-
-    let deadline = Date().addingTimeInterval(2)
-    while requests == 0, Date() < deadline {
-      try? await Task.sleep(nanoseconds: 10_000_000)
-    }
-    #expect(requests == 1)
-
-    // The pending flag cleared — a later save schedules a fresh request.
-    watcher.onChange?([.structural(path: "/p/New.swift", kind: .created)])
-    let secondDeadline = Date().addingTimeInterval(2)
-    while requests < 2, Date() < secondDeadline {
-      try? await Task.sleep(nanoseconds: 10_000_000)
-    }
-    #expect(requests == 2)
-  }
-
-  @Test("auto-run: rejected requests retry instead of dropping the change")
-  func autoRunRetriesWhenBusy() async {
-    let (controller, watcher, _) = makeController(
-      cached: Self.artifacts, autoRunDebounce: .milliseconds(20))
-    var attempts = 0
-    controller.onRequestAutoRun = {
-      attempts += 1
-      return attempts >= 3 // busy twice, then accept
-    }
-
-    controller.setAutoRunEnabled(true, projectPath: "/p")
-    watcher.onChange?([.injectable(path: "/p/A.swift")])
-
-    let deadline = Date().addingTimeInterval(2)
-    while attempts < 3, Date() < deadline {
-      try? await Task.sleep(nanoseconds: 10_000_000)
-    }
-    #expect(attempts == 3)
-  }
-
-  @Test("auto-run: an injection-armed launch owns changes — no auto request")
-  func autoRunSuppressedWhenArmed() async {
-    let (controller, watcher, _) = makeController(
-      cached: Self.artifacts, autoRunDebounce: .milliseconds(20))
-    var requests = 0
-    controller.onRequestAutoRun = {
-      requests += 1
-      return true
-    }
-    controller.setAutoRunEnabled(true, projectPath: "/p")
-    let plan = await controller.preparePlan(
-      udid: "UDID", projectPath: "/p", enableInjection: true, enablePreviews: false)!
-    controller.sessionDidLaunch(udid: "UDID", projectPath: "/p", plan: plan)
-
-    watcher.onChange?([.injectable(path: "/p/A.swift")])
-    try? await Task.sleep(nanoseconds: 100_000_000)
-    #expect(requests == 0)
-    #expect(controller.monitor.phase == .reloading(fileName: "A.swift"))
-  }
-
-  @Test("auto-run: disabling cancels a pending debounce")
-  func autoRunDisableCancelsPending() async {
-    let (controller, watcher, _) = makeController(
-      cached: Self.artifacts, autoRunDebounce: .milliseconds(20))
-    var requests = 0
-    controller.onRequestAutoRun = {
-      requests += 1
-      return true
-    }
-    controller.setAutoRunEnabled(true, projectPath: "/p")
-    watcher.onChange?([.injectable(path: "/p/A.swift")])
-    controller.setAutoRunEnabled(false, projectPath: "/p")
-
-    try? await Task.sleep(nanoseconds: 100_000_000)
-    #expect(requests == 0)
-    #expect(watcher.stopCount == 1)
-  }
-
   @Test("panel run flow hides the real Simulator.app and skips foregrounding when the setting is on")
   func panelRunFlowHidesSimulatorApp() async {
     let (controller, _, _) = makeController(cached: Self.artifacts)
@@ -496,6 +423,155 @@ struct SimulatorHotReloadControllerTests {
     #expect(watcher.stopCount == 0) // panel still open — tracking continues
 
     controller.stopTracking()
+    #expect(watcher.stopCount == 1)
+  }
+}
+
+extension SimulatorHotReloadControllerTests {
+  @Test("auto-run: unarmed source change debounces into one Build & Run request")
+  func autoRunFiresWhenUnarmed() async throws {
+    let clock = ManualTaskClock()
+    let (controller, watcher, _) = makeController(
+      cached: Self.artifacts, autoRunDebounce: .milliseconds(20), clock: clock)
+    defer {
+      controller.setAutoRunEnabled(false, projectPath: "/p")
+      clock.close()
+    }
+    let callbacks = TestCallbackReceipt()
+    var requests = 0
+    controller.onRequestAutoRun = {
+      requests += 1
+      callbacks.record()
+      return true
+    }
+
+    controller.setAutoRunEnabled(true, projectPath: "/p")
+    #expect(watcher.startedProjectPath == "/p") // auto-run alone starts observation
+
+    // A later save replaces a registered debounce, rather than racing task startup.
+    watcher.onChange?([.injectable(path: "/p/A.swift")])
+    let first = try await clock.nextSleep(for: .milliseconds(20))
+    watcher.onChange?([.injectable(path: "/p/B.swift")])
+    let replacement = try await clock.nextSleep(for: .milliseconds(20), after: first.id)
+    try await clock.waitForCompletion(of: first)
+    #expect(requests == 0)
+    #expect(clock.pendingSleepCount == 1)
+    clock.advance(by: .milliseconds(20))
+    try await callbacks.wait()
+    #expect(requests == 1)
+
+    // The pending flag cleared — a later save schedules a fresh request.
+    watcher.onChange?([.structural(path: "/p/New.swift", kind: .created)])
+    _ = try await clock.nextSleep(for: .milliseconds(20), after: replacement.id)
+    clock.advance(by: .milliseconds(20))
+    try await callbacks.wait(for: 2)
+    #expect(requests == 2)
+    #expect(clock.pendingSleepCount == 0)
+  }
+
+  @Test("auto-run: rejected requests retry instead of dropping the change")
+  func autoRunRetriesWhenBusy() async throws {
+    let clock = ManualTaskClock()
+    let (controller, watcher, _) = makeController(
+      cached: Self.artifacts, autoRunDebounce: .milliseconds(20), clock: clock)
+    defer {
+      controller.setAutoRunEnabled(false, projectPath: "/p")
+      clock.close()
+    }
+    let callbacks = TestCallbackReceipt()
+    var attempts = 0
+    controller.onRequestAutoRun = {
+      attempts += 1
+      callbacks.record()
+      return attempts >= 3 // busy twice, then accept
+    }
+
+    controller.setAutoRunEnabled(true, projectPath: "/p")
+    watcher.onChange?([.injectable(path: "/p/A.swift")])
+    var pending = try await clock.nextSleep(for: .milliseconds(20))
+    for attempt in 1...3 {
+      clock.advance(by: .milliseconds(20))
+      try await callbacks.wait(for: attempt)
+      #expect(attempts == attempt)
+      if attempt < 3 {
+        pending = try await clock.nextSleep(for: .milliseconds(20), after: pending.id)
+      }
+    }
+    #expect(attempts == 3)
+    #expect(clock.pendingSleepCount == 0)
+  }
+
+  @Test("auto-run: an injection-armed launch owns changes — no auto request")
+  func autoRunSuppressedWhenArmed() async {
+    let (controller, watcher, _) = makeController(
+      cached: Self.artifacts, autoRunDebounce: .milliseconds(20))
+    var requests = 0
+    controller.onRequestAutoRun = {
+      requests += 1
+      return true
+    }
+    controller.setAutoRunEnabled(true, projectPath: "/p")
+    let plan = await controller.preparePlan(
+      udid: "UDID", projectPath: "/p", enableInjection: true, enablePreviews: false)!
+    controller.sessionDidLaunch(udid: "UDID", projectPath: "/p", plan: plan)
+
+    watcher.onChange?([.injectable(path: "/p/A.swift")])
+    // Scheduling sets pending intent synchronously, before a task can start.
+    #expect(!controller.hasPendingAutoRun)
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(requests == 0)
+    #expect(controller.monitor.phase == .reloading(fileName: "A.swift"))
+  }
+
+  @Test("auto-run: arming suppresses a save with an already registered debounce")
+  func armingSuppressesPendingAutoRun() async throws {
+    let clock = ManualTaskClock()
+    let (controller, watcher, _) = makeController(
+      cached: Self.artifacts, autoRunDebounce: .milliseconds(20), clock: clock)
+    defer {
+      controller.setAutoRunEnabled(false, projectPath: "/p")
+      clock.close()
+    }
+    var requests = 0
+    controller.onRequestAutoRun = {
+      requests += 1
+      return true
+    }
+    controller.setAutoRunEnabled(true, projectPath: "/p")
+    watcher.onChange?([.injectable(path: "/p/BeforeArming.swift")])
+    let pending = try await clock.nextSleep(for: .milliseconds(20))
+    #expect(controller.hasPendingAutoRun)
+
+    let plan = await controller.preparePlan(
+      udid: "UDID", projectPath: "/p", enableInjection: true, enablePreviews: false)!
+    controller.sessionDidLaunch(udid: "UDID", projectPath: "/p", plan: plan)
+    clock.advance(by: .milliseconds(20))
+    try await clock.waitForCompletion(of: pending)
+
+    #expect(requests == 0)
+    #expect(!controller.hasPendingAutoRun)
+    #expect(clock.pendingSleepCount == 0)
+  }
+
+  @Test("auto-run: disabling cancels a pending debounce")
+  func autoRunDisableCancelsPending() async throws {
+    let clock = ManualTaskClock()
+    let (controller, watcher, _) = makeController(
+      cached: Self.artifacts, autoRunDebounce: .milliseconds(20), clock: clock)
+    defer { clock.close() }
+    var requests = 0
+    controller.onRequestAutoRun = {
+      requests += 1
+      return true
+    }
+    controller.setAutoRunEnabled(true, projectPath: "/p")
+    watcher.onChange?([.injectable(path: "/p/A.swift")])
+    let pending = try await clock.nextSleep(for: .milliseconds(20))
+    controller.setAutoRunEnabled(false, projectPath: "/p")
+    try await clock.waitForCompletion(of: pending)
+    #expect(clock.pendingSleepCount == 0)
+    clock.advance(by: .milliseconds(100))
+    #expect(requests == 0)
     #expect(watcher.stopCount == 1)
   }
 }
