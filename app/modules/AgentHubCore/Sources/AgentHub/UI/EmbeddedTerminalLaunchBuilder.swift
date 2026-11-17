@@ -246,9 +246,19 @@ public enum EmbeddedTerminalLaunchBuilder {
     providerKind: SessionProviderKind? = nil,
     projectPath: String? = nil,
     sessionId: String? = nil,
-    defaults: UserDefaults = .standard
+    defaults: UserDefaults = .standard,
+    inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment
   ) -> [String: String] {
-    var environment = ProcessInfo.processInfo.environment
+    var environment = inheritedEnvironment
+    // Automation hosts use NO_COLOR for their own non-interactive output. A
+    // new interactive PTY must not inherit that choice from a dumb host.
+    // Keep intentional terminal contexts; explicit Workbench overrides below
+    // remain authoritative, including an explicit NO_COLOR preference.
+    let inheritedTerm = inheritedEnvironment["TERM"] ?? ""
+    let inheritedColorTerm = inheritedEnvironment["COLORTERM"] ?? ""
+    if (inheritedTerm.isEmpty || inheritedTerm == "dumb"), inheritedColorTerm.isEmpty {
+      environment.removeValue(forKey: "NO_COLOR")
+    }
     environment["TERM"] = "xterm-256color"
     environment["COLORTERM"] = "truecolor"
     environment["LANG"] = "en_US.UTF-8"
