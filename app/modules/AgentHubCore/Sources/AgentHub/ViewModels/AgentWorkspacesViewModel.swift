@@ -51,6 +51,7 @@ public final class AgentWorkspacesViewModel {
   @ObservationIgnored private var activeDetectionKeysByWorkspace: [String: Set<DetectionKey>] = [:]
   @ObservationIgnored private var didLoad = false
 
+  private(set) var hasLoadedWorkspaceOwnership = false
   public private(set) var workspaces: [AgentWorkspaceRecord] = []
   public private(set) var linksByWorkspaceID: [String: [AgentWorkspaceSessionLink]] = [:]
   public private(set) var errorMessage: String?
@@ -92,11 +93,14 @@ public final class AgentWorkspacesViewModel {
       async let loadedLinks = store.loadAgentWorkspaceSessionLinks()
       workspaces = try await loadedWorkspaces
       linksByWorkspaceID = Dictionary(grouping: try await loadedLinks, by: \.workspaceId)
+      hasLoadedWorkspaceOwnership = true
+      errorMessage = nil
       for workspace in workspaces where linksByWorkspaceID[workspace.id] == nil {
         linksByWorkspaceID[workspace.id] = []
       }
       await sessionCoordinator.restorePersistedSessions(persistedSessionReferences())
     } catch {
+      didLoad = false
       errorMessage = "Could not restore workspaces: \(error.localizedDescription)"
     }
   }
@@ -186,6 +190,14 @@ public final class AgentWorkspacesViewModel {
     linksByWorkspaceID.first { _, links in
       links.contains { $0.providerKind == provider && $0.sessionId == sessionId }
     }?.key
+  }
+
+  /// Returns every owner so ambiguous links cannot select an arbitrary workspace.
+  func workspaceIDs(owningSession sessionId: String, provider: SessionProviderKind) -> [String] {
+    linksByWorkspaceID.compactMap { workspaceID, links in
+      links.contains { $0.providerKind == provider && $0.sessionId == sessionId }
+        ? workspaceID : nil
+    }
   }
 
   /// Routes a sidebar selection of a workspace-owned session to the pane that

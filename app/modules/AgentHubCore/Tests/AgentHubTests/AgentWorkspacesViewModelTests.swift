@@ -28,6 +28,28 @@ struct AgentWorkspacesViewModelTests {
     #expect(surface.terminalSessionKey == "workspace-workspace-1")
   }
 
+  @Test(arguments: [false, true])
+  func failedWorkspaceOwnershipLoadCanRetry(failedLinks: Bool) async throws {
+    let workspace = try makeWorkspace(id: "workspace-retry")
+    let link = AgentWorkspaceSessionLink(
+      workspaceId: workspace.id, provider: .claude, sessionId: "session", origin: .explicit)
+    let store = WorkspaceStoreSpy(workspaces: [workspace], links: [link])
+    await store.failLoads(links: failedLinks)
+    let surface = WorkspaceTerminalSurfaceSpy()
+    let viewModel = makeViewModel(store: store, surface: surface)
+    await viewModel.load()
+    #expect(!viewModel.hasLoadedWorkspaceOwnership)
+    #expect(viewModel.errorMessage != nil)
+
+    await store.recoverLoads()
+    await viewModel.load()
+    #expect(viewModel.hasLoadedWorkspaceOwnership)
+    #expect(viewModel.errorMessage == nil)
+    #expect(viewModel.workspaces == [workspace])
+    #expect(viewModel.linksByWorkspaceID[workspace.id] == [link])
+    #expect(surface.configureShellCallCount == 0)
+  }
+
   @Test("Loading linked sessions reconciles normal monitoring without mounting terminals")
   func loadReconcilesPersistedSessionsLazily() async throws {
     let snapshot = TerminalWorkspaceSnapshot(
@@ -443,7 +465,14 @@ private func makeViewModel(
   )
 }
 
-private func makeWorkspace(id: String, title: String? = nil) throws -> AgentWorkspaceRecord {
+@MainActor
+func makeWorkspaceTestViewModel(
+  store: WorkspaceStoreSpy, surface: WorkspaceTerminalSurfaceSpy
+) -> AgentWorkspacesViewModel {
+  makeViewModel(store: store, surface: surface)
+}
+
+func makeWorkspace(id: String, title: String? = nil) throws -> AgentWorkspaceRecord {
   try AgentWorkspaceRecord(
     id: id,
     projectPath: "/tmp/project",
@@ -464,10 +493,27 @@ private func makeWorkspace(id: String, title: String? = nil) throws -> AgentWork
   )
 }
 
-private actor WorkspaceStoreSpy: AgentWorkspaceStoreProtocol {
+actor WorkspaceStoreSpy: AgentWorkspaceStoreProtocol {
   private var workspaces: [AgentWorkspaceRecord]
   private var links: [AgentWorkspaceSessionLink]
   private var deletedWorkspaceIDs: [String] = []
+  var shouldFailLoad = false
+  private var shouldFailLinkLoad = false
+  private var beforeNextLoad: (@MainActor @Sendable () -> Void)?
+
+  func failLoads(links: Bool = false) {
+    shouldFailLoad = !links
+    shouldFailLinkLoad = links
+  }
+
+  func recoverLoads() {
+    shouldFailLoad = false
+    shouldFailLinkLoad = false
+  }
+
+  func onNextLoad(_ action: @escaping @MainActor @Sendable () -> Void) {
+    beforeNextLoad = action
+  }
 
   init(
     workspaces: [AgentWorkspaceRecord] = [],
@@ -477,8 +523,17 @@ private actor WorkspaceStoreSpy: AgentWorkspaceStoreProtocol {
     self.links = links
   }
 
-  func loadAgentWorkspaces() async throws -> [AgentWorkspaceRecord] { workspaces }
-  func loadAgentWorkspaceSessionLinks() async throws -> [AgentWorkspaceSessionLink] { links }
+  func loadAgentWorkspaces() async throws -> [AgentWorkspaceRecord] {
+    let action = beforeNextLoad
+    beforeNextLoad = nil
+    await action?()
+    if shouldFailLoad { throw WorkspaceStoreTestError.failed }
+    return workspaces
+  }
+  func loadAgentWorkspaceSessionLinks() async throws -> [AgentWorkspaceSessionLink] {
+    if shouldFailLinkLoad { throw WorkspaceStoreTestError.failed }
+    return links
+  }
 
   func saveAgentWorkspace(
     _ workspace: AgentWorkspaceRecord,
@@ -604,7 +659,7 @@ private final class WorkspaceTerminalSurfaceFactorySpy: EmbeddedTerminalSurfaceF
 }
 
 @MainActor
-private final class WorkspaceTerminalSurfaceSpy: NSView, EmbeddedTerminalSurface {
+final class WorkspaceTerminalSurfaceSpy: NSView, EmbeddedTerminalSurface {
   struct Launch {
     let kind: WorkspaceTerminalLaunchKind
     let placement: WorkspaceSurfacePlacement
@@ -626,6 +681,8 @@ private final class WorkspaceTerminalSurfaceSpy: NSView, EmbeddedTerminalSurface
   private(set) var markedSessions: [String] = []
   private(set) var markedContextIDs: [String] = []
   private(set) var focusedSessions: [String] = []
+  var acceptsImmediatePrompt = false
+  private(set) var immediatePrompts: [String] = []
 
   func updateContext(terminalSessionKey: String?, sessionViewModel: CLISessionsViewModel?) {
     self.terminalSessionKey = terminalSessionKey
@@ -653,7 +710,11 @@ private final class WorkspaceTerminalSurfaceSpy: NSView, EmbeddedTerminalSurface
   func terminateProcess() { terminateCallCount += 1 }
   func resetPromptDeliveryFlag() {}
   func sendPromptIfNeeded(_ prompt: String) {}
-  func submitPromptImmediately(_ prompt: String) -> Bool { false }
+  func submitPromptImmediately(_ prompt: String) -> Bool {
+    guard acceptsImmediatePrompt else { return false }
+    immediatePrompts.append(prompt)
+    return true
+  }
   func typeText(_ text: String) {}
   func typeInitialTextIfNeeded(_ text: String) {}
   func syncAppearance(isDark: Bool, fontSize: CGFloat, fontFamily: String, theme: RuntimeTheme?) {}
@@ -790,3 +851,5 @@ private final class WorkspaceTerminalSurfaceSpy: NSView, EmbeddedTerminalSurface
   func captureWorkspaceSnapshot() -> TerminalWorkspaceSnapshot? { restoredSnapshot }
   func restoreWorkspaceSnapshot(_ snapshot: TerminalWorkspaceSnapshot) { restoredSnapshot = snapshot }
 }
+
+private enum WorkspaceStoreTestError: Error { case failed }
