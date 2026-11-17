@@ -89,6 +89,13 @@ run_shell_check() {
 
 run_core() {
   echo ""
+  echo "▶ pending session watcher lifecycle guard"
+  if python3 "$ROOT/scripts/test-pending-session-watcher.py"; then
+    echo "✓ pending session watcher lifecycle"
+  else
+    FAILURES+=("pending session watcher lifecycle")
+  fi
+  echo ""
   echo "▶ xcodebuild test: AgentHubCore (scheme AgentHubCore-Tests)"
   # Optional .xcresult bundle (CI sets this to upload on failure).
   local result_bundle_args=()
