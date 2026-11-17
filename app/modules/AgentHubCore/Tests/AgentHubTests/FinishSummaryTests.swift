@@ -112,6 +112,28 @@ struct FinishSummaryTests {
     #expect(model.summary?.cleanup.reasons.contains("A managed terminal process is still running.") == true)
   }
 
+  @Test("Files changed during result inspection protect the cleanup proposal")
+  func filesChangeDuringRefresh() async {
+    let clean = FinishGitSafety(root: path, branch: "one", head: "head", hasUncommittedChanges: false)
+    let dirty = FinishGitSafety(root: path, branch: "one", head: "head", hasUncommittedChanges: true)
+    let git = FinishTransitionTestGitInspector(safety: clean)
+    let source = FinishDirtyingTestSource(git: git, changedSafety: dirty)
+    let record = SessionResult(provider: .codex, sessionID: "s", projectPath: path)
+    let model = FinishSummaryModel(git: git, gitHub: FinishTestObserver(),
+      resultStore: FinishAcceptanceTestStore(record: record), resultSource: source)
+    let session = CLISession(id: "s", projectPath: path, branchName: "one", isWorktree: true)
+    let repositories = [SelectedRepository(path: "/repo", name: "Repo",
+      worktrees: [WorktreeBranch(name: "one", path: path, isWorktree: true)])]
+    let stopped = resource(branch: "one")
+    let runtime = FinishRuntimeInventory(isComplete: true, sessions: [stopped], terminals: [])
+
+    await model.load(session: session, provider: .codex, repositories: repositories,
+      sessions: runtime.sessions, servers: [], acceptance: nil, runtime: runtime)
+
+    #expect(model.summary?.cleanup.isCandidate == false)
+    #expect(model.summary?.cleanup.reasons.contains("Uncommitted or untracked files remain.") == true)
+  }
+
   @Test("Recipe server keys and unscoped server inventory protect cleanup")
   func realRecipeServerKey() {
     let selected = resource(id: "Codex:s")
@@ -207,5 +229,21 @@ private actor FinishAcceptanceTestSource: ResultSourceInspecting {
   func setIdentity(_ identity: String?) { self.identity = identity }
   func inspect(projectPath: String) async -> ResultSourceSnapshot {
     ResultSourceSnapshot(worktreePath: projectPath, repositoryPath: projectPath, identity: identity)
+  }
+}
+
+private actor FinishTransitionTestGitInspector: FinishGitInspecting {
+  private var safety: FinishGitSafety
+  init(safety: FinishGitSafety) { self.safety = safety }
+  func update(_ safety: FinishGitSafety) { self.safety = safety }
+  func inspect(at path: String) async throws -> FinishGitSafety { safety }
+}
+
+private struct FinishDirtyingTestSource: ResultSourceInspecting {
+  let git: FinishTransitionTestGitInspector
+  let changedSafety: FinishGitSafety
+  func inspect(projectPath: String) async -> ResultSourceSnapshot {
+    await git.update(changedSafety)
+    return ResultSourceSnapshot(worktreePath: projectPath, repositoryPath: projectPath, identity: nil)
   }
 }

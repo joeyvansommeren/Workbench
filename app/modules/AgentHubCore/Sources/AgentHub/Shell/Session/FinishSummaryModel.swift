@@ -36,16 +36,19 @@ final class FinishSummaryModel {
     defer { isLoading = false }
     let match = WorktreeModuleResolver.bestMatch(for: session.projectPath, repositories: repositories)
     let path = WorktreeModuleResolver.normalizedDirectoryPath(match?.worktree.path ?? session.projectPath)
-    let safety = try? await git.inspect(at: path)
+    let initialSafety = try? await git.inspect(at: path)
     var sessions = inventory.filter { resource in
       let normalized = WorktreeModuleResolver.normalizedDirectoryPath(resource.path)
       return normalized == path || normalized.hasPrefix(path + "/")
     }
     let snapshot: GitHubPRObservationSnapshot?
-    if let safety {
-      snapshot = await FinishGitHubSnapshotReader.read(service: gitHub, path: path, branch: safety.branch)
+    if let initialSafety {
+      snapshot = await FinishGitHubSnapshotReader.read(service: gitHub, path: path, branch: initialSafety.branch)
     } else { snapshot = nil }
     let decision = await refreshAcceptance(session: session, provider: provider, fallback: acceptance)
+    // Files and refs can change while GitHub and result checks suspend this task.
+    // An unavailable final sample protects the worktree instead of reusing old facts.
+    let safety = try? await git.inspect(at: path)
     guard !Task.isCancelled else { return }
     let currentRuntime = refreshRuntime?() ?? runtime
     if let currentRuntime {
