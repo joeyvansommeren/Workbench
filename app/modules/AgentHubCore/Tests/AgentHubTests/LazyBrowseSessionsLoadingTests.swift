@@ -542,6 +542,15 @@ struct LazyBrowseSessionsLoadingTests {
     let projectURL = root.appending(path: "project", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
+    let sessionId = "44444444-4444-4444-4444-444444444444"
+    let sessionFile = root.appending(path: "sessions/2026/05/05/rollout-\(sessionId).jsonl")
+    let (launcher, launcherInput) = try lazyBrowseLaunchProcess()
+    defer {
+      try? launcherInput.fileHandleForWriting.close()
+      launcher.waitUntilExit()
+    }
+    let ownership = LazyBrowseControlledOwnership(
+      filesByProcessID: [launcher.processIdentifier: [sessionFile.path]])
     let watcher = RecordingFileWatcher()
     let monitorService = CodexSessionMonitorService(codexDataPath: root.path)
     let viewModel = CLISessionsViewModel(
@@ -551,7 +560,9 @@ struct LazyBrowseSessionsLoadingTests {
       cliConfiguration: CLICommandConfiguration(command: "codex", mode: .codex),
       providerKind: .codex,
       approvalNotificationService: NoOpApprovalNotificationService(),
-      codexDataPath: root.path
+      cliAvailabilityService: CLIAvailabilityService(findExecutable: { _, _, _ in "/fixture/codex" }),
+      codexDataPath: root.path,
+      pendingSessionFileOwnership: ownership
     )
 
     viewModel.addRepository(at: projectURL.path)
@@ -571,7 +582,12 @@ struct LazyBrowseSessionsLoadingTests {
     }
 
     let pending = try #require(viewModel.pendingHubSessions.first)
-    let sessionId = "44444444-4444-4444-4444-444444444444"
+    defer {
+      for row in viewModel.pendingHubSessions { viewModel.cancelPendingSession(row) }
+      viewModel.stopMonitoring(sessionId: sessionId)
+    }
+    viewModel.recordPendingLaunchProcess(
+      forKey: pending.placeholderSession.id, processID: launcher.processIdentifier)
     let sessionsDir =
       root
       .appending(path: "sessions")
@@ -584,10 +600,11 @@ struct LazyBrowseSessionsLoadingTests {
       sessionId: sessionId,
       cwd: projectURL.path,
       message: "pending codex",
-      baseInstructionsLength: 24_000
+      baseInstructionsLength: 24_000,
+      timestamp: pending.startedAt.addingTimeInterval(1)
     )
     .write(
-      to: sessionsDir.appending(path: "rollout-2026-05-05T12-02-00-\(sessionId).jsonl"),
+      to: sessionFile,
       atomically: true,
       encoding: .utf8
     )
@@ -614,6 +631,24 @@ struct LazyBrowseSessionsLoadingTests {
     let projectURL = root.appending(path: "project", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
+    let firstSessionID = "55555555-5555-5555-5555-555555555555"
+    let secondSessionID = "66666666-6666-6666-6666-666666666666"
+    let firstFile = root.appending(path: "sessions/2026/08/03/rollout-\(firstSessionID).jsonl")
+    let secondFile = root.appending(path: "sessions/2026/08/03/rollout-\(secondSessionID).jsonl")
+    let (firstLauncher, firstInput) = try lazyBrowseLaunchProcess()
+    defer {
+      try? firstInput.fileHandleForWriting.close()
+      firstLauncher.waitUntilExit()
+    }
+    let (secondLauncher, secondInput) = try lazyBrowseLaunchProcess()
+    defer {
+      try? secondInput.fileHandleForWriting.close()
+      secondLauncher.waitUntilExit()
+    }
+    let ownership = LazyBrowseControlledOwnership(filesByProcessID: [
+      firstLauncher.processIdentifier: [firstFile.path],
+      secondLauncher.processIdentifier: [secondFile.path],
+    ])
     let viewModel = CLISessionsViewModel(
       monitorService: CodexSessionMonitorService(codexDataPath: root.path),
       fileWatcher: RecordingFileWatcher(),
@@ -621,7 +656,9 @@ struct LazyBrowseSessionsLoadingTests {
       cliConfiguration: CLICommandConfiguration(command: "codex", mode: .codex),
       providerKind: .codex,
       approvalNotificationService: NoOpApprovalNotificationService(),
-      codexDataPath: root.path
+      cliAvailabilityService: CLIAvailabilityService(findExecutable: { _, _, _ in "/fixture/codex" }),
+      codexDataPath: root.path,
+      pendingSessionFileOwnership: ownership
     )
     viewModel.addRepository(at: projectURL.path)
 
@@ -636,6 +673,17 @@ struct LazyBrowseSessionsLoadingTests {
     let firstPendingID = try #require(viewModel.lastCreatedPendingId)
     viewModel.startNewSessionInHub(worktree, initialPrompt: "second workflow")
     let secondPendingID = try #require(viewModel.lastCreatedPendingId)
+    let firstPending = try #require(viewModel.pendingHubSessions.first { $0.id == firstPendingID })
+    let secondPending = try #require(viewModel.pendingHubSessions.first { $0.id == secondPendingID })
+    defer {
+      for row in viewModel.pendingHubSessions { viewModel.cancelPendingSession(row) }
+      viewModel.stopMonitoring(sessionId: firstSessionID)
+      viewModel.stopMonitoring(sessionId: secondSessionID)
+    }
+    viewModel.recordPendingLaunchProcess(
+      forKey: firstPending.placeholderSession.id, processID: firstLauncher.processIdentifier)
+    viewModel.recordPendingLaunchProcess(
+      forKey: secondPending.placeholderSession.id, processID: secondLauncher.processIdentifier)
     let firstTerminal = TerminalContainerView()
     let secondTerminal = TerminalContainerView()
     viewModel.activeTerminals["pending-\(firstPendingID.uuidString)"] = firstTerminal
@@ -648,12 +696,11 @@ struct LazyBrowseSessionsLoadingTests {
       .appending(path: "08")
       .appending(path: "03")
     try FileManager.default.createDirectory(at: sessionsDir, withIntermediateDirectories: true)
-    let firstSessionID = "55555555-5555-5555-5555-555555555555"
-    let secondSessionID = "66666666-6666-6666-6666-666666666666"
-
-    try codexLines(sessionId: firstSessionID, cwd: projectURL.path, message: "first workflow")
+    try codexLines(
+      sessionId: firstSessionID, cwd: projectURL.path, message: "first workflow",
+      timestamp: firstPending.startedAt.addingTimeInterval(1))
       .write(
-        to: sessionsDir.appending(path: "rollout-2026-08-03T12-00-00-\(firstSessionID).jsonl"),
+        to: firstFile,
         atomically: true,
         encoding: .utf8
       )
@@ -661,9 +708,11 @@ struct LazyBrowseSessionsLoadingTests {
       viewModel.resolvedPendingSessionHistory.count == 1
     }
 
-    try codexLines(sessionId: secondSessionID, cwd: projectURL.path, message: "second workflow")
+    try codexLines(
+      sessionId: secondSessionID, cwd: projectURL.path, message: "second workflow",
+      timestamp: secondPending.startedAt.addingTimeInterval(1))
       .write(
-        to: sessionsDir.appending(path: "rollout-2026-08-03T12-00-01-\(secondSessionID).jsonl"),
+        to: secondFile,
         atomically: true,
         encoding: .utf8
       )
@@ -674,6 +723,8 @@ struct LazyBrowseSessionsLoadingTests {
 
     let firstResolvedID = try #require(viewModel.resolvedPendingSessionHistory[firstPendingID])
     let secondResolvedID = try #require(viewModel.resolvedPendingSessionHistory[secondPendingID])
+    #expect(firstResolvedID == firstSessionID)
+    #expect(secondResolvedID == secondSessionID)
     #expect(firstResolvedID != secondResolvedID)
     #expect(Set([firstResolvedID, secondResolvedID]) == Set([firstSessionID, secondSessionID]))
     #expect(viewModel.activeTerminals[firstResolvedID]?.view === firstTerminal)
@@ -910,12 +961,17 @@ private func codexLines(
   sessionId: String,
   cwd: String,
   message: String,
-  baseInstructionsLength: Int = 0
+  baseInstructionsLength: Int = 0,
+  timestamp: Date? = nil
 ) -> String {
+  let formatter = ISO8601DateFormatter()
+  formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+  let launchTimestamp = timestamp.map { formatter.string(from: $0) } ?? "2026-05-05T12:00:00.000Z"
   var sessionMetaPayload: [String: Any] = [
     "id": sessionId,
-    "timestamp": "2026-05-05T12:00:00.000Z",
+    "timestamp": launchTimestamp,
     "cwd": cwd,
+    "source": "cli",
     "git": [
       "branch": "main"
     ],
@@ -928,7 +984,7 @@ private func codexLines(
   }
 
   let sessionMeta: [String: Any] = [
-    "timestamp": "2026-05-05T12:00:00.000Z",
+    "timestamp": launchTimestamp,
     "type": "session_meta",
     "payload": sessionMetaPayload,
   ]
@@ -951,4 +1007,33 @@ private func codexLines(
 private func jsonLine(_ object: [String: Any]) -> String {
   let data = try! JSONSerialization.data(withJSONObject: object)
   return String(decoding: data, as: UTF8.self)
+}
+
+
+/// These browse tests control file ownership; OS descriptor inspection has its own tests.
+private struct LazyBrowseControlledOwnership: PendingSessionFileOwning {
+  let filesByProcessID: [Int32: Set<String>]
+
+  func ownedFiles(in candidates: Set<String>, process: PendingSessionProcessIdentity) async
+    -> Set<String>
+  {
+    let expected = Set((filesByProcessID[process.processID] ?? []).map {
+      URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+    })
+    return Set(candidates.filter {
+      expected.contains(URL(fileURLWithPath: $0).resolvingSymlinksInPath().path)
+    })
+  }
+}
+
+/// Supplies a real direct-child identity without launching a CLI or a native window.
+private func lazyBrowseLaunchProcess() throws -> (Process, Pipe) {
+  let process = Process()
+  let input = Pipe()
+  process.executableURL = URL(fileURLWithPath: "/bin/cat")
+  process.standardInput = input
+  process.standardOutput = FileHandle.nullDevice
+  process.standardError = FileHandle.nullDevice
+  try process.run()
+  return (process, input)
 }
