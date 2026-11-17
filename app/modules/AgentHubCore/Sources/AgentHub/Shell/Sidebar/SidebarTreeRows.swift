@@ -11,10 +11,20 @@ import Foundation
 import AgentHubGitDiff
 
 /// Leading positions for the flat sidebar's three visible hierarchy levels.
+/// Each level indents by `md` (12 pt) so the repo → branch → session
+/// staircase reads clearly without eating too much title width. At 12 pt the
+/// leading icon of each child starts past the midpoint of its parent's icon
+/// column, which is the smallest step that makes the three levels obvious.
 enum SidebarTreeInset {
+  /// Per-level indent step. `md` is the smallest token that makes the three
+  /// levels visually distinct: `sm` (8 pt) left the icons overlapping by
+  /// more than half their width; `lg` (16 pt) wastes width in a 288 pt sidebar.
+  static let step = DesignTokens.Spacing.md
   static let repository = DesignTokens.Spacing.smPlus
-  static let branch = repository + DesignTokens.Spacing.sm
-  static let session = branch + DesignTokens.Spacing.sm
+  static let branch = repository + step
+  static let session = branch + step
+  /// Centre of the session status column, used by guide lines.
+  static let guideX = session + DesignTokens.Size.tile / 2
 }
 
 struct RepoHeaderRowModel: Equatable {
@@ -156,7 +166,7 @@ enum SidebarTreeRows {
                 title: title(node),
                 roleLabel: roleLabel(for: node, decoration: decoration),
                 isFirstInBranch: sessionIndex == 0,
-                isLastInBranch: sessionIndex == branch.sessions.count - 1,
+                isLastInBranch: sessionIndex == branch.sessions.count - 1 && !branch.hasMore,
                 showProvider: (providersByBranch[branch.id] ?? Set(branch.sessions.map(\.providerKind))).count > 1
               )))
         }
