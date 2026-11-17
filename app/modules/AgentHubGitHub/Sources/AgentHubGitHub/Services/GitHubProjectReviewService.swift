@@ -7,7 +7,13 @@ import Foundation
 
 public protocol GitHubProjectReviewServiceProtocol: Sendable {
   func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws -> GitHubReviewDetail
+  func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest, account: GitHubReviewAccount)
+    async throws -> GitHubReviewDetail
+  func reviewAccount() async throws -> GitHubReviewAccount
+  func reviewSourceContext() async throws -> GitHubReviewSourceContext
+  func listPullRequests(query: GitHubReviewQuery, limit: Int) async throws -> GitHubReviewQueue
   func listProjects() async throws -> [GitHubReviewProject]
+  func listProjects(account: GitHubReviewAccount) async throws -> [GitHubReviewProject]
   func listPullRequests(
     project: GitHubReviewProject,
     view: GitHubProjectView,
@@ -27,10 +33,42 @@ public protocol GitHubProjectReviewServiceProtocol: Sendable {
   /// The CI rollup of each pull request (by node ID), for the queue's Checks column.
   /// Batched GraphQL; never throws: a failure is logged and gives fewer entries.
   func checkRollups(forPullRequestIDs ids: [String]) async -> [String: CIStatus]
+  func checkRollups(forPullRequestIDs ids: [String], account: GitHubReviewAccount) async -> [String:
+    CIStatus]
 }
 
 extension GitHubProjectReviewServiceProtocol {
-  public func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws -> GitHubReviewDetail {
+  public func reviewAccount() async throws -> GitHubReviewAccount {
+    try await reviewSourceContext().account
+  }
+
+  public func pullRequestDetail(_ request: GitHubProjectPullRequest, account: GitHubReviewAccount)
+    async throws -> GitHubReviewDetail
+  {
+    try await pullRequestDetail(request)
+  }
+  public func checkRollups(forPullRequestIDs ids: [String], account: GitHubReviewAccount) async
+    -> [String: CIStatus]
+  {
+    await checkRollups(forPullRequestIDs: ids)
+  }
+
+  public func listProjects(account: GitHubReviewAccount) async throws -> [GitHubReviewProject] {
+    try await listProjects()
+  }
+
+  public func reviewSourceContext() async throws -> GitHubReviewSourceContext {
+    throw GitHubReviewSourceError.unavailableSource
+  }
+  public func listPullRequests(query: GitHubReviewQuery, limit: Int) async throws
+    -> GitHubReviewQueue
+  {
+    throw GitHubReviewSourceError.unavailableSource
+  }
+
+  public func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws
+    -> GitHubReviewDetail
+  {
     throw GitHubCLIError.commandFailed("Pull request details are unavailable")
   }
 
@@ -87,7 +125,8 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
   /// Runs one `gh` call for the queue's checks and returns its stdout.
   typealias ChecksCommandRunner = @Sendable (_ arguments: [String]) async throws -> String
 
-  private let cli: GitHubCLIService
+  let cli: GitHubCLIService
+  let runSourceCommand: ChecksCommandRunner
   private let runChecksCommand: ChecksCommandRunner
 
   public init(cli: GitHubCLIService = GitHubCLIService()) {
@@ -103,17 +142,51 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
   init(cli: GitHubCLIService = GitHubCLIService(), runChecksCommand: @escaping ChecksCommandRunner) {
     self.cli = cli
     self.runChecksCommand = runChecksCommand
+    self.runSourceCommand = { arguments in
+      try await cli.runAuthenticatedCommand(arguments, timeout: 45)
+    }
   }
 
-  public func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws -> GitHubReviewDetail {
-    let fields = "number,title,body,state,url,headRefName,headRefOid,baseRefName,author,createdAt,updatedAt,isDraft,mergeable,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,labels,reviewRequests,comments,reviews"
+  init(runSourceCommand: @escaping ChecksCommandRunner) {
+    self.cli = GitHubCLIService()
+    self.runSourceCommand = runSourceCommand
+    self.runChecksCommand = runSourceCommand
+  }
+
+  public func pullRequestDetail(_ request: GitHubProjectPullRequest, account: GitHubReviewAccount)
+    async throws -> GitHubReviewDetail
+  {
+    guard URL(string: request.url)?.host?.lowercased() == account.host else {
+      throw GitHubReviewSourceError.invalidSource
+    }
+    try await verifyAccount(account)
+    let detail = try await pullRequestDetail(request)
+    try await verifyAccount(account)
+    return detail
+  }
+
+  private func verifyAccount(_ account: GitHubReviewAccount) async throws {
+    let json = try await runSourceCommand([
+      "api", "graphql", "--hostname", account.host,
+      "-f", "query=query { viewer { id login } }",
+    ])
+    _ = try Self.verifiedViewer(Self.sourceData(json), account: account)
+  }
+
+  public func pullRequestDetail(_ pullRequest: GitHubProjectPullRequest) async throws
+    -> GitHubReviewDetail
+  {
+    let host = URL(string: pullRequest.url)?.host ?? "github.com"
+    let fields =
+      "number,title,body,state,url,headRefName,headRefOid,baseRefName,author,createdAt,updatedAt,isDraft,mergeable,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,labels,reviewRequests,comments,reviews"
     async let json = cli.runAuthenticatedCommand([
-      "pr", "view", String(pullRequest.number), "--repo", pullRequest.repositoryNameWithOwner,
-      "--json", fields
+      "pr", "view", String(pullRequest.number), "--repo",
+      "\(host)/\(pullRequest.repositoryNameWithOwner)",
+      "--json", fields,
     ])
     async let comments = cli.runAuthenticatedCommand([
       "api", "repos/\(pullRequest.repositoryNameWithOwner)/pulls/\(pullRequest.number)/comments",
-      "--paginate", "--slurp"
+      "--hostname", host, "--paginate", "--slurp",
     ])
     return try await Self.decodeDetail(json, inlineCommentsJSON: comments)
   }
@@ -131,10 +204,18 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
   }
 
   public func listProjects() async throws -> [GitHubReviewProject] {
+    try await fetchProjects(account: nil)
+  }
+
+  public func listProjects(account: GitHubReviewAccount) async throws -> [GitHubReviewProject] {
+    try await fetchProjects(account: account)
+  }
+
+  private func fetchProjects(account: GitHubReviewAccount?) async throws -> [GitHubReviewProject] {
     let query = """
       query {
         viewer {
-          login
+          id login
           projectsV2(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes { id number title url closed views(first: 50) { nodes { id number name filter layout } } }
           }
@@ -149,10 +230,10 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
         }
       }
       """
-    let json = try await cli.runAuthenticatedCommand(
-      ["api", "graphql", "-f", "query=\(query)"],
-      timeout: 45
-    )
+    var arguments = ["api", "graphql", "-f", "query=\(query)"]
+    if let account { arguments += ["--hostname", account.host] }
+    let json = try await runSourceCommand(arguments)
+    if let account { _ = try Self.verifiedViewer(Self.sourceData(json), account: account) }
     return try Self.decodeProjects(json)
   }
 
@@ -163,8 +244,21 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
   /// inaccessible) is used and the loop goes on. The caller shows no icon for
   /// pull requests left out.
   public func checkRollups(forPullRequestIDs ids: [String]) async -> [String: CIStatus] {
+    await fetchCheckRollups(ids, account: nil)
+  }
+
+  public func checkRollups(forPullRequestIDs ids: [String], account: GitHubReviewAccount) async
+    -> [String: CIStatus]
+  {
+    await fetchCheckRollups(ids, account: account)
+  }
+
+  private func fetchCheckRollups(_ ids: [String], account: GitHubReviewAccount?) async -> [String:
+    CIStatus]
+  {
     let query = """
       query($ids: [ID!]!) {
+        viewer { id login }
         nodes(ids: $ids) {
           ... on PullRequest {
             id
@@ -181,7 +275,12 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
         arguments += ["-F", "ids[]=\(id)"]
       }
       do {
+        if let account { arguments += ["--hostname", account.host] }
         let json = try await runChecksCommand(arguments)
+        if let account {
+          _ = try Self.verifiedViewer(
+            Self.sourceData(json, allowPartialErrors: true), account: account)
+        }
         result.merge(try Self.decodeCheckRollups(json)) { _, new in new }
       } catch {
         GitHubLogger.github.error(
@@ -384,13 +483,11 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
     arguments += [
       "--project", "\(project.ownerLogin)/\(project.number)",
       "--limit", "\(max(1, min(limit, 1_000)))",
-      "--draft=false",
       "--json", "id,number,title,url,repository,author,updatedAt,isDraft,state",
     ]
 
     let json = try await cli.runAuthenticatedCommand(arguments, timeout: 45)
     var pullRequests = try Self.decodeSearchPullRequests(json)
-      .filter { !$0.isDraft }
 
     guard !pullRequests.isEmpty else { return [] }
 
@@ -421,9 +518,10 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
     return pullRequests
   }
 
-  private func projectFieldValues(
+  func projectFieldValues(
     pullRequestIDs: [String],
-    projectID: String
+    projectID: String,
+    account: GitHubReviewAccount? = nil
   ) async throws -> [String: ProjectFieldValues] {
     var result: [String: ProjectFieldValues] = [:]
     for batchStart in stride(from: 0, to: pullRequestIDs.count, by: 50) {
@@ -431,6 +529,7 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
       let batch = Array(pullRequestIDs[batchStart..<batchEnd])
       let query = """
         query($ids: [ID!]!) {
+          viewer { id login }
           nodes(ids: $ids) {
             ... on PullRequest {
               id
@@ -453,7 +552,9 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
       for id in batch {
         arguments += ["-F", "ids[]=\(id)"]
       }
-      let json = try await cli.runAuthenticatedCommand(arguments, timeout: 45)
+      if let account { arguments += ["--hostname", account.host] }
+      let json = try await runSourceCommand(arguments)
+      if let account { _ = try Self.verifiedViewer(Self.sourceData(json), account: account) }
       let decoded = try Self.decodeProjectFieldValues(json, projectID: projectID)
       for (id, values) in decoded {
         result[id] = values
@@ -468,7 +569,7 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
     var state: String?
     var merged: Bool?
 
-    for token in tokens(in: filter) {
+    for token in GitHubReviewQuery.filterTokens(in: filter) {
       let lowercaseToken = token.lowercased()
       if lowercaseToken.hasPrefix("status:") || lowercaseToken.hasPrefix("-status:") {
         let isNegated = lowercaseToken.hasPrefix("-status:")
@@ -660,30 +761,7 @@ public actor GitHubProjectReviewService: GitHubProjectReviewServiceProtocol {
     }
   }
 
-  private static func tokens(in query: String) -> [String] {
-    var tokens: [String] = []
-    var current = ""
-    var isInsideQuotes = false
-    for character in query {
-      if character == "\"" {
-        isInsideQuotes.toggle()
-        current.append(character)
-      } else if character.isWhitespace, !isInsideQuotes {
-        if !current.isEmpty {
-          tokens.append(current)
-          current = ""
-        }
-      } else {
-        current.append(character)
-      }
-    }
-    if !current.isEmpty {
-      tokens.append(current)
-    }
-    return tokens
-  }
-
-  private static func matches(status: String?, predicates: [StatusPredicate]) -> Bool {
+  static func matches(status: String?, predicates: [StatusPredicate]) -> Bool {
     predicates.allSatisfy { predicate in
       let isEqual = status?.localizedCaseInsensitiveCompare(predicate.value) == .orderedSame
       return predicate.isNegated ? !isEqual : isEqual

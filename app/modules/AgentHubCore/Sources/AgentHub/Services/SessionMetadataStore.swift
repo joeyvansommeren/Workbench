@@ -5,6 +5,7 @@
 //  Actor-based service for persisting session metadata to SQLite
 //
 
+import AgentHubGitHub
 import Foundation
 import GRDB
 
@@ -18,6 +19,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
   // MARK: - Properties
 
   enum MigrationID {
+    static let createReviewSources = "v22_create_review_sources"
     static let createSessionLaunchOrigins = "v21_create_session_launch_origins"
     static let createSessionReadCursors = "v20_create_session_read_cursors"
     static let createResultReview = "v19_create_result_review"
@@ -74,6 +76,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     MigrationID.createResultReview,
     MigrationID.createSessionReadCursors,
     MigrationID.createSessionLaunchOrigins,
+    MigrationID.createReviewSources,
   ]
 
   private let dbQueue: DatabaseQueue
@@ -460,6 +463,18 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
         t.uniqueKey(["provider", "sessionID"])
       }
     }
+    migrator.registerMigration(MigrationID.createReviewSources) { db in
+      try db.create(table: "github_review_workspaces") { t in
+        t.column("host", .text).notNull()
+        t.column("accountID", .text).notNull()
+        t.column("payload", .blob).notNull()
+        t.primaryKey(["host", "accountID"])
+      }
+      try db.alter(table: "github_review_sessions") { t in
+        t.add(column: "sourceAccountKey", .text)
+        t.add(column: "branchName", .text)
+      }
+    }
     return migrator
   }
 
@@ -561,11 +576,16 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
 
   func acknowledgeReadCursor(_ cursor: SessionReadCursor) throws {
     try dbQueue.write { db in
-      try db.execute(sql: """
-        INSERT INTO session_read_cursors (provider, sessionId, lastReadActivityAt) VALUES (?, ?, ?)
-        ON CONFLICT(provider, sessionId) DO UPDATE SET lastReadActivityAt =
-          MAX(lastReadActivityAt, excluded.lastReadActivityAt)
-        """, arguments: [cursor.provider.rawValue, cursor.sessionID, cursor.activity.timeIntervalSinceReferenceDate])
+      try db.execute(
+        sql: """
+          INSERT INTO session_read_cursors (provider, sessionId, lastReadActivityAt) VALUES (?, ?, ?)
+          ON CONFLICT(provider, sessionId) DO UPDATE SET lastReadActivityAt =
+            MAX(lastReadActivityAt, excluded.lastReadActivityAt)
+          """,
+        arguments: [
+          cursor.provider.rawValue, cursor.sessionID,
+          cursor.activity.timeIntervalSinceReferenceDate,
+        ])
     }
   }
 
@@ -601,8 +621,10 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
   }
 
   func saveWorkflowFinishArchive(_ record: WorkflowFinishArchiveRecord) throws {
-    let key = try JSONEncoder().encode([record.workflowID, record.repositoryPath, record.branchName])
-      .base64EncodedString()
+    let key = try JSONEncoder().encode([
+      record.workflowID, record.repositoryPath, record.branchName,
+    ])
+    .base64EncodedString()
     try saveReviewRecord(record, key: key, table: "workflow_finish_archives")
   }
 
@@ -1026,6 +1048,32 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
 }
 
 extension SessionMetadataStore: GitHubReviewSessionStoreProtocol {
+  func reviewWorkspace(account: GitHubReviewAccount) async throws -> GitHubReviewWorkspace? {
+    try await dbQueue.read { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql: "SELECT payload FROM github_review_workspaces WHERE host = ? AND accountID = ?",
+          arguments: [account.host, account.nodeID])
+      else { return nil }
+      let payload: Data = row["payload"]
+      let workspace = try JSONDecoder().decode(GitHubReviewWorkspace.self, from: payload)
+      guard workspace.account.persistenceKey == account.persistenceKey else { return nil }
+      return workspace
+    }
+  }
+
+  func saveReviewWorkspace(_ workspace: GitHubReviewWorkspace) async throws {
+    let payload = try JSONEncoder().encode(workspace)
+    try await dbQueue.write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO github_review_workspaces (host, accountID, payload) VALUES (?, ?, ?)
+          ON CONFLICT(host, accountID) DO UPDATE SET payload = excluded.payload
+          """, arguments: [workspace.account.host, workspace.account.nodeID, payload])
+    }
+  }
+
   func saveGitHubReviewSessionAssociation(
     _ association: GitHubReviewSessionAssociation
   ) async throws {

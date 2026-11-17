@@ -8,29 +8,36 @@
 import Foundation
 
 public struct GitHubRepositoryIdentity: Equatable, Hashable, Sendable {
+  public let host: String
   public let owner: String
   public let repository: String
 
-  public init(owner: String, repository: String) {
+  public init(owner: String, repository: String, host: String = "github.com") {
+    self.host = host.lowercased()
     self.owner = owner
     self.repository = repository
   }
 
-  public init?(remoteURL: String) {
+  public init?(remoteURL: String, expectedHost: String = "github.com") {
     let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
     let path: String
 
     if let components = URLComponents(string: trimmed),
-              components.scheme != nil,
-              let host = components.host?.lowercased(),
-              host == "github.com" || host == "www.github.com" {
+      components.scheme != nil,
+      let host = components.host?.lowercased(),
+      host == expectedHost.lowercased()
+        || (expectedHost == "github.com" && host == "www.github.com")
+    {
       path = components.path
     } else if let separator = trimmed.firstIndex(of: ":") {
       let host = trimmed[..<separator]
         .split(separator: "@", omittingEmptySubsequences: false)
         .last?
         .lowercased()
-      guard host == "github.com" || host == "www.github.com" else { return nil }
+      guard
+        host == expectedHost.lowercased()
+          || (expectedHost == "github.com" && host == "www.github.com")
+      else { return nil }
       path = String(trimmed[trimmed.index(after: separator)...])
     } else {
       return nil
@@ -46,13 +53,37 @@ public struct GitHubRepositoryIdentity: Equatable, Hashable, Sendable {
       : parts[1]
     guard !parts[0].isEmpty, !repository.isEmpty else { return nil }
 
+    self.host = expectedHost.lowercased()
     self.owner = parts[0]
     self.repository = repository
   }
 }
 
 public protocol GitHubRepositoryIdentityResolverProtocol: AnyObject, Sendable {
+  func resolveIdentities(at projectPath: String, expectedHost: String) async -> Set<
+    GitHubRepositoryIdentity
+  >
   func resolveIdentity(at projectPath: String) async -> GitHubRepositoryIdentity?
+  func resolveIdentity(at projectPath: String, expectedHost: String) async
+    -> GitHubRepositoryIdentity?
+}
+
+extension GitHubRepositoryIdentityResolverProtocol {
+  public func resolveIdentities(at projectPath: String, expectedHost: String) async -> Set<
+    GitHubRepositoryIdentity
+  > {
+    guard let identity = await resolveIdentity(at: projectPath, expectedHost: expectedHost) else {
+      return []
+    }
+    return [identity]
+  }
+
+  public func resolveIdentity(at projectPath: String, expectedHost: String) async
+    -> GitHubRepositoryIdentity?
+  {
+    let identity = await resolveIdentity(at: projectPath)
+    return identity?.host.caseInsensitiveCompare(expectedHost) == .orderedSame ? identity : nil
+  }
 }
 
 public actor GitHubRepositoryIdentityResolver: GitHubRepositoryIdentityResolverProtocol {
@@ -87,6 +118,36 @@ public actor GitHubRepositoryIdentityResolver: GitHubRepositoryIdentityResolverP
       cache[normalizedPath] = identity
     }
     return identity
+  }
+
+  public func resolveIdentity(at projectPath: String, expectedHost: String) async
+    -> GitHubRepositoryIdentity?
+  {
+    // Launches need fresh remote evidence, even if the checkout was repointed.
+    guard let output = Self.gitRemoteOutput(at: projectPath) else { return nil }
+    let candidates = output.split(whereSeparator: \.isNewline).compactMap {
+      line -> (String, GitHubRepositoryIdentity)? in
+      let fields = line.split(whereSeparator: \.isWhitespace)
+      guard fields.count >= 2,
+        let identity = GitHubRepositoryIdentity(
+          remoteURL: String(fields[1]), expectedHost: expectedHost)
+      else { return nil }
+      return (String(fields[0]), identity)
+    }
+    return candidates.first(where: { $0.0 == "origin" })?.1 ?? candidates.first?.1
+  }
+
+  public func resolveIdentities(at projectPath: String, expectedHost: String) async -> Set<
+    GitHubRepositoryIdentity
+  > {
+    // Read fresh remotes so launches and session links reflect repository changes.
+    guard let output = Self.gitRemoteOutput(at: projectPath) else { return [] }
+    return Set(
+      output.split(whereSeparator: \.isNewline).compactMap { line in
+        let fields = line.split(whereSeparator: \.isWhitespace)
+        guard fields.count >= 2 else { return nil }
+        return GitHubRepositoryIdentity(remoteURL: String(fields[1]), expectedHost: expectedHost)
+      })
   }
 
   private nonisolated static func gitRemoteOutput(at projectPath: String) -> String? {

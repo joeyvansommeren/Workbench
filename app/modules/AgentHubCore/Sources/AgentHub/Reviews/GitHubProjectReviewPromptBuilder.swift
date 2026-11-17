@@ -9,8 +9,8 @@ import Foundation
 enum GitHubProjectReviewPromptBuilder {
   static func prompt(
     pullRequest: GitHubProjectPullRequest,
-    project: GitHubReviewProject,
-    view: GitHubProjectView
+    project: GitHubReviewProject? = nil,
+    view: GitHubProjectView? = nil
   ) -> String {
     let template = GitHubPromptLibrary.defaultTemplates[0]
     var result = template.prompt

@@ -33,7 +33,7 @@ struct ReviewSessionSupport {
     GitHubReviewSessionLinker.links(
       for: pullRequest,
       launches: viewModel.reviewSessionLaunches(for: pullRequest),
-      inventories: inventories
+      inventories: inventories, sourceAccountKey: viewModel.sourceAccount?.persistenceKey
     )
   }
 
@@ -68,6 +68,8 @@ struct ReviewSessionSupport {
       hasher.combine(sessions.resolvedPendingSessionHistory)
       hasher.combine(sessions.sessionDisplayNames)
     }
+    hasher.combine(viewModel.sourceAccount)
+    hasher.combine(viewModel.reviewRepositoryIdentities)
     hasher.combine(agentHub.jiraSprintViewModel.knownProjectKeys)
     return hasher.finalize()
   }
@@ -101,6 +103,8 @@ struct ReviewSessionSupport {
   /// Links pending launches to their real sessions, recovers links from before
   /// they were stored (once), names the sessions, and restores them for monitoring.
   func recoverAndRestoreSessions() async {
+    await viewModel.resolveReviewRepositoryIdentities(
+      paths: (claude.allSessions + codex.allSessions).map(\.projectPath))
     let launchActions = WorkspaceLaunchActions(agentHub: agentHub, showSessions: {})
     await viewModel.resolveReviewLaunches(claude.resolvedPendingSessionHistory, provider: .claude)
     await viewModel.resolveReviewLaunches(codex.resolvedPendingSessionHistory, provider: .codex)
@@ -130,7 +134,9 @@ struct ReviewSessionSupport {
       resolvedPendingSessionIDs: sessions.resolvedPendingSessionHistory,
       customNames: sessions.sessionDisplayNames,
       statuses: sessions.sessionStatuses,
-      ticketKeysBySessionID: ticketKeys(for: sessions)
+      ticketKeysBySessionID: ticketKeys(for: sessions),
+      sourceOrigins: sessions.sessionOrigins,
+      repositoryIdentities: viewModel.reviewRepositoryIdentities
     )
   }
 

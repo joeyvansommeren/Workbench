@@ -59,26 +59,32 @@ struct WorkspaceLaunchActions {
     provider: SessionProviderKind,
     template: GitHubPromptTemplate
   ) async {
-    guard let project = agentHub.gitHubReviewsViewModel.selectedProject,
-      let view = agentHub.gitHubReviewsViewModel.selectedView
-    else { return }
+    let reviews = agentHub.gitHubReviewsViewModel
+    guard let account = await reviews.validateReviewLaunch(pullRequest) else { return }
+    let revision = reviews.sourceRevision
+    let project = reviews.selectedProject
+    let view = reviews.selectedView
 
     guard
-      let repositoryPath = Self.localRepositoryPath(
-        named: pullRequest.repositoryName,
-        repositories: mergedRepositories
-      )
+      let repositoryPath = await Self.reviewRepositoryPath(
+        pullRequest: pullRequest, repositories: mergedRepositories,
+        resolver: agentHub.gitHubRepositoryIdentityResolver)
     else {
       agentHub.gitHubReviewsViewModel.presentLaunchError(
-        "No local checkout found for \(pullRequest.repositoryNameWithOwner). Add that repository in Sessions first."
+        "Could not find a unique local checkout for \(pullRequest.repositoryNameWithOwner). Check your repositories in Sessions."
       )
       return
     }
 
+    guard !Task.isCancelled, reviews.sourceAccount == account, reviews.sourceRevision == revision
+    else { return }
     let sessionsViewModel = sessionsViewModel(for: provider)
     let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(repositoryPath)
+    let branchName = try? await agentHub.gitService.getCurrentBranch(at: normalizedPath)
+    guard !Task.isCancelled, reviews.sourceAccount == account, reviews.sourceRevision == revision
+    else { return }
     let target = WorktreeBranch(
-      name: pullRequest.title,
+      name: branchName ?? "HEAD",
       path: normalizedPath,
       isWorktree: false,
       isExpanded: true
@@ -100,9 +106,9 @@ struct WorkspaceLaunchActions {
         initialPrompt: prompt,
         origin: SessionLaunchOrigin(
           source: .pullRequest,
-          accountID:
-            "\(URL(string: pullRequest.url)?.host ?? "github.com")/\(pullRequest.repositoryNameWithOwner)",
-          sourceID: pullRequest.id, key: "#\(pullRequest.number)", title: pullRequest.title)
+          accountID: account.persistenceKey,
+          sourceID: pullRequest.reviewIdentity, key: "#\(pullRequest.number)",
+          title: pullRequest.title)
       )
     else {
       agentHub.gitHubReviewsViewModel.presentLaunchError(
@@ -114,7 +120,7 @@ struct WorkspaceLaunchActions {
       for: pullRequest,
       provider: provider,
       pendingID: pendingID,
-      projectPath: normalizedPath
+      projectPath: normalizedPath, branchName: branchName
     )
     await agentHub.gitHubReviewsViewModel.resolveReviewLaunches(
       sessionsViewModel.resolvedPendingSessionHistory,
@@ -235,6 +241,27 @@ struct WorkspaceLaunchActions {
   }
 
   // MARK: - Helpers
+
+  static func reviewRepositoryPath(
+    pullRequest: GitHubProjectPullRequest, repositories: [SelectedRepository],
+    resolver: any GitHubRepositoryIdentityResolverProtocol
+  ) async -> String? {
+    guard let host = URL(string: pullRequest.url)?.host else { return nil }
+    var matches: [String] = []
+    for repository in repositories {
+      guard !Task.isCancelled else { return nil }
+      let identities = await resolver.resolveIdentities(at: repository.path, expectedHost: host)
+      guard
+        identities.contains(where: { identity in
+          identity.host.caseInsensitiveCompare(host) == .orderedSame
+            && "\(identity.owner)/\(identity.repository)".caseInsensitiveCompare(
+              pullRequest.repositoryNameWithOwner) == .orderedSame
+        })
+      else { continue }
+      matches.append(repository.path)
+    }
+    return matches.count == 1 ? matches[0] : nil
+  }
 
   static func localRepositoryPath(
     named repositoryName: String,

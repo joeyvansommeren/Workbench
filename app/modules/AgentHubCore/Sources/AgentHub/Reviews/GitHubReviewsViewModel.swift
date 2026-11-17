@@ -10,22 +10,6 @@ import Observation
 @MainActor
 @Observable
 public final class GitHubReviewsViewModel {
-  private enum DefaultsKey {
-    static let projectID = "agenthub.reviews.github-project-id"
-    static let viewID = "agenthub.reviews.github-project-view-id"
-    static let cache = "agenthub.reviews.github-project-cache-v1"
-  }
-
-  private struct CachedReviewQueue: Codable {
-    let pullRequests: [GitHubProjectPullRequest]
-    let updatedAt: Date
-  }
-
-  private struct ReviewCache: Codable {
-    var projects: [GitHubReviewProject]
-    var queues: [String: CachedReviewQueue]
-  }
-
   private let service: any GitHubProjectReviewServiceProtocol
   private let sessionStore: (any GitHubReviewSessionStoreProtocol)?
   private let defaults: UserDefaults
@@ -33,7 +17,22 @@ public final class GitHubReviewsViewModel {
   private var didLoadSessionAssociations = false
   private var didAttemptLegacySessionRecovery = false
   private var refreshGeneration = 0
-  private var cachedQueues: [String: CachedReviewQueue] = [:]
+  private var cachedQueues: [String: GitHubReviewWorkspace.CachedQueue] = [:]
+  private(set) var reviewRepositoryIdentities: [String: Set<GitHubRepositoryIdentity>] = [:]
+  public private(set) var sourceAccount: GitHubReviewAccount?
+  public private(set) var sourceOwners: [GitHubReviewOwner] = []
+  public private(set) var selectedOwnerID: String?
+  public private(set) var enabledOwnerIDs = Set<String>()
+  public private(set) var repositoryName = ""
+  public private(set) var ownerLabels: [String: String] = [:]
+  public private(set) var sourceRevision = 0
+  public private(set) var isQueueTruncated = false
+  public private(set) var areOwnersTruncated = false
+  public private(set) var projectErrorMessage: String?
+  @ObservationIgnored private(set) var sourceRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var queueTask: Task<GitHubReviewQueue, Error>?
+  @ObservationIgnored private var persistTask: Task<Void, Never>?
+
   private var reviewSessionLaunchesByPullRequestID: [String: [GitHubReviewSessionLaunch]] = [:] {
     didSet { linkedReferencesCache = [:] }
   }
@@ -58,7 +57,7 @@ public final class GitHubReviewsViewModel {
 
   // Table state lives here, not in the view: the Reviews view is rebuilt every
   // time the user comes back from a session, and @State would reset the order.
-  public var searchText = ""
+  public var searchText = "" { didSet { if oldValue != searchText { sourceRevision += 1 } } }
   var tableSortOrder = GitHubReviewTableRow.suggestedSortOrder
   /// The new shell's table sort; nil is the suggested order.
   var tableSort: ReviewsTableSort?
@@ -79,15 +78,18 @@ public final class GitHubReviewsViewModel {
   private var detailGeneration = 0
 
   public func loadSelectedDetail() async {
-    guard let request = pullRequests.first(where: { $0.id == selectedPullRequestID }) else { return }
+    guard let account = sourceAccount,
+      let request = pullRequests.first(where: { $0.id == selectedPullRequestID })
+    else { return }
     detailGeneration += 1
     let generation = detailGeneration
     isLoadingDetail = true
     detailError = nil
     defer { if generation == detailGeneration { isLoadingDetail = false } }
     do {
-      let detail = try await service.pullRequestDetail(request)
-      guard !Task.isCancelled, generation == detailGeneration, selectedPullRequestID == request.id else { return }
+      let detail = try await service.pullRequestDetail(request, account: account)
+      guard !Task.isCancelled, generation == detailGeneration, selectedPullRequestID == request.id
+      else { return }
       selectedDetail = detail
       detailUpdatedAt = Date()
       // GitHub's rollup rule, as the queue's batched fetch reports it, so the
@@ -95,6 +97,7 @@ public final class GitHubReviewsViewModel {
       checksByPullRequestID[request.id] = detail.pullRequest.rollupCIStatus
     } catch {
       guard !Task.isCancelled, generation == detailGeneration else { return }
+      if error as? GitHubReviewSourceError == .accountChanged { clearAccount() }
       detailError = error.localizedDescription
     }
   }
@@ -129,13 +132,14 @@ public final class GitHubReviewsViewModel {
   /// refresh (no polling); failures are logged by the service and leave icons empty.
   private func refreshChecks(for pullRequestIDs: [String]) {
     checksTask?.cancel()
-    guard wantsQueueChecks, !pullRequestIDs.isEmpty else {
+    guard wantsQueueChecks, !pullRequestIDs.isEmpty, let account = sourceAccount else {
       checksTask = nil
       return
     }
+    let generation = refreshGeneration
     checksTask = Task { [service] in
-      let states = await service.checkRollups(forPullRequestIDs: pullRequestIDs)
-      guard !Task.isCancelled, !states.isEmpty else { return }
+      let states = await service.checkRollups(forPullRequestIDs: pullRequestIDs, account: account)
+      guard !Task.isCancelled, generation == self.refreshGeneration, !states.isEmpty else { return }
       self.checksByPullRequestID.merge(states) { _, new in new }
     }
   }
@@ -144,6 +148,7 @@ public final class GitHubReviewsViewModel {
   public func setReviewScope(_ scope: ReviewScope) {
     guard scope != reviewScope else { return }
     reviewScope = scope
+    sourceRevision += 1
     defaults.set(scope.rawValue, forKey: AgentHubDefaults.reviewsScope)
     MainThreadStallMonitor.breadcrumb("reviews scope: \(scope.rawValue)")
   }
@@ -160,12 +165,6 @@ public final class GitHubReviewsViewModel {
     guard isOwn == nil || !reviewScope.includes(isOwn: isOwn) else { return }
     reviewScope = .all
     MainThreadStallMonitor.breadcrumb("reviews scope: all (show selection)")
-  }
-
-  /// Fetches your login when an earlier attempt failed, e.g. before sign-in.
-  private func refreshViewerLoginIfNeeded() async {
-    guard viewerLogin == nil else { return }
-    viewerLogin = await service.viewerLogin()
   }
 
   /// The queue's pull requests in `scope`. Mine and Requested use `isOwnPullRequest`.
@@ -228,12 +227,10 @@ public final class GitHubReviewsViewModel {
     self.service = service
     self.sessionStore = sessionStore
     defaults = userDefaults
-    selectedProjectID = userDefaults.string(forKey: DefaultsKey.projectID)
-    selectedViewID = userDefaults.string(forKey: DefaultsKey.viewID)
     reviewScope =
       userDefaults.string(forKey: AgentHubDefaults.reviewsScope)
       .flatMap(ReviewScope.init(rawValue:)) ?? .requested
-    restoreCache()
+
   }
 
   public var selectedProject: GitHubReviewProject? {
@@ -279,9 +276,7 @@ public final class GitHubReviewsViewModel {
     guard !didLoad else { return }
     didLoad = true
     await loadSessionAssociations()
-    async let login = service.viewerLogin()
-    await loadProjects()
-    viewerLogin = await login
+    await loadSources()
     if viewerLogin != nil {
       widenScopeToShowSelection()
     }
@@ -317,6 +312,20 @@ public final class GitHubReviewsViewModel {
     }
   }
 
+  func resolveReviewRepositoryIdentities(
+    paths: [String],
+    resolver: any GitHubRepositoryIdentityResolverProtocol = GitHubRepositoryIdentityResolver()
+  ) async {
+    guard let account = sourceAccount else { return }
+    var identities: [String: Set<GitHubRepositoryIdentity>] = [:]
+    for path in Set(paths).sorted().prefix(100) {
+      guard !Task.isCancelled, sourceAccount == account else { return }
+      identities[path] = await resolver.resolveIdentities(at: path, expectedHost: account.host)
+    }
+    guard sourceAccount == account else { return }
+    reviewRepositoryIdentities = identities
+  }
+
   /// Restores durable Reviews-to-Sessions links without fetching the GitHub
   /// Project queue. Sessions calls this during app startup so PR context is
   /// available even when the user never opens the Reviews tab.
@@ -327,15 +336,13 @@ public final class GitHubReviewsViewModel {
   }
 
   public func reloadProjects() async {
-    await loadProjects()
-    let hadLogin = viewerLogin != nil
-    await refreshViewerLoginIfNeeded()
-    if !hadLogin, viewerLogin != nil {
-      widenScopeToShowSelection()
-    }
+    await loadSources()
   }
 
   public func cancelRefresh() {
+    sourceRefreshTask?.cancel()
+    queueTask?.cancel()
+    queueTask = nil
     checksTask?.cancel()
     checksTask = nil
     refreshGeneration += 1
@@ -343,64 +350,148 @@ public final class GitHubReviewsViewModel {
     isLoadingPullRequests = false
   }
 
-  public func selectProject(id: String) {
-    guard selectedProjectID != id, projects.contains(where: { $0.id == id }) else { return }
-    selectedPullRequestID = nil
+  public var selectedSources: [GitHubReviewSource] {
+    let owners = sourceOwners.filter { owner in
+      if let selectedOwnerID { return owner.id == selectedOwnerID }
+      return enabledOwnerIDs.contains(owner.id)
+    }
+    return owners.map { owner in
+      if selectedOwnerID != nil, !repositoryName.isEmpty {
+        return .repository(GitHubReviewRepository(owner: owner, name: repositoryName))
+      }
+      return .owner(owner)
+    }
+  }
+
+  public var sourceLabel: String {
+    guard let selectedOwnerID else { return "All selected sources" }
+    guard let owner = sourceOwners.first(where: { $0.id == selectedOwnerID }) else {
+      return "Unavailable source"
+    }
+    let label = displayLabel(for: owner)
+    return repositoryName.isEmpty ? label : "\(label) / \(repositoryName)"
+  }
+
+  public func displayLabel(for owner: GitHubReviewOwner) -> String {
+    owner.isPersonal ? "Personal" : ownerLabels[owner.id] ?? owner.login
+  }
+
+  var hasUnavailableSources: Bool {
+    !enabledOwnerIDs.isSubset(of: Set(sourceOwners.map(\.id)))
+  }
+
+  func removeUnavailableSources() {
+    enabledOwnerIDs.formIntersection(Set(sourceOwners.map(\.id)))
+    sourceDidChange()
+  }
+
+  private var currentQuery: GitHubReviewQuery? {
+    guard let sourceAccount, !selectedSources.isEmpty,
+      selectedOwnerID != nil || !hasUnavailableSources,
+      selectedProjectID == nil || (selectedProject != nil && selectedView != nil)
+    else { return nil }
+    return GitHubReviewQuery(
+      account: sourceAccount, sources: selectedSources,
+      project: selectedProject, view: selectedView)
+  }
+
+  public func selectOwner(id: String?) {
+    guard id != selectedOwnerID,
+      id == nil || sourceOwners.contains(where: { $0.id == id })
+    else { return }
+    selectedOwnerID = id
+    repositoryName = ""
+    sourceDidChange()
+  }
+
+  public func setOwnerEnabled(_ id: String, enabled: Bool) {
+    guard sourceOwners.contains(where: { $0.id == id }) else { return }
+    if enabled { enabledOwnerIDs.insert(id) } else { enabledOwnerIDs.remove(id) }
+    sourceDidChange()
+  }
+
+  public func setOwnerLabel(_ label: String, for id: String) {
+    let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    ownerLabels[id] = trimmed.isEmpty ? nil : trimmed
+    persistWorkspace()
+  }
+
+  public func selectRepository(_ name: String) {
+    guard selectedOwnerID != nil else { return }
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard name != repositoryName else { return }
+    repositoryName = name
+    sourceDidChange()
+  }
+
+  public func selectProject(id: String?) {
+    guard selectedProjectID != id,
+      id == nil || projects.contains(where: { $0.id == id })
+    else { return }
     selectedProjectID = id
-    defaults.set(id, forKey: DefaultsKey.projectID)
     selectedViewID = preferredView(in: selectedProject)?.id
-    persistSelectedView()
-    restoreCachedPullRequests()
-    Task { await refreshPullRequests() }
+    sourceDidChange()
   }
 
   public func selectView(id: String) {
     guard selectedViewID != id, availableViews.contains(where: { $0.id == id }) else { return }
-    selectedPullRequestID = nil
     selectedViewID = id
-    persistSelectedView()
+    sourceDidChange()
+  }
+
+  private func sourceDidChange() {
+    cancelRefresh()
+    sourceRevision += 1
+    selectedPullRequestID = nil
+    checksByPullRequestID = [:]
     restoreCachedPullRequests()
-    Task { await refreshPullRequests() }
+    persistWorkspace()
+    sourceRefreshTask?.cancel()
+    sourceRefreshTask = Task { await refreshPullRequests() }
   }
 
   public func refreshPullRequests() async {
-    guard let project = selectedProject, let view = selectedView else {
+    guard let query = currentQuery else {
       pullRequests = []
       cachedPullRequestsUpdatedAt = nil
       isShowingCachedPullRequests = false
       return
     }
-
+    queueTask?.cancel()
+    checksTask?.cancel()
     refreshGeneration += 1
     let generation = refreshGeneration
     isLoadingPullRequests = true
     errorMessage = nil
     recoveryIssue = nil
+    let task = Task { [service] in try await service.listPullRequests(query: query, limit: 300) }
+    queueTask = task
     do {
-      let requests = try await service.listPullRequests(
-        project: project,
-        view: view,
-        limit: 1_000
-      )
-      guard generation == refreshGeneration,
-        selectedProjectID == project.id,
-        selectedViewID == view.id
-      else { return }
-      pullRequests = requests.filter { !$0.isDraft }
+      let queue = try await task.value
+      guard !Task.isCancelled, generation == refreshGeneration, currentQuery == query else {
+        return
+      }
+      pullRequests = queue.pullRequests
+      isQueueTruncated = queue.isTruncated
       let updatedAt = Date()
       cachedPullRequestsUpdatedAt = updatedAt
       isShowingCachedPullRequests = false
-      cachedQueues[cacheKey(projectID: project.id, viewID: view.id)] = CachedReviewQueue(
-        pullRequests: pullRequests,
-        updatedAt: updatedAt
-      )
-      persistCache()
+      cachedQueues[query.cacheKey] = GitHubReviewWorkspace.CachedQueue(
+        pullRequests: pullRequests, updatedAt: updatedAt, isTruncated: queue.isTruncated)
+      persistWorkspace()
       isLoadingPullRequests = false
       refreshChecks(for: pullRequests.map(\.id))
     } catch {
-      guard generation == refreshGeneration else { return }
+      guard !Task.isCancelled, generation == refreshGeneration else { return }
       isLoadingPullRequests = false
-      isShowingCachedPullRequests = !pullRequests.isEmpty
+      if error is CancellationError { return }
+      if error as? GitHubReviewSourceError == .accountChanged
+        || GitHubReviewRecoveryIssue.classify(error).kind == .authenticationRequired
+      {
+        clearAccount()
+      } else {
+        isShowingCachedPullRequests = !pullRequests.isEmpty
+      }
       presentRecoveryIssue(for: error)
     }
   }
@@ -410,20 +501,45 @@ public final class GitHubReviewsViewModel {
     errorMessage = message
   }
 
+  func validateReviewLaunch(_ request: GitHubProjectPullRequest) async -> GitHubReviewAccount? {
+    guard let account = sourceAccount,
+      pullRequests.contains(where: { $0.reviewIdentity == request.reviewIdentity })
+    else { return nil }
+    let revision = sourceRevision
+    do {
+      guard try await service.reviewAccount() == account else {
+        clearAccount()
+        throw GitHubReviewSourceError.accountChanged
+      }
+      guard !Task.isCancelled, sourceRevision == revision, sourceAccount == account else {
+        return nil
+      }
+      return account
+    } catch {
+      if GitHubReviewRecoveryIssue.classify(error).kind == .authenticationRequired {
+        clearAccount()
+      }
+      presentRecoveryIssue(for: error)
+      return nil
+    }
+  }
+
   public func registerReviewLaunch(
     for pullRequest: GitHubProjectPullRequest,
     provider: SessionProviderKind,
     pendingID: UUID,
     projectPath: String,
-    launchedAt: Date = Date()
+    launchedAt: Date = Date(),
+    branchName: String? = nil
   ) async {
     let launch = GitHubReviewSessionLaunch(
-      pullRequestID: pullRequest.id,
+      pullRequestID: "\(sourceAccount?.persistenceKey ?? "legacy")|\(pullRequest.reviewIdentity)",
       pullRequestURL: pullRequest.url,
       provider: provider,
       pendingID: pendingID,
       projectPath: projectPath,
-      launchedAt: launchedAt
+      launchedAt: launchedAt, sourceAccountKey: sourceAccount?.persistenceKey,
+      branchName: branchName
     )
     upsert(launch)
     await persist(launch)
@@ -462,7 +578,7 @@ public final class GitHubReviewsViewModel {
     searchResults: [SessionSearchResult]
   ) async {
     for pullRequest in pullRequests {
-      let existing = reviewSessionLaunchesByPullRequestID[pullRequest.id]?.first {
+      let existing = reviewSessionLaunches(for: pullRequest).first {
         $0.provider == provider && $0.sessionID != nil
       }
       guard existing == nil else { continue }
@@ -474,13 +590,14 @@ public final class GitHubReviewsViewModel {
       else { continue }
 
       let launch = GitHubReviewSessionLaunch(
-        pullRequestID: pullRequest.id,
+        pullRequestID: "\(sourceAccount?.persistenceKey ?? "legacy")|\(pullRequest.reviewIdentity)",
         pullRequestURL: pullRequest.url,
         provider: provider,
         pendingID: nil,
         sessionID: result.id,
         projectPath: result.projectPath,
-        launchedAt: result.lastActivityAt
+        launchedAt: result.lastActivityAt, sourceAccountKey: sourceAccount?.persistenceKey,
+        branchName: result.gitBranch
       )
       upsert(launch)
       await persist(launch)
@@ -494,17 +611,22 @@ public final class GitHubReviewsViewModel {
   func reviewSessionLaunches(
     for pullRequest: GitHubProjectPullRequest
   ) -> [GitHubReviewSessionLaunch] {
-    reviewSessionLaunchesByPullRequestID[pullRequest.id] ?? []
+    reviewSessionLaunchesByPullRequestID.values.flatMap { $0 }.filter {
+      $0.pullRequestURL.caseInsensitiveCompare(pullRequest.url) == .orderedSame
+        && ($0.sourceAccountKey == nil || $0.sourceAccountKey == sourceAccount?.persistenceKey)
+    }
   }
 
   func linkedSessionTitles(provider: SessionProviderKind) -> [String: String] {
     let titlesByPullRequestID = Dictionary(
-      uniqueKeysWithValues: pullRequests.map { ($0.id, $0.title) }
+      uniqueKeysWithValues: pullRequests.map { ($0.url.lowercased(), $0.title) }
     )
     var titles: [String: String] = [:]
-    for (pullRequestID, launches) in reviewSessionLaunchesByPullRequestID {
-      guard let title = titlesByPullRequestID[pullRequestID] else { continue }
+    for launches in reviewSessionLaunchesByPullRequestID.values {
       for launch in launches where launch.provider == provider {
+        guard let title = titlesByPullRequestID[launch.pullRequestURL.lowercased()] else {
+          continue
+        }
         if let sessionID = launch.sessionID {
           titles[sessionID] = title
         }
@@ -526,7 +648,11 @@ public final class GitHubReviewsViewModel {
       .sorted { $0.launchedAt < $1.launchedAt }
 
     for launch in launches {
-      guard let reference = GitHubPullRequestURLReference(urlString: launch.pullRequestURL) else {
+      guard
+        let reference = GitHubPullRequestURLReference(
+          urlString: launch.pullRequestURL,
+          expectedHost: URL(string: launch.pullRequestURL)?.host ?? "github.com")
+      else {
         continue
       }
 
@@ -592,27 +718,128 @@ public final class GitHubReviewsViewModel {
       || message.localizedCaseInsensitiveContains("read-only review")
   }
 
-  private func loadProjects() async {
-    refreshGeneration += 1
+  private func loadSources() async {
+    cancelRefresh()
     let generation = refreshGeneration
     isLoadingProjects = true
-    errorMessage = nil
     recoveryIssue = nil
+    errorMessage = nil
+    var didVerifyAccount = false
     do {
-      let loadedProjects = try await service.listProjects()
-      guard generation == refreshGeneration else { return }
-      projects = loadedProjects
-      normalizeSelection()
+      let context = try await service.reviewSourceContext()
+      guard !Task.isCancelled, generation == refreshGeneration else { return }
+      didVerifyAccount = true
+      let changed = sourceAccount?.persistenceKey != context.account.persistenceKey
+      if changed {
+        clearAccount()
+        sourceAccount = context.account
+        let workspace = try await sessionStore?.reviewWorkspace(account: context.account)
+        guard !Task.isCancelled, generation == refreshGeneration else { return }
+        if let saved = workspace,
+          saved.account.persistenceKey == context.account.persistenceKey
+        {
+          selectedOwnerID = saved.selectedOwnerID
+          enabledOwnerIDs = saved.enabledOwnerIDs
+          repositoryName = saved.repositoryName
+          ownerLabels = saved.ownerLabels
+          selectedProjectID = saved.projectID
+          selectedViewID = saved.viewID
+          cachedQueues = saved.queues
+        } else {
+          selectedOwnerID = context.owners.first(where: \.isPersonal)?.id
+          enabledOwnerIDs = Set(context.owners.filter(\.isPersonal).map(\.id))
+        }
+      }
+      sourceAccount = context.account
+      sourceOwners = context.owners
+      areOwnersTruncated = context.isTruncated
+      viewerLogin = context.account.login
+      // Never substitute a different owner when a saved source loses access.
+      if (selectedOwnerID != nil && !sourceOwners.contains(where: { $0.id == selectedOwnerID }))
+        || (selectedOwnerID == nil && !enabledOwnerIDs.isSubset(of: Set(sourceOwners.map(\.id))))
+      {
+        pullRequests = []
+        throw GitHubReviewSourceError.unavailableSource
+      }
+      if selectedProjectID != nil {
+        projects = try await service.listProjects(account: context.account)
+        guard generation == refreshGeneration else { return }
+        guard selectedProject != nil, selectedView != nil else {
+          throw GitHubReviewSourceError.unavailableSource
+        }
+      }
+      refreshCachedQueryIdentities()
       restoreCachedPullRequests()
-      persistCache()
       isLoadingProjects = false
       await refreshPullRequests()
     } catch {
       guard generation == refreshGeneration else { return }
       isLoadingProjects = false
-      isShowingCachedPullRequests = !pullRequests.isEmpty
+      if !didVerifyAccount || error as? GitHubReviewSourceError == .accountChanged
+        || GitHubReviewRecoveryIssue.classify(error).kind == .authenticationRequired
+      {
+        clearAccount()
+      } else {
+        // Keep verified source choices available so the user can repair a saved scope.
+        pullRequests = []
+        selectedPullRequestID = nil
+        isShowingCachedPullRequests = false
+        sourceRevision += 1
+      }
       presentRecoveryIssue(for: error)
     }
+  }
+
+  /// Projects are optional and loaded only when the advanced filter is opened.
+  public func loadOptionalProjects() async {
+    guard let account = sourceAccount else { return }
+    let previousQuery = currentQuery
+    projectErrorMessage = nil
+    do {
+      let loaded = try await service.listProjects(account: account)
+      guard sourceAccount == account else { return }
+      projects = loaded.filter { URL(string: $0.url)?.host?.lowercased() == account.host }
+      refreshCachedQueryIdentities()
+      if selectedProjectID != nil, selectedProject == nil || selectedView == nil {
+        cancelRefresh()
+        pullRequests = []
+        sourceRevision += 1
+        throw GitHubReviewSourceError.unavailableSource
+      }
+      if previousQuery != currentQuery { sourceDidChange() }
+    } catch {
+      guard sourceAccount == account else { return }
+      if error as? GitHubReviewSourceError == .accountChanged
+        || GitHubReviewRecoveryIssue.classify(error).kind == .authenticationRequired
+      {
+        cancelRefresh()
+        clearAccount()
+        presentRecoveryIssue(for: error)
+        return
+      }
+      projectErrorMessage = error.localizedDescription
+    }
+  }
+
+  private func clearAccount() {
+    sourceAccount = nil
+    reviewRepositoryIdentities = [:]
+    sourceOwners = []
+    selectedOwnerID = nil
+    enabledOwnerIDs = []
+    repositoryName = ""
+    projects = []
+    selectedProjectID = nil
+    selectedViewID = nil
+    ownerLabels = [:]
+    cachedQueues = [:]
+    pullRequests = []
+    checksByPullRequestID = [:]
+    viewerLogin = nil
+    selectedPullRequestID = nil
+    sourceRevision += 1
+    isShowingCachedPullRequests = false
+    cachedPullRequestsUpdatedAt = nil
   }
 
   private func presentRecoveryIssue(for error: Error) {
@@ -628,24 +855,6 @@ public final class GitHubReviewsViewModel {
     }
   }
 
-  private func normalizeSelection() {
-    if !projects.contains(where: { $0.id == selectedProjectID }) {
-      selectedProjectID =
-        projects.first {
-          $0.views.contains {
-            $0.name.localizedCaseInsensitiveContains("code review")
-          }
-        }?.id ?? projects.first?.id
-    }
-    if !availableViews.contains(where: { $0.id == selectedViewID }) {
-      selectedViewID = preferredView(in: selectedProject)?.id
-    }
-    if let selectedProjectID {
-      defaults.set(selectedProjectID, forKey: DefaultsKey.projectID)
-    }
-    persistSelectedView()
-  }
-
   private func preferredView(in project: GitHubReviewProject?) -> GitHubProjectView? {
     guard let project else { return nil }
     return project.views.first {
@@ -658,52 +867,78 @@ public final class GitHubReviewsViewModel {
     } ?? project.views.first
   }
 
-  private func persistSelectedView() {
-    if let selectedViewID {
-      defaults.set(selectedViewID, forKey: DefaultsKey.viewID)
-    } else {
-      defaults.removeObject(forKey: DefaultsKey.viewID)
+  private func refreshCachedQueryIdentities() {
+    guard let account = sourceAccount else { return }
+    var refreshed: [String: GitHubReviewWorkspace.CachedQueue] = [:]
+    for (key, queue) in cachedQueues {
+      var newKey = key
+      if let data = Data(base64Encoded: key),
+        let oldQuery = try? JSONDecoder().decode(GitHubReviewQuery.self, from: data),
+        oldQuery.account.persistenceKey == account.persistenceKey
+      {
+        let sources = oldQuery.sources.compactMap { source -> GitHubReviewSource? in
+          guard let owner = sourceOwners.first(where: { $0.id == source.owner.id }) else {
+            return nil
+          }
+          switch source {
+          case .owner: return .owner(owner)
+          case .repository(let repository):
+            return .repository(GitHubReviewRepository(owner: owner, name: repository.name))
+          }
+        }
+        let project = oldQuery.project.flatMap { old in projects.first { $0.id == old.id } }
+        let view = oldQuery.view.flatMap { old in project?.views.first { $0.id == old.id } }
+        if sources.count == oldQuery.sources.count,
+          oldQuery.project == nil || project != nil,
+          oldQuery.view == nil || view != nil,
+          oldQuery.view?.filter == view?.filter
+        {
+          let query = GitHubReviewQuery(
+            account: account, sources: sources, project: project, view: view)
+          newKey = query.cacheKey
+        }
+      }
+      if let existing = refreshed[newKey], existing.updatedAt > queue.updatedAt {
+        continue
+      }
+      refreshed[newKey] = queue
     }
-  }
-
-  private func restoreCache() {
-    guard let data = defaults.data(forKey: DefaultsKey.cache),
-      let cache = try? JSONDecoder().decode(ReviewCache.self, from: data)
-    else { return }
-
-    projects = cache.projects
-    cachedQueues = cache.queues
-    normalizeSelection()
-    restoreCachedPullRequests()
+    cachedQueues = refreshed
   }
 
   private func restoreCachedPullRequests() {
-    guard let selectedProjectID, let selectedViewID,
-      let cachedQueue = cachedQueues[
-        cacheKey(
-          projectID: selectedProjectID,
-          viewID: selectedViewID
-        )]
+    guard let query = currentQuery, !query.hasUnsupportedProjectFilter,
+      let cached = cachedQueues[query.cacheKey]
     else {
       pullRequests = []
       cachedPullRequestsUpdatedAt = nil
       isShowingCachedPullRequests = false
+      isQueueTruncated = false
       return
     }
-
-    pullRequests = cachedQueue.pullRequests.filter { !$0.isDraft }
-    cachedPullRequestsUpdatedAt = cachedQueue.updatedAt
+    pullRequests = cached.pullRequests
+    cachedPullRequestsUpdatedAt = cached.updatedAt
     isShowingCachedPullRequests = true
+    isQueueTruncated = cached.isTruncated
   }
 
-  private func persistCache() {
-    let cache = ReviewCache(projects: projects, queues: cachedQueues)
-    guard let data = try? JSONEncoder().encode(cache) else { return }
-    defaults.set(data, forKey: DefaultsKey.cache)
-  }
-
-  private func cacheKey(projectID: String, viewID: String) -> String {
-    "\(projectID)::\(viewID)"
+  private func persistWorkspace() {
+    guard let account = sourceAccount, let sessionStore else { return }
+    // Bound saved queues as well as network results.
+    let recent = cachedQueues.sorted { $0.value.updatedAt > $1.value.updatedAt }.prefix(10)
+    let workspace = GitHubReviewWorkspace(
+      account: account, selectedOwnerID: selectedOwnerID,
+      enabledOwnerIDs: enabledOwnerIDs, repositoryName: repositoryName, ownerLabels: ownerLabels,
+      projectID: selectedProjectID, viewID: selectedViewID,
+      queues: Dictionary(uniqueKeysWithValues: recent.map { ($0.key, $0.value) }))
+    let previous = persistTask
+    persistTask = Task {
+      await previous?.value
+      do { try await sessionStore.saveReviewWorkspace(workspace) } catch {
+        self.sessionLinkErrorMessage =
+          "Could not save Reviews sources: \(error.localizedDescription)"
+      }
+    }
   }
 
   // MARK: - Session launch guard

@@ -31,8 +31,8 @@ struct GitHubPromptVariable: Identifiable, Sendable {
 
 struct GitHubPromptContext: Sendable {
   let pullRequest: GitHubProjectPullRequest
-  let project: GitHubReviewProject
-  let view: GitHubProjectView
+  let project: GitHubReviewProject?
+  let view: GitHubProjectView?
   let provider: SessionProviderKind
 
   var values: [String: String] {
@@ -43,9 +43,9 @@ struct GitHubPromptContext: Sendable {
       "repository": pullRequest.repositoryNameWithOwner,
       "repository_name": pullRequest.repositoryName,
       "author": pullRequest.authorLogin.map { "@\($0)" } ?? "Unknown",
-      "project": project.displayName,
-      "project_view": view.name,
-      "project_filter": view.filter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+      "project": project?.displayName ?? "No Project filter",
+      "project_view": view?.name ?? "No saved view",
+      "project_filter": view?.filter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
       "provider": provider.rawValue,
     ]
   }

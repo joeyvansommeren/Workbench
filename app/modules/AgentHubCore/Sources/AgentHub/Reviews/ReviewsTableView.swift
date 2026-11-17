@@ -215,38 +215,40 @@ private struct ReviewsTableRow: View {
 
   var body: some View {
     ReviewsColumnSetFit(columns: columns, content: cells)
-    .padding(.horizontal, ReviewsTableLayout.rowPadding)
-    .padding(.vertical, DesignTokens.Spacing.sm)
-    .frame(minHeight: ReviewsTableLayout.rowHeight)
-    // Not a Button: the session and review cells hold their own controls.
-    .contentShape(Rectangle())
-    .onTapGesture(perform: onSelect)
-    .background(
-      background,
-      in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
-    )
-    .wbFocusRing(isSelected && isTableFocused, cornerRadius: DesignTokens.Radius.item)
-    .overlay(alignment: .bottom) {
-      Color.wbBorderHairline
-        .frame(height: 1)
-        .padding(.horizontal, ReviewsTableLayout.rowPadding)
-        .opacity(hidesDivider ? 0 : 1)
-    }
-    .onHover { hovering in
-      isHovered = hovering
-      onHover(hovering)
-    }
-    .contextMenu {
-      PullRequestChangesButton(pullRequestURL: presentation.url)
-      Menu("Ask agent to review") { PullRequestReviewMenuItems(review: review) }
-        .disabled(review.isStarting)
-    }
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel("\(presentation.title), \(presentation.repositoryName) \(presentation.number)")
-    .accessibilityValue(presentation.accessibilityValue)
-    .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-    .accessibilityAction(.default, onSelect)
-    .accessibilityIdentifier("reviews.row.\(presentation.id)")
+      .padding(.horizontal, ReviewsTableLayout.rowPadding)
+      .padding(.vertical, DesignTokens.Spacing.sm)
+      .frame(minHeight: ReviewsTableLayout.rowHeight)
+      // Not a Button: the session and review cells hold their own controls.
+      .contentShape(Rectangle())
+      .onTapGesture(perform: onSelect)
+      .background(
+        background,
+        in: RoundedRectangle(cornerRadius: DesignTokens.Radius.item, style: .continuous)
+      )
+      .wbFocusRing(isSelected && isTableFocused, cornerRadius: DesignTokens.Radius.item)
+      .overlay(alignment: .bottom) {
+        Color.wbBorderHairline
+          .frame(height: 1)
+          .padding(.horizontal, ReviewsTableLayout.rowPadding)
+          .opacity(hidesDivider ? 0 : 1)
+      }
+      .onHover { hovering in
+        isHovered = hovering
+        onHover(hovering)
+      }
+      .contextMenu {
+        PullRequestChangesButton(pullRequestURL: presentation.url)
+        Menu("Ask agent to review") { PullRequestReviewMenuItems(review: review) }
+          .disabled(review.isStarting)
+      }
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel(
+        "\(presentation.title), \(presentation.repositoryFullName) \(presentation.number)"
+      )
+      .accessibilityValue(presentation.accessibilityValue)
+      .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+      .accessibilityAction(.default, onSelect)
+      .accessibilityIdentifier("reviews.row.\(presentation.id)")
   }
 
   private var background: Color {
@@ -295,17 +297,24 @@ private struct ReviewsTableRow: View {
   }
 
   private var titleCell: some View {
-    // No pull request glyph: every row is a pull request.
-    HStack(spacing: DesignTokens.Spacing.sm) {
-      Text(presentation.title)
-        .wbText(.bodyEmphasis)
-        .foregroundStyle(Color.wbTextPrimary)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityIdentifier("reviews.title.\(presentation.id)")
-      Text(verbatim: presentation.number)
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+      HStack(spacing: DesignTokens.Spacing.sm) {
+        Text(presentation.title)
+          .wbText(.bodyEmphasis)
+          .foregroundStyle(Color.wbTextPrimary)
+          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityIdentifier("reviews.title.\(presentation.id)")
+        Text(verbatim: presentation.number)
+          .wbText(.codeSmall)
+          .foregroundStyle(Color.wbTextTertiary)
+          .fixedSize()
+      }
+      Text(presentation.repositoryFullName)
         .wbText(.codeSmall)
-        .foregroundStyle(Color.wbTextTertiary)
-        .fixedSize()
+        .foregroundStyle(Color.wbTextSecondary)
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .help(presentation.repositoryFullName)
     }
     .help(presentation.title)
   }
@@ -313,7 +322,7 @@ private struct ReviewsTableRow: View {
   private var repositoryCell: some View {
     HStack(spacing: DesignTokens.Spacing.xsPlus) {
       LetterTile(letter: presentation.repositoryName.first ?? "?", color: tileColor)
-      Text(presentation.repositoryName)
+      Text(presentation.repositoryFullName)
         .wbText(.codeSmall)
         .foregroundStyle(Color.wbTextSecondary)
         .lineLimit(1)

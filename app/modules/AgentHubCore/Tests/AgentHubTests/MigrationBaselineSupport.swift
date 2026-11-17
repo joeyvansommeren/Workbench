@@ -33,4 +33,19 @@ func seedMigrationBaseline(before identifier: String, in db: Database) throws {
       t.column("ownedWorktreePathsData", .blob)
     }
   }
+  // v22 appends source identity columns to the earlier Reviews association table.
+  if identifiers[..<index].contains(SessionMetadataStore.MigrationID.createGitHubReviewSessions) {
+    try db.create(table: "github_review_sessions") { t in
+      t.column("pullRequestID", .text).notNull()
+      t.column("pullRequestURL", .text).notNull()
+      t.column("provider", .text).notNull()
+      t.column("pendingID", .text)
+      t.column("sessionID", .text)
+      t.column("projectPath", .text).notNull()
+      t.column("createdAt", .datetime).notNull()
+      t.column("updatedAt", .datetime).notNull()
+      t.primaryKey(["pullRequestID", "provider"], onConflict: .replace)
+    }
+  }
+
 }
