@@ -170,13 +170,6 @@ struct ShellTitleBarHitTests {
     }
   }
 
-  // Temporary focused entry point for the background-window regression.
-  // Remove after the event-routing cause is established; oneLine already covers it.
-  @Test("Diagnose the minimum-width sidebar toggle alignment")
-  func diagnoseMinimumWidthSidebarToggleAlignment() async throws {
-    try await oneLine(width: 900, control: .sidebarToggle)
-  }
-
   @Test("The traffic lights sit in the prototype's 52 pt bar", arguments: [1440.0, 900.0])
   func lightsInPrototypeBar(width: Double) async throws {
     let host = try await ShellTitleBarTestWindow(width: width)
@@ -265,6 +258,7 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
   let shellModel = WorkbenchShellModel()
   let overlays = ShellOverlayModel()
   private(set) var zoomRequests = 0
+  private var isSendingSyntheticClick = false
 
   init(width: Double) async throws {
     let content = ShellFrame(
@@ -278,6 +272,9 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     .environment(shellModel)
     .environment(overlays)
     let controller = NSHostingController(rootView: AnyView(content))
+    // The fixture supplies the test dimensions; content must not resize the
+    // window between samples in a native event sweep.
+    controller.sizingOptions = []
     // What a scene does for its hosting controller: SwiftUI toolbars, if
     // any, become the window's `NSToolbar`.
     controller.sceneBridgingOptions = [.toolbars, .title]
@@ -292,12 +289,22 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     window.titleVisibility = .hidden
     window.isReleasedWhenClosed = false
     window.contentViewController = controller
+    window.contentMinSize = NSSize(width: ShellLayout.windowMinWidth, height: ShellLayout.windowMinHeight)
     super.init()
     window.delegate = self
     window.setContentSize(CGSize(width: width, height: 800))
     // Offscreen, so the run never shows a window on the user's display.
     window.presentForTesting()
     await settle()
+    #expect(window.frame.size == NSSize(width: width, height: 800))
+  }
+
+  func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+    // Samples near the native top edge can start AppKit's live resize loop.
+    // With a synthetic cursor, an offscreen window can grow toward screen y=0
+    // while its controls are being measured. Keep those samples in one frame.
+    // Explicit setContentSize calls (the resize regression) remain unchanged.
+    isSendingSyntheticClick ? sender.frame.size : frameSize
   }
 
   func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
@@ -352,7 +359,6 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     var ys: [CGFloat] = []
     let initialMetrics = shellModel.titleBar
     let initialFrame = window.frame
-    let initialKeyState = window.isKeyWindow
     for fromTop in stride(from: 1, through: shellModel.titleBar.bandHeight + 20, by: 1) {
       reset()
       await settle(turns: 1)
@@ -361,13 +367,8 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     }
     reset()
     await settle()
-    let hitViews = [14.0, 26.0, 38.0].map { fromTop in
-      let hit = frameViewHit(at: bandPoint(x: x, fromTop: fromTop))
-      return "\(fromTop):\(hit.map { String(describing: type(of: $0)) } ?? "nil")"
-    }
-    print("TITLEBAR_DIAGNOSTIC x=\(x) hits=\(ys) metrics=\(initialMetrics)->\(shellModel.titleBar) "
-      + "frame=\(initialFrame)->\(window.frame) key=\(initialKeyState)->\(window.isKeyWindow) "
-      + "frameHits=\(hitViews)")
+    #expect(window.frame == initialFrame, "A hit sweep must keep one window coordinate frame")
+    #expect(shellModel.titleBar == initialMetrics, "Title-bar metrics must stay stable while sampling")
     return Self.centreOfLongestRun(ys, step: 1)
   }
 
@@ -472,6 +473,8 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
   }
 
   private func send(at point: CGPoint, clickCount: Int) {
+    isSendingSyntheticClick = true
+    defer { isSendingSyntheticClick = false }
     let down = mouseEvent(.leftMouseDown, at: point, clickCount: clickCount)
     let up = mouseEvent(.leftMouseUp, at: point, clickCount: clickCount)
     // Queue the mouse-up first: if the mouse-down starts a tracking loop (a
