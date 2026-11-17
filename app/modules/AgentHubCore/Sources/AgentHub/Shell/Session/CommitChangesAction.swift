@@ -76,6 +76,12 @@ final class CommitChangesReviewModel: Identifiable {
       let prepared = try await service.prepare(
         sessionID: sessionID, providerID: providerID, projectPath: projectPath)
       guard !invalidated else { return }
+      guard prepared.sessionID == sessionID, prepared.providerID == providerID,
+        prepared.requestedPath == projectPath
+      else {
+        throw CommitChangesError.unavailable(
+          "The commit review belongs to a different session or folder. Open a new commit review.")
+      }
       snapshot = prepared
       phase = .prepared
     } catch {
