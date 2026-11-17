@@ -27,6 +27,8 @@ struct ACLITicketReaderTests {
         ]
       ])
     #expect(ticket.key == "XFA-3299")
+    #expect(ticket.issueID == "10042")
+    #expect(ticket.withStatus("In Progress", category: "indeterminate").issueID == "10042")
     #expect(ticket.summary == "MFA confirmation")
     #expect(ticket.status == "To Do")
     #expect(ticket.assignee == "Philippe")
@@ -90,12 +92,21 @@ struct ACLITicketReaderTests {
         ]
       ])
     #expect(tickets.map(\.key) == ["XFA-1", "XFA-2"])
+    #expect(tickets.map(\.issueID) == ["10001", nil])
     #expect(tickets[0].statusCategory == "indeterminate")
     #expect(tickets[0].priority == "High")
     #expect(tickets[0].assigneeAccountId == "a1")
     #expect(tickets[0].assigneeEmail == "g@x.tech")
     #expect(tickets[0].assigneeAvatarURL == "https://avatar/g.png")
     #expect(tickets[1].summary == "Second")
+  }
+
+  @Test("Decodes saved tickets created before issue IDs were stored")
+  func decodesLegacyTicket() throws {
+    let json = #"{"key":"XFA-1","summary":"First","fetchedAt":0}"#
+    let ticket = try JSONDecoder().decode(JiraTicketSnapshot.self, from: Data(json.utf8))
+    #expect(ticket.issueID == nil)
+    #expect(ticket.key == "XFA-1")
   }
 
   @Test("Transitions a ticket non-interactively")
@@ -183,6 +194,7 @@ struct ACLITicketReaderTests {
   private static let searchJSON = #"""
     [
       {
+        "id": "10001",
         "key": "XFA-1",
         "fields": {
           "summary": "First",
@@ -199,6 +211,7 @@ struct ACLITicketReaderTests {
 
   private static let ticketJSON = #"""
     {
+      "id": "10042",
       "key": "XFA-3299",
       "fields": {
         "summary": "MFA confirmation",

@@ -9,6 +9,7 @@ struct SessionSidebarPresentation: Equatable {
   init(
     session: CLISession,
     customName: String?,
+    displayTitle: String? = nil,
     linkedPullRequests: [GitHubPullRequestURLReference]
   ) {
     let cleanedCustomName = Self.cleaned(customName)
@@ -19,6 +20,8 @@ struct SessionSidebarPresentation: Equatable {
 
     if let cleanedCustomName {
       title = cleanedCustomName
+    } else if let displayTitle = Self.cleaned(displayTitle) {
+      title = displayTitle
     } else if let pullRequest {
       title = "PR #\(pullRequest.number)"
     } else if let meaningfulBranch {
@@ -66,6 +69,7 @@ struct CollapsibleSessionRow: View {
   let isPending: Bool
   let isPrimary: Bool
   let customName: String?
+  var displayTitle: String? = nil
   let sessionStatus: SessionStatus?
   var linkedPullRequests: [GitHubPullRequestURLReference] = []
   let colorScheme: ColorScheme
@@ -85,10 +89,11 @@ struct CollapsibleSessionRow: View {
 
   // MARK: - Computed
 
-  private var presentation: SessionSidebarPresentation {
+  var presentation: SessionSidebarPresentation {
     SessionSidebarPresentation(
       session: session,
       customName: customName,
+      displayTitle: displayTitle,
       linkedPullRequests: linkedPullRequests
     )
   }

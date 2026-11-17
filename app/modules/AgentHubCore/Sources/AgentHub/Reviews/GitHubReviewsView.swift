@@ -1018,7 +1018,7 @@ struct GitHubReviewsView: View {
         sessions: claudeSessionsViewModel.allSessions,
         pendingSessions: claudeSessionsViewModel.pendingHubSessions,
         resolvedPendingSessionIDs: claudeSessionsViewModel.resolvedPendingSessionHistory,
-        customNames: claudeSessionsViewModel.sessionCustomNames,
+        customNames: claudeSessionsViewModel.sessionDisplayNames,
         statuses: claudeSessionsViewModel.sessionStatuses,
         ticketKeysBySessionID: ticketKeys(for: claudeSessionsViewModel)
       ),
@@ -1027,7 +1027,7 @@ struct GitHubReviewsView: View {
         sessions: codexSessionsViewModel.allSessions,
         pendingSessions: codexSessionsViewModel.pendingHubSessions,
         resolvedPendingSessionIDs: codexSessionsViewModel.resolvedPendingSessionHistory,
-        customNames: codexSessionsViewModel.sessionCustomNames,
+        customNames: codexSessionsViewModel.sessionDisplayNames,
         statuses: codexSessionsViewModel.sessionStatuses,
         ticketKeysBySessionID: ticketKeys(for: codexSessionsViewModel)
       ),
@@ -1049,7 +1049,7 @@ struct GitHubReviewsView: View {
       let keys = jira.sessionLinker.cachedKeys(
         id: SidebarSessionItemID.monitored(provider: sessions.providerKind, sessionId: session.id),
         branchName: session.branchName,
-        customName: sessions.sessionCustomNames[session.id],
+        customName: sessions.sessionDisplayNames[session.id],
         prompt: session.firstMessage,
         knownProjectKeys: knownProjects
       )
@@ -1092,12 +1092,9 @@ struct GitHubReviewsView: View {
   }
 
   private func applyReviewSessionTitles() {
-    for (sessionID, title) in viewModel.linkedSessionTitles(provider: .claude) {
-      claudeSessionsViewModel.setCustomName(title, forSessionId: sessionID)
-    }
-    for (sessionID, title) in viewModel.linkedSessionTitles(provider: .codex) {
-      codexSessionsViewModel.setCustomName(title, forSessionId: sessionID)
-    }
+    // A PR link does not change an existing session's title.
+    claudeSessionsViewModel.loadCustomNames()
+    codexSessionsViewModel.loadCustomNames()
   }
 
   private var projectBinding: Binding<String?> {

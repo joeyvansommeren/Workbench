@@ -97,7 +97,9 @@ final class LinearSessionLinker {
   func links(
     from viewModels: [CLISessionsViewModel],
     knownLinearTeamKeys: Set<String>,
-    knownJiraProjectKeys: Set<String>
+    knownJiraProjectKeys: Set<String>,
+    sourceAccountID: String? = nil,
+    sourceIssueKeys: [String: String] = [:]
   ) -> [String: [LinearLinkedSession]] {
     var result: [String: [LinearLinkedSession]] = [:]
     var seen: Set<String> = []
@@ -114,19 +116,24 @@ final class LinearSessionLinker {
         let itemID = SidebarSessionItemID.monitored(provider: provider, sessionId: session.id)
         guard seen.insert(itemID).inserted else { continue }
         let customName = viewModel.sessionCustomNames[session.id]
-        let keys = cachedKeys(
-          id: itemID,
-          branchName: session.branchName,
-          customName: customName,
-          prompt: session.firstMessage,
-          knownLinearTeamKeys: knownLinearTeamKeys,
-          knownJiraProjectKeys: knownJiraProjectKeys
-        )
+        let keys =
+          viewModel.sessionOrigins[session.id].map { origin in
+            origin.source == .linear && origin.accountID == sourceAccountID
+              ? sourceIssueKeys[origin.sourceID].map { [$0] } ?? [] : []
+          }
+          ?? cachedKeys(
+            id: itemID,
+            branchName: session.branchName,
+            customName: customName,
+            prompt: session.firstMessage,
+            knownLinearTeamKeys: knownLinearTeamKeys,
+            knownJiraProjectKeys: knownJiraProjectKeys
+          )
         guard !keys.isEmpty else { continue }
         let link = LinearLinkedSession(
           provider: provider,
           itemID: itemID,
-          title: customName ?? session.slug ?? session.firstMessage ?? session.shortId,
+          title: viewModel.displayName(for: session),
           branchName: session.branchName,
           lastActivityAt: session.lastActivityAt,
           isPending: false,
@@ -138,20 +145,25 @@ final class LinearSessionLinker {
 
       for pending in viewModel.pendingHubSessions {
         let itemID = SidebarSessionItemID.pending(provider: provider, pendingId: pending.id)
-        let keys = cachedKeys(
-          id: itemID,
-          branchName: nil,
-          customName: nil,
-          prompt: pending.initialPrompt,
-          knownLinearTeamKeys: knownLinearTeamKeys,
-          knownJiraProjectKeys: knownJiraProjectKeys
-        )
+        let keys =
+          pending.origin.map { origin in
+            origin.source == .linear && origin.accountID == sourceAccountID
+              ? sourceIssueKeys[origin.sourceID].map { [$0] } ?? [] : []
+          }
+          ?? cachedKeys(
+            id: itemID,
+            branchName: nil,
+            customName: nil,
+            prompt: pending.initialPrompt,
+            knownLinearTeamKeys: knownLinearTeamKeys,
+            knownJiraProjectKeys: knownJiraProjectKeys
+          )
         for key in keys {
           result[key, default: []].append(
             LinearLinkedSession(
               provider: provider,
               itemID: itemID,
-              title: "Starting \(provider.rawValue)\u{2026}",
+              title: viewModel.displayName(for: pending.placeholderSession),
               branchName: nil,
               lastActivityAt: pending.startedAt,
               isPending: true,

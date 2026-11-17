@@ -13,19 +13,23 @@ public struct CodexSessionMeta: Sendable {
   public let branch: String?
   public let startedAt: Date?
   public let sessionFilePath: String
+  /// Unknown and child-session sources cannot identify an interactive launch.
+  public let isInteractiveCLI: Bool
 
   public init(
     sessionId: String,
     projectPath: String,
     branch: String?,
     startedAt: Date?,
-    sessionFilePath: String
+    sessionFilePath: String,
+    isInteractiveCLI: Bool = false
   ) {
     self.sessionId = sessionId
     self.projectPath = projectPath
     self.branch = branch
     self.startedAt = startedAt
     self.sessionFilePath = sessionFilePath
+    self.isInteractiveCLI = isInteractiveCLI
   }
 }
 
@@ -82,7 +86,8 @@ public enum CodexSessionFileScanner {
       projectPath: cwd,
       branch: branch,
       startedAt: startedAt,
-      sessionFilePath: path
+      sessionFilePath: path,
+      isInteractiveCLI: payload["source"] as? String == "cli" && payload["parent_thread_id"] == nil
     )
   }
 

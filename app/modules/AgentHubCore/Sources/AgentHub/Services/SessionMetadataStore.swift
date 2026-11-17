@@ -12,12 +12,13 @@ import GRDB
 /// Uses GRDB for database operations with async/await support
 public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspaceStoreProtocol,
   SessionResultRecipeStoreProtocol, ProjectLaunchRecipeStoreProtocol, WorkflowFinishArchiveStoring,
-  SessionReadCursorStoreProtocol
+  SessionReadCursorStoreProtocol, SessionLaunchOriginStoring
 {
 
   // MARK: - Properties
 
   enum MigrationID {
+    static let createSessionLaunchOrigins = "v21_create_session_launch_origins"
     static let createSessionReadCursors = "v20_create_session_read_cursors"
     static let createResultReview = "v19_create_result_review"
     static let createSessionMetadata = "v1_create_session_metadata"
@@ -72,6 +73,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     MigrationID.addOpenSessionTabIds,
     MigrationID.createResultReview,
     MigrationID.createSessionReadCursors,
+    MigrationID.createSessionLaunchOrigins,
   ]
 
   private let dbQueue: DatabaseQueue
@@ -97,6 +99,12 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
   /// Creates a store with a custom database path (for testing)
   public init(path: String) throws {
     dbQueue = try DatabaseQueue(path: path, configuration: Self.databaseConfiguration())
+    try migrator.migrate(dbQueue)
+  }
+
+  /// Uses the supplied queue as the single authority for metadata transactions.
+  init(databaseQueue: DatabaseQueue) throws {
+    dbQueue = databaseQueue
     try migrator.migrate(dbQueue)
   }
 
@@ -443,8 +451,88 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
         t.primaryKey(["provider", "sessionId"])
       }
     }
+    migrator.registerMigration(MigrationID.createSessionLaunchOrigins) { db in
+      try db.create(table: "session_launch_origins") { t in
+        t.column("pendingID", .text).primaryKey()
+        t.column("provider", .text).notNull()
+        t.column("sessionID", .text)
+        t.column("payload", .blob).notNull()
+        t.uniqueKey(["provider", "sessionID"])
+      }
+    }
     return migrator
   }
+
+  // Launch publication must wait for this transaction, before any row or process can appear.
+  nonisolated func saveLaunchOrigin(_ record: SessionLaunchOriginRecord) throws {
+    try dbQueue.write { db in try record.insert(db) }
+  }
+
+  nonisolated func launchOrigins(provider: SessionProviderKind) throws
+    -> [SessionLaunchOriginRecord]
+  {
+    try dbQueue.read { db in
+      try SessionLaunchOriginRecord.filter(Column("provider") == provider.rawValue).fetchAll(db)
+    }
+  }
+
+  nonisolated func resolveLaunchOrigin(
+    pendingID: UUID, provider: SessionProviderKind, sessionID: String
+  ) throws {
+    try dbQueue.write { db in
+      guard var record = try SessionLaunchOriginRecord.fetchOne(db, key: pendingID.uuidString),
+        record.provider == provider.rawValue
+      else { throw LaunchOriginError.missing }
+      guard record.sessionID == nil || record.sessionID == sessionID else {
+        throw LaunchOriginError.conflictingResolution
+      }
+      // Reconciliation can repeat after a rename was cleared. Never replay the
+      // old pending name once this exact resolution has committed.
+      if record.sessionID == sessionID { return }
+      let launch = try record.launch()
+      guard !launch.failed, !launch.needsIdentification,
+        launch.expectedSessionID == nil || launch.expectedSessionID == sessionID
+      else {
+        throw LaunchOriginError.conflictingResolution
+      }
+      record.sessionID = sessionID
+      try record.update(db)
+      // A rename made while pending follows the exact launch, in the same transaction.
+      if let pendingName = try SessionMetadata.fetchOne(db, key: "pending-\(pendingID.uuidString)"),
+        pendingName.customName != nil
+      {
+        var resolved =
+          try SessionMetadata.fetchOne(db, key: sessionID) ?? SessionMetadata(sessionId: sessionID)
+        if resolved.customName == nil { resolved.customName = pendingName.customName }
+        try resolved.save(db)
+      }
+    }
+  }
+
+  nonisolated func updateLaunchOrigin(pendingID: UUID, failed: Bool, needsIdentification: Bool)
+    throws
+  {
+    try dbQueue.write { db in
+      guard var record = try SessionLaunchOriginRecord.fetchOne(db, key: pendingID.uuidString),
+        record.sessionID == nil
+      else { return }
+      var launch = try record.launch()
+      launch.failed = failed
+      launch.needsIdentification = needsIdentification
+      record.payload = try JSONEncoder().encode(launch)
+      try record.update(db)
+    }
+  }
+
+  nonisolated func removeLaunchOrigin(pendingID: UUID) throws {
+    try dbQueue.write { db in
+      try db.execute(
+        sql: "DELETE FROM session_launch_origins WHERE pendingID = ? AND sessionID IS NULL",
+        arguments: [pendingID.uuidString])
+    }
+  }
+
+  enum LaunchOriginError: Error { case missing, conflictingResolution }
 
   func loadReadCursors() throws -> [SessionReadCursor] {
     try dbQueue.read { db in
@@ -539,6 +627,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
   /// Creates new record if none exists, updates if it does
   public func setCustomName(_ name: String?, for sessionId: String) throws {
     try dbQueue.write { db in
+      let sessionId = try Self.canonicalNameSessionID(sessionId, db: db)
       if var existing = try SessionMetadata.fetchOne(db, key: sessionId) {
         existing.customName = name
         existing.updatedAt = Date()
@@ -550,6 +639,27 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
         )
         try metadata.insert(db)
       }
+    }
+  }
+
+  private static func canonicalNameSessionID(_ sessionID: String, db: Database) throws -> String {
+    guard sessionID.hasPrefix("pending-") else { return sessionID }
+    return try SessionLaunchOriginRecord.fetchOne(db, key: String(sessionID.dropFirst(8)))?
+      .sessionID ?? sessionID
+  }
+
+  nonisolated func canonicalNameSessionID(_ sessionID: String) throws -> String {
+    try dbQueue.read { try Self.canonicalNameSessionID(sessionID, db: $0) }
+  }
+
+  nonisolated func customNames(for sessionIDs: [String]) throws -> [String: String] {
+    try dbQueue.read { db in
+      let records = try SessionMetadata.filter(sessionIDs.contains(Column("sessionId"))).fetchAll(
+        db)
+      return Dictionary(
+        uniqueKeysWithValues: records.compactMap { record in
+          record.customName.map { (record.sessionId, $0) }
+        })
     }
   }
 

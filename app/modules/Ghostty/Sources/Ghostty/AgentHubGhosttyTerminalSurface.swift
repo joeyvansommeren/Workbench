@@ -2318,6 +2318,10 @@ public final class AgentHubGhosttyTerminalSurface: NSView, EmbeddedTerminalSurfa
           self.registeredPIDs[id] = pid
           let linkedSession = self.linkedSessionsByTabID[located.tab.id]
           let isProtectedAgent = self.isProtectedAgentTab(located.tab, in: located.panel.id)
+          if isProtectedAgent {
+            self.sessionViewModel?.recordPendingLaunchProcess(
+              forKey: self.terminalSessionKey, processID: pid)
+          }
           let isAgentTerminal = isProtectedAgent
             || self.accessoryAgentTabIDs.contains(located.tab.id)
             || linkedSession != nil

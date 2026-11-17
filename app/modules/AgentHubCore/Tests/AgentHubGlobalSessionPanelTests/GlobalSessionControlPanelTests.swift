@@ -697,3 +697,27 @@ struct GlobalSessionControlPanelTests {
     return defaults
   }
 }
+
+@Suite("Global session title routing")
+struct GlobalSessionTitleRoutingTests {
+  @Test("The actual panel snapshot preserves pending and resolved origin titles")
+  func originTitles() {
+    let origin = SessionLaunchOrigin(
+      source: .linear, accountID: "account-333", sourceID: "issue-333",
+      key: "TEST-333", title: "A full source title")
+    let pending = PendingHubSession(
+      worktree: WorktreeBranch(name: "main", path: "/tmp/test-333"), origin: origin)
+    let resolved = CLISession(
+      id: "resolved-333", projectPath: "/tmp/test-333", branchName: "codex/later-branch",
+      slug: "Provider")
+    let items = GlobalSessionControlPanelSnapshotBuilder.makeItems(
+      claudePending: [pending], codexPending: [], claudeMonitored: [(resolved, nil)],
+      codexMonitored: [],
+      claudeCustomNames: [
+        pending.placeholderSession.id: "Pending manual rename", resolved.id: origin.displayName,
+      ],
+      codexCustomNames: [:], gitHubStates: [:])
+    #expect(items.first { $0.isPending }?.displayName == "Pending manual rename")
+    #expect(items.first { !$0.isPending }?.displayName == origin.displayName)
+  }
+}

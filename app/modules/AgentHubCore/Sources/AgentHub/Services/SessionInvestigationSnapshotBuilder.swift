@@ -42,20 +42,22 @@ public enum SessionInvestigationSnapshotBuilder {
     let sessionSnapshots = makeSessionSnapshots(
       viewModel: claudeViewModel,
       provider: .claude,
-      customNames: claudeViewModel.sessionCustomNames,
+        customNames: claudeViewModel.sessionDisplayNames,
       repositories: repositories
     ) + makeSessionSnapshots(
       viewModel: codexViewModel,
       provider: .codex,
-      customNames: codexViewModel.sessionCustomNames,
+        customNames: codexViewModel.sessionDisplayNames,
       repositories: repositories
     )
 
-    let pendingSnapshots = claudeViewModel.pendingHubSessions.map {
-      makePendingSessionSnapshot($0, provider: .claude)
-    } + codexViewModel.pendingHubSessions.map {
-      makePendingSessionSnapshot($0, provider: .codex)
-    }
+    let pendingSnapshots =
+      claudeViewModel.pendingHubSessions.map {
+        makePendingSessionSnapshot($0, viewModel: claudeViewModel)
+      }
+      + codexViewModel.pendingHubSessions.map {
+        makePendingSessionSnapshot($0, viewModel: codexViewModel)
+      }
 
     return SessionInvestigationSnapshot(
       generatedAt: generatedAt,
@@ -122,14 +124,17 @@ public enum SessionInvestigationSnapshotBuilder {
 
   private static func makePendingSessionSnapshot(
     _ pending: PendingHubSession,
-    provider: SessionProviderKind
+    viewModel: CLISessionsViewModel
   ) -> SessionInvestigationPendingSessionSnapshot {
     SessionInvestigationPendingSessionSnapshot(
       id: pending.id,
-      provider: provider,
+      provider: viewModel.providerKind,
+      displayName: viewModel.displayName(for: pending.placeholderSession),
       worktreeName: pending.worktree.name,
       worktreePath: pending.worktree.path,
-      startedAt: pending.startedAt
+      startedAt: pending.startedAt,
+      isFailed: pending.isFailed,
+      needsIdentification: pending.needsIdentification
     )
   }
 

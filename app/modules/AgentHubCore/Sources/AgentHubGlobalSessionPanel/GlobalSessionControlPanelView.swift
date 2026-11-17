@@ -278,8 +278,8 @@ public struct GlobalSessionControlPanelView: View {
       codexPending: codexViewModel.pendingHubSessions,
       claudeMonitored: claudeViewModel.monitoredSessions,
       codexMonitored: codexViewModel.monitoredSessions,
-      claudeCustomNames: claudeViewModel.sessionCustomNames,
-      codexCustomNames: codexViewModel.sessionCustomNames,
+      claudeCustomNames: claudeViewModel.sessionDisplayNames,
+      codexCustomNames: codexViewModel.sessionDisplayNames,
       gitHubStates: gitHubStates
     )
   }

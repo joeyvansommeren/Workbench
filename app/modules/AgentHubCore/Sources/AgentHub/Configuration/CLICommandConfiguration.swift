@@ -62,6 +62,8 @@ public struct CLICommandConfiguration: Codable, Sendable {
   public var mode: CLICommandMode
   /// Extra arguments configured by the user for each CLI invocation.
   public var extraArgs: [String]
+  /// Assigned only to a new Claude process; never encoded in user preferences or used on resume.
+  public var newSessionID: String?
 
   public init(
     command: String,
@@ -159,6 +161,7 @@ public struct CLICommandConfiguration: Codable, Sendable {
 
       // Add flags only for NEW sessions (not resume)
       if isNewSession {
+        if let newSessionID { providerArgs += ["--session-id", newSessionID] }
         if permissionModePlan {
           // --permission-mode plan takes precedence; mutually exclusive with dangerously-skip-permissions
           providerArgs += ["--permission-mode", "plan"]

@@ -365,6 +365,8 @@ public class TerminalContainerView: NSView, ManagedLocalProcessTerminalViewDeleg
       permissionModePlan: permissionModePlan,
       worktreeName: worktreeName
     )
+    sessionViewModel?.recordPendingLaunchProcess(
+      forKey: terminalSessionKey, processID: terminal.currentProcessId)
     registerProcessIfNeeded(
       for: terminal,
       kind: .agentTerminal,

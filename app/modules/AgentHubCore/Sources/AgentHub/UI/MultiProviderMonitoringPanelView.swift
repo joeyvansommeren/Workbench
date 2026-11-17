@@ -838,8 +838,8 @@ public struct MultiProviderMonitoringPanelView: View {
 
   private func comparisonDisplayName(for item: ProviderMonitoringItem) -> String {
     switch item {
-    case .pending(_, _, let pending):
-      return pending.worktree.name
+    case .pending(_, let viewModel, let pending):
+      return viewModel.displayName(for: pending.placeholderSession)
     case .monitored(_, let viewModel, let session, _):
       return viewModel.displayName(for: session)
     }
@@ -1565,7 +1565,7 @@ public struct MultiProviderMonitoringPanelView: View {
       return HubAuxiliaryShellTarget(
         context: .pending(pending: pending, providerKind: provider),
         viewModel: viewModel,
-        displayName: pending.worktree.name
+        displayName: viewModel.displayName(for: pending.placeholderSession)
       )
     case .monitored(let provider, let viewModel, let session, _):
       return HubAuxiliaryShellTarget(

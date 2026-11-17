@@ -45,7 +45,7 @@ public struct SelectedSessionsPanelView: View {
                     timestamp: item.timestamp,
                     isPending: item.isPending,
                     isPrimary: item.id == primarySessionId,
-                    customName: viewModel.sessionCustomNames[item.session.id]
+                    displayTitle: viewModel.displayName(for: item.session)
                   ) {
                     primarySessionId = item.id
                   }
@@ -209,7 +209,7 @@ public struct MultiProviderSelectedSessionsPanelView: View {
                     timestamp: item.timestamp,
                     isPending: item.isPending,
                     isPrimary: item.id == primarySessionId,
-                    customName: customName(for: item)
+                    displayTitle: displayTitle(for: item)
                   ) {
                     primarySessionId = item.id
                   }
@@ -349,12 +349,12 @@ public struct MultiProviderSelectedSessionsPanelView: View {
     WorktreeDisplayMode(rawValue: worktreeDisplayModeRawValue) ?? .parent
   }
 
-  private func customName(for item: SelectedSessionItem) -> String? {
+  private func displayTitle(for item: SelectedSessionItem) -> String {
     switch item.providerKind {
     case .claude:
-      return claudeViewModel.sessionCustomNames[item.session.id]
+      return claudeViewModel.displayName(for: item.session)
     case .codex:
-      return codexViewModel.sessionCustomNames[item.session.id]
+      return codexViewModel.displayName(for: item.session)
     }
   }
 
@@ -374,13 +374,13 @@ public struct MultiProviderSelectedSessionsPanelView: View {
 
 // MARK: - SelectedSessionRow
 
-private struct SelectedSessionRow: View {
+struct SelectedSessionRow: View {
   let session: CLISession
   let providerKind: SessionProviderKind
   let timestamp: Date
   let isPending: Bool
   let isPrimary: Bool
-  let customName: String?
+  let displayTitle: String
   let onSelect: () -> Void
 
   var body: some View {
@@ -390,30 +390,11 @@ private struct SelectedSessionRow: View {
           .fill(isPrimary ? Color.brandPrimary(for: providerKind) : .gray.opacity(0.5))
           .frame(width: 8, height: 8)
 
-        if let customName {
-          Text(customName)
-            .font(.primaryDefault)
-            .fontWeight(.semibold)
-            .lineLimit(1)
-        } else if let slug = session.slug {
-          Text(slug)
-            .font(.primaryDefault)
-            .fontWeight(.semibold)
-            .lineLimit(1)
-
-          Text("•")
-            .font(.secondaryCaption)
-            .foregroundColor(.secondary)
-
-          Text(session.shortId)
-            .font(.primaryDefault)
-            .fontWeight(.semibold)
-        } else {
-          Text("Session: \(session.shortId)")
-            .font(.primaryDefault)
-            .fontWeight(.semibold)
-            .lineLimit(1)
-        }
+        Text(displayTitle)
+          .font(.primaryDefault)
+          .fontWeight(.semibold)
+          .lineLimit(1)
+          .help(displayTitle)
 
         Text(providerKind.rawValue)
           .font(.secondaryCaption)
