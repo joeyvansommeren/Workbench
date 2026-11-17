@@ -30,6 +30,128 @@ struct SessionDetailStateModelTests {
     #expect(state.navigationRequest?.lineNumber == 4)
   }
 
+  @Test("Ordinary entry starts on Terminal for both providers and pending launches")
+  func ordinaryEntryStartsOnTerminal() {
+    let model = SessionDetailStateModel()
+    let pending = SidebarSessionItemID.pending(provider: .claude, pendingId: UUID())
+    for id in ["claude-a", "codex-a", pending] {
+      #expect(!model.showsResult(for: id))
+      #expect(model.contentMode(for: id) == .terminal)
+    }
+  }
+
+  @Test("Leaving a session resets its view without changing the destination")
+  func leavingSessionResetsItsView() {
+    let model = SessionDetailStateModel()
+    model.setContentMode(.diffs, for: "claude-a", defaultProjectPath: "/p")
+    model.setShowsResult(true, for: "claude-a")
+    model.openFile("/p/b.swift", lineNumber: 2, projectPath: "/p", for: "codex-b")
+    model.leaveSession("claude-a")
+    #expect(!model.showsResult(for: "claude-a"))
+    #expect(model.contentMode(for: "claude-a") == .terminal)
+    #expect(model.contentMode(for: "codex-b") == .editor)
+  }
+
+  @Test("A file request dismisses Result")
+  func fileRequestDismissesResult() {
+    let model = SessionDetailStateModel()
+    model.setShowsResult(true, for: "claude-a")
+    model.openFile("/p/a.swift", lineNumber: 1, projectPath: "/p", for: "claude-a")
+    #expect(!model.showsResult(for: "claude-a"))
+    #expect(model.contentMode(for: "claude-a") == .editor)
+  }
+
+  @Test("An explicit content request dismisses Result even when its mode is unchanged")
+  func explicitContentRequestDismissesResult() {
+    for mode in [MonitoringCardContentMode.terminal, .editor, .diffs] {
+      let model = SessionDetailStateModel()
+      model.setContentMode(mode, for: "claude-a", defaultProjectPath: "/p")
+      model.setShowsResult(true, for: "claude-a")
+      model.setContentMode(mode, for: "claude-a", defaultProjectPath: "/p")
+      #expect(!model.showsResult(for: "claude-a"))
+      #expect(model.contentMode(for: "claude-a") == mode)
+    }
+  }
+
+  @Test("Pending resolution preserves the view in use")
+  func pendingResolutionPreservesView() {
+    for provider in [SessionProviderKind.claude, .codex] {
+      let model = SessionDetailStateModel()
+      let pendingID = UUID()
+      let pending = SidebarSessionItemID.pending(provider: provider, pendingId: pendingID)
+      let resolved = SidebarSessionItemID.monitored(provider: provider, sessionId: "real")
+      model.setContentMode(.diffs, for: pending, defaultProjectPath: "/p")
+      model.leaveSession(
+        pending, transitioningTo: resolved, resolvedHistories: [(provider, [pendingID: "real"])])
+      model.migrateResolvedPendingSessions([pendingID: "real"], provider: provider)
+      #expect(model.contentMode(for: resolved) == .diffs)
+      #expect(!model.showsResult(for: resolved))
+    }
+  }
+
+  @Test("Pending resolution without editor state stays on Terminal")
+  func pendingResolutionWithoutEditorState() {
+    for provider in [SessionProviderKind.claude, .codex] {
+      let model = SessionDetailStateModel()
+      let pendingID = UUID()
+      let pending = SidebarSessionItemID.pending(provider: provider, pendingId: pendingID)
+      let resolved = SidebarSessionItemID.monitored(provider: provider, sessionId: "real")
+      model.show(pending)
+      model.migrateResolvedPendingSessions([pendingID: "real"], provider: provider)
+      model.show(resolved)
+      #expect(!model.showsResult(for: resolved))
+      #expect(model.contentMode(for: resolved) == .terminal)
+      #expect(model.editorStates.isEmpty)
+    }
+  }
+
+  @Test("Pending resolution keeps an explicitly opened Result in either notification order")
+  func pendingResolutionKeepsExplicitResult() {
+    for provider in [SessionProviderKind.claude, .codex] {
+      for migrateFirst in [false, true] {
+        let model = SessionDetailStateModel()
+        let pendingID = UUID()
+        let pending = SidebarSessionItemID.pending(provider: provider, pendingId: pendingID)
+        let resolved = SidebarSessionItemID.monitored(provider: provider, sessionId: "real")
+        let history = [pendingID: "real"]
+        model.setShowsResult(true, for: pending)
+        if migrateFirst { model.migrateResolvedPendingSessions(history, provider: provider) }
+        model.leaveSession(pending, transitioningTo: resolved, resolvedHistories: [(provider, history)])
+        if !migrateFirst { model.migrateResolvedPendingSessions(history, provider: provider) }
+        #expect(model.showsResult(for: resolved))
+      }
+    }
+  }
+
+  @Test("Leaving a pending session resets its view regardless of resolution order")
+  func leavingPendingSessionResetsView() {
+    for migrateFirst in [false, true] {
+      let model = SessionDetailStateModel()
+      let pendingID = UUID()
+      let pending = SidebarSessionItemID.pending(provider: .codex, pendingId: pendingID)
+      let history: [UUID: String] = [pendingID: "real"]
+      model.setContentMode(.diffs, for: pending, defaultProjectPath: "/p")
+      if migrateFirst { model.migrateResolvedPendingSessions(history, provider: .codex) }
+      model.leaveSession(
+        pending, transitioningTo: "claude-other", resolvedHistories: [(.codex, history)])
+      if !migrateFirst { model.migrateResolvedPendingSessions(history, provider: .codex) }
+      #expect(model.contentMode(for: "codex-real") == .terminal)
+    }
+  }
+
+  @Test("Restored sessions start on Terminal and Result stays open until leaving")
+  func restoredSessionAndExplicitResult() {
+    let model = SessionDetailStateModel()
+    model.restore(["codex-a"], provider: .codex)
+    #expect(!model.showsResult(for: "codex-a"))
+    model.setShowsResult(true, for: "codex-a")
+    model.show("codex-a")
+    model.show("codex-a")
+    #expect(model.showsResult(for: "codex-a"))
+    model.leaveSession("codex-a")
+    #expect(!model.showsResult(for: "codex-a"))
+  }
+
   // MARK: - Pending → resolved
 
   @Test("A resolved launch keeps the pending session's state")
