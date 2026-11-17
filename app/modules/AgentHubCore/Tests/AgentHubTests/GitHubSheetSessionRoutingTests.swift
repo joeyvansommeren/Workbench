@@ -141,7 +141,7 @@ struct GitHubSheetSessionRoutingTests {
       GitHubSheetItem(
         projectPath: "/other", branchName: "feature", session: session, provider: .claude),
       GitHubSheetItem(
-        projectPath: "/fixture", branchName: "other", session: session, provider: .claude),
+        projectPath: "/fixture", branchName: "other", session: session, provider: .claude)
     ] {
       let action = coordinator.gitHubSendToSession(
         item: item, claudeViewModel: claude, codexViewModel: codex,
@@ -167,7 +167,7 @@ struct GitHubSheetSessionRoutingTests {
     for changed in [
       CLISession(id: "other", projectPath: "/fixture", branchName: "feature"),
       CLISession(id: "session", projectPath: "/other", branchName: "feature"),
-      CLISession(id: "session", projectPath: "/fixture", branchName: "other"),
+      CLISession(id: "session", projectPath: "/fixture", branchName: "other")
     ] {
       send("prompt", changed)
       await coordinator.gitHubSendTask?.value
@@ -199,7 +199,7 @@ struct GitHubSheetSessionRoutingTests {
         AgentWorkspaceSessionLink(
           workspaceId: workspace.id, provider: .claude, sessionId: session.id, origin: .explicit),
         AgentWorkspaceSessionLink(
-          workspaceId: workspace.id, provider: .codex, sessionId: session.id, origin: .explicit),
+          workspaceId: workspace.id, provider: .codex, sessionId: session.id, origin: .explicit)
       ])
     let surface = WorkspaceTerminalSurfaceSpy()
     surface.acceptsImmediatePrompt = true
@@ -243,7 +243,7 @@ struct GitHubSheetSessionRoutingTests {
           sessionId: session.id, origin: .explicit),
         AgentWorkspaceSessionLink(
           workspaceId: second.id, provider: .claude,
-          sessionId: session.id, origin: .explicit),
+          sessionId: session.id, origin: .explicit)
       ])
     let surface = WorkspaceTerminalSurfaceSpy()
     surface.acceptsImmediatePrompt = true
@@ -553,7 +553,7 @@ struct GitHubSheetSessionRoutingTests {
             TerminalWorkspaceTabSnapshot(
               role: .agent, workingDirectory: session.projectPath,
               linkedSession: TerminalWorkspaceLinkedSessionSnapshot(
-                provider: .codex, sessionId: session.id)),
+                provider: .codex, sessionId: session.id))
           ])
       ]))
   }
@@ -568,13 +568,13 @@ struct GitHubSheetSessionRoutingTests {
   }
 
   private func makeViewModel(_ provider: SessionProviderKind) -> CLISessionsViewModel {
-    let vm = CLISessionsViewModel(
+    let viewModel = CLISessionsViewModel(
       monitorService: RoutingMonitor(), fileWatcher: RoutingWatcher(), searchService: nil,
       cliConfiguration: provider == .claude ? .claudeDefault : .codexDefault,
       providerKind: provider, approvalNotificationService: NoOpApprovalNotificationService(),
       cliAvailabilityService: CLIAvailabilityService(findExecutable: { _, _, _ in nil }))
-    vm.workspaceStateReadOverride = { _ in SessionWorkspaceState() }
-    return vm
+    viewModel.workspaceStateReadOverride = { _ in SessionWorkspaceState() }
+    return viewModel
   }
 }
 

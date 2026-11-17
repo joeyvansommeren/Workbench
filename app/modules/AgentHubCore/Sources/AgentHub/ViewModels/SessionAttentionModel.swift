@@ -164,8 +164,7 @@ final class SessionAttentionModel {
     if let snapshot = snapshots[itemID],
       case .session(let path, let branch, _) = snapshot.target,
       path == session.projectPath, branch == session.branchName,
-      let pullRequest = snapshot.pullRequest, pullRequest.headRefName == branch
-    {
+      let pullRequest = snapshot.pullRequest, pullRequest.headRefName == branch {
       observed = GitHubPullRequestURLReference(urlString: pullRequest.url)
     } else {
       observed = nil

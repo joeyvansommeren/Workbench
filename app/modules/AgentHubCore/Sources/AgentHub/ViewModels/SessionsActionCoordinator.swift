@@ -45,10 +45,10 @@ struct StartSessionSheetContext: Identifiable {
 struct GitHubSheetItem: Identifiable {
   let id = UUID()
   let projectPath: String
-  var branchName: String? = nil
-  var session: CLISession? = nil
-  var provider: SessionProviderKind? = nil
-  var workspaceID: String? = nil
+  var branchName: String?
+  var session: CLISession?
+  var provider: SessionProviderKind?
+  var workspaceID: String?
   var linkedPullRequests: [GitHubPullRequestURLReference] = []
 }
 
