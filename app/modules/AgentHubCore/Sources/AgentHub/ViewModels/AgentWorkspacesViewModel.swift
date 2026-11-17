@@ -40,12 +40,18 @@ public final class AgentWorkspacesViewModel {
   private let processProviderResolver: any WorkspaceSessionProcessProviderResolving
   private let detectionPollInterval: Duration
 
+  // Reports a settled attempt, including one rejected as already linked.
+  // It does not certify successful linking or add another owner of that state.
+  @ObservationIgnored var onDetectionAttemptCompleted:
+    ((_ workspaceID: String, _ contextID: String?, _ result: AccessorySessionDetectionResult) -> Void)?
+
   @ObservationIgnored private var activeSurfaces: [String: any EmbeddedTerminalSurface] = [:]
   @ObservationIgnored private var saveTasks: [String: Task<Void, Never>] = [:]
   @ObservationIgnored private var detectionTasks: [DetectionKey: Task<Void, Never>] = [:]
   @ObservationIgnored private var activeDetectionKeysByWorkspace: [String: Set<DetectionKey>] = [:]
   @ObservationIgnored private var didLoad = false
 
+  private(set) var hasLoadedWorkspaceOwnership = false
   public private(set) var workspaces: [AgentWorkspaceRecord] = []
   public private(set) var linksByWorkspaceID: [String: [AgentWorkspaceSessionLink]] = [:]
   public private(set) var errorMessage: String?
@@ -87,11 +93,14 @@ public final class AgentWorkspacesViewModel {
       async let loadedLinks = store.loadAgentWorkspaceSessionLinks()
       workspaces = try await loadedWorkspaces
       linksByWorkspaceID = Dictionary(grouping: try await loadedLinks, by: \.workspaceId)
+      hasLoadedWorkspaceOwnership = true
+      errorMessage = nil
       for workspace in workspaces where linksByWorkspaceID[workspace.id] == nil {
         linksByWorkspaceID[workspace.id] = []
       }
       await sessionCoordinator.restorePersistedSessions(persistedSessionReferences())
     } catch {
+      didLoad = false
       errorMessage = "Could not restore workspaces: \(error.localizedDescription)"
     }
   }
@@ -181,6 +190,14 @@ public final class AgentWorkspacesViewModel {
     linksByWorkspaceID.first { _, links in
       links.contains { $0.providerKind == provider && $0.sessionId == sessionId }
     }?.key
+  }
+
+  /// Returns every owner so ambiguous links cannot select an arbitrary workspace.
+  func workspaceIDs(owningSession sessionId: String, provider: SessionProviderKind) -> [String] {
+    linksByWorkspaceID.compactMap { workspaceID, links in
+      links.contains { $0.providerKind == provider && $0.sessionId == sessionId }
+        ? workspaceID : nil
+    }
   }
 
   /// Routes a sidebar selection of a workspace-owned session to the pane that
@@ -445,6 +462,7 @@ public final class AgentWorkspacesViewModel {
         }
         self.detectionTasks[key] = nil
         await self.resolveDetection(pending, result: result)
+        self.onDetectionAttemptCompleted?(pending.workspaceID, pending.surfaceContextID, result)
         return
       }
     }

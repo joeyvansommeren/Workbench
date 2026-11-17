@@ -70,6 +70,7 @@ private struct ResultLayoutServer: ResultServerStarting {
 @MainActor
 private struct ResultLayoutOpener: ResultDestinationOpening {
   func open(_ url: URL) -> Bool { false }
+  func reveal(_ url: URL) {}
 }
 private actor ResultLayoutMonitor: SessionMonitorServiceProtocol {
   nonisolated var repositoriesPublisher: AnyPublisher<[SelectedRepository], Never> {

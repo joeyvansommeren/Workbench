@@ -22,6 +22,10 @@ public enum ShellDestination: String, CaseIterable, Sendable {
 final class WorkbenchShellModel {
   private(set) var destination: ShellDestination = .sessions
   private(set) var sidebarVisible = true
+  /// Per-window filter and cursor survive sidebar hiding and destination changes.
+  var needsYouFilter = false
+  private(set) var attentionTargetID: String?
+
   /// Only toggled by ⌥⌘0 for now. P6 binds the session side panel to it.
   private(set) var sidePanelVisible = true
   /// From the window's full-screen notifications (`ShellWindowChrome`). The
@@ -36,6 +40,13 @@ final class WorkbenchShellModel {
   @ObservationIgnored var sidePanelEntrance = PanelEntranceGate()
 
   init() {}
+
+  func showNeedsYou(targetID: String?) {
+    needsYouFilter = true
+    attentionTargetID = targetID
+    sidebarVisible = true
+    select(.sessions)
+  }
 
   func select(_ newDestination: ShellDestination) {
     guard newDestination != destination else { return }

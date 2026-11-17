@@ -3,7 +3,8 @@ import Testing
 
 @testable import AgentHubCore
 
-@Suite("Apple shell launch flag")
+// The argument domain is process-wide, even when each test uses a separate suite.
+@Suite("Apple shell launch flag", .serialized)
 struct AppleShellLaunchFlagTests {
   private let key = AgentHubDefaults.appleShellEnabled
 

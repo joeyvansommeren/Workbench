@@ -38,6 +38,8 @@ final class SessionResultViewModel {
   }
 
   func load(projectPath: String) async {
+    recipe = nil
+    suggestedRecipe = nil
     let generation = observationGeneration
     let inspected = await sourceService.inspect(projectPath: projectPath)
     source = generation == observationGeneration ? inspected : ResultSourceSnapshot(
@@ -74,10 +76,10 @@ final class SessionResultViewModel {
         guard recipeStore != nil, let source else { throw ResultLaunchError.unavailableStore }
         validatedRecipe?.repositoryPath = source.repositoryPath
         if let validatedRecipe {
-          _ = try validatedRecipe.workingPath(in: source.worktreePath)
+          let workingPath = try validatedRecipe.workingPath(in: source.worktreePath)
           if !validatedRecipe.destination.isEmpty {
             _ = try ProjectLaunchRecipe.destinationURL(
-              validatedRecipe.destination, projectPath: source.worktreePath)
+              validatedRecipe.destination, projectPath: source.worktreePath, relativeTo: workingPath)
           }
         }
       }
@@ -118,10 +120,23 @@ final class SessionResultViewModel {
     defer { isOpening = false }
     do {
       await load(projectPath: result.projectPath)
-      let destination = override ?? (result.destination.isEmpty ? recipe?.destination ?? "" : result.destination)
+      // A failed recipe load must not launch with stale settings from another repository.
+      if error != nil { throw ResultLaunchError.unavailableStore }
+      let fallback = result.kind == .native ? recipe?.nativeTarget ?? "" : recipe?.destination ?? ""
+      let destination = override ?? (result.destination.isEmpty ? fallback : result.destination)
       requestedDestination = destination
       let root = source?.worktreePath ?? result.projectPath
-      let url = try ProjectLaunchRecipe.destinationURL(destination, projectPath: root)
+      if result.kind == .native {
+        let nativeRecipe = recipe ?? ProjectLaunchRecipe(repositoryPath: source?.repositoryPath ?? root)
+        let target = try nativeRecipe.nativeBuildURL(in: root, destination: destination)
+        try Task.checkCancellation()
+        opener.reveal(target)
+        launchMessage = "Revealed the requested build. Its version and starting state are not verified."
+        error = nil
+        return
+      }
+      let workingPath = try recipe?.workingPath(in: root) ?? root
+      let url = try ProjectLaunchRecipe.destinationURL(destination, projectPath: root, relativeTo: workingPath)
       var launchRecipe = recipe
       launchRecipe?.destination = url.absoluteString
       if let launchRecipe, !launchRecipe.executable.isEmpty, !url.isFileURL,

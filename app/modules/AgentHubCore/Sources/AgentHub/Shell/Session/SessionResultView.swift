@@ -66,6 +66,14 @@ struct SessionResultView: View {
         else { unrecordedResult }
         if let error = model.error ?? library.loadError {
           Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+          VStack(alignment: .leading, spacing: 10) {
+            Button("Retry opening result") {
+              let destination = result?.alternatives.first { $0.id == alternativeID }?.destination
+              Task { await model.open(result: result ?? draft, destination: destination) }
+            }
+            .disabled(model.isOpening)
+            Button("Edit launch recipe") { editing = true }
+          }
         }
         if let destination = model.restartDestination {
           Button("Restart Workbench server") {
@@ -125,7 +133,7 @@ struct SessionResultView: View {
       }
       if !draft.destination.isEmpty {
         Text(draft.destination).font(.callout).textSelection(.enabled)
-        Button(model.isOpening ? "Opening…" : "Open result") { Task { await model.open(result: draft) } }
+        Button(model.isOpening ? "Opening…" : draft.kind == .native ? "Reveal native build" : "Open result") { Task { await model.open(result: draft) } }
           .buttonStyle(.borderedProminent).disabled(model.isOpening)
         Text("Agent or saved destination. Check its route, state and version.").font(.caption).foregroundStyle(.secondary)
       }
@@ -164,13 +172,16 @@ struct SessionResultView: View {
       sourceStatus(result)
       if !result.versionLabel.isEmpty { Text("Version label: \(result.versionLabel)").foregroundStyle(.secondary) }
       if result.kind == .native {
-        Text("Use a build inside this worktree. External build folders and simulator launch are not supported here.")
+        Text("Reveals the saved .app build in Finder. Use the Simulator action for mobile launch. External build folders are unsupported.")
           .font(.caption).foregroundStyle(.secondary)
       }
       Text("The running page or build version is not verified.").font(.callout).foregroundStyle(.secondary)
-      if !result.expectedState.isEmpty {
+      let expectedState = result.expectedState.isEmpty ? model.recipe?.expectedState ?? "" : result.expectedState
+      if !expectedState.isEmpty {
         Text("Starting state and steps").font(.headline)
-        Text(result.expectedState).textSelection(.enabled)
+        Text(expectedState).textSelection(.enabled)
+        Text("These steps are manual. A successful health check does not verify login, modal or component state.")
+          .font(.caption).foregroundStyle(.secondary)
       }
       if result.kind == .prototype, !result.alternatives.isEmpty {
         Picker("Alternative", selection: $alternativeID) {
@@ -179,13 +190,14 @@ struct SessionResultView: View {
         }
       }
       if result.kind != .nonvisual || !result.destination.isEmpty {
-        Button(model.isOpening ? "Opening…" : "Open result") {
+        Button(model.isOpening ? "Opening…" : result.kind == .native ? "Reveal native build" : "Open result") {
           let destination = result.alternatives.first { $0.id == alternativeID }?.destination
           Task { await model.open(result: result, destination: destination) }
         }
         .buttonStyle(.borderedProminent)
         .disabled(model.isOpening || (result.kind == .prototype && !result.alternatives.isEmpty && alternativeID == nil))
-        Text("Opens the exact destination in its app or browser.").font(.caption).foregroundStyle(.secondary)
+        Text(result.kind == .native ? "Selects the exact build in Finder." : "Opens the exact destination in its app or browser.")
+          .font(.caption).foregroundStyle(.secondary)
       }
       Text(attentionModel.checksLabel(for: key)).font(.callout)
       decision(result)
