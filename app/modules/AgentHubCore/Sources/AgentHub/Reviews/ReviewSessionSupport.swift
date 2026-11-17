@@ -33,7 +33,7 @@ struct ReviewSessionSupport {
     GitHubReviewSessionLinker.links(
       for: pullRequest,
       launches: viewModel.reviewSessionLaunches(for: pullRequest),
-      inventories: inventories
+      inventories: inventories, sourceAccountKey: viewModel.sourceAccount?.persistenceKey
     )
   }
 
@@ -66,8 +66,10 @@ struct ReviewSessionSupport {
         hasher.combine(pending.worktree.name)
       }
       hasher.combine(sessions.resolvedPendingSessionHistory)
-      hasher.combine(sessions.sessionCustomNames)
+      hasher.combine(sessions.sessionDisplayNames)
     }
+    hasher.combine(viewModel.sourceAccount)
+    hasher.combine(viewModel.reviewRepositoryIdentities)
     hasher.combine(agentHub.jiraSprintViewModel.knownProjectKeys)
     return hasher.finalize()
   }
@@ -101,6 +103,8 @@ struct ReviewSessionSupport {
   /// Links pending launches to their real sessions, recovers links from before
   /// they were stored (once), names the sessions, and restores them for monitoring.
   func recoverAndRestoreSessions() async {
+    await viewModel.resolveReviewRepositoryIdentities(
+      paths: (claude.allSessions + codex.allSessions).map(\.projectPath))
     let launchActions = WorkspaceLaunchActions(agentHub: agentHub, showSessions: {})
     await viewModel.resolveReviewLaunches(claude.resolvedPendingSessionHistory, provider: .claude)
     await viewModel.resolveReviewLaunches(codex.resolvedPendingSessionHistory, provider: .codex)
@@ -128,9 +132,11 @@ struct ReviewSessionSupport {
       sessions: sessions.allSessions,
       pendingSessions: sessions.pendingHubSessions,
       resolvedPendingSessionIDs: sessions.resolvedPendingSessionHistory,
-      customNames: sessions.sessionCustomNames,
+      customNames: sessions.sessionDisplayNames,
       statuses: sessions.sessionStatuses,
-      ticketKeysBySessionID: ticketKeys(for: sessions)
+      ticketKeysBySessionID: ticketKeys(for: sessions),
+      sourceOrigins: sessions.sessionOrigins,
+      repositoryIdentities: viewModel.reviewRepositoryIdentities
     )
   }
 
@@ -150,7 +156,7 @@ struct ReviewSessionSupport {
       let keys = jira.sessionLinker.cachedKeys(
         id: SidebarSessionItemID.monitored(provider: sessions.providerKind, sessionId: session.id),
         branchName: session.branchName,
-        customName: sessions.sessionCustomNames[session.id],
+        customName: sessions.sessionDisplayNames[session.id],
         prompt: session.firstMessage,
         knownProjectKeys: knownProjects
       )

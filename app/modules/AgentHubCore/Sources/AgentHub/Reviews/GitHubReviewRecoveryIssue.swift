@@ -30,6 +30,21 @@ struct GitHubReviewRecoveryIssue: Equatable, Sendable {
   let secondaryAction: Action?
 
   static func classify(_ error: Error) -> GitHubReviewRecoveryIssue {
+    if let sourceError = error as? GitHubReviewSourceError {
+      let title: String
+      switch sourceError {
+      case .accountChanged: title = "GitHub CLI account changed"
+      case .invalidSource: title = "Choose a repository source"
+      case .unavailableSource: title = "Repository source unavailable"
+      case .incompleteResponse: title = "GitHub returned an incomplete list"
+      case .unsupportedProjectFilter: title = "Project view filter unsupported"
+      }
+      return GitHubReviewRecoveryIssue(
+        kind: .requestFailed, title: title,
+        message: sourceError.localizedDescription, technicalDetails: nil,
+        primaryAction: .retry, secondaryAction: nil)
+    }
+
     // Checked first: a quota error is not a login problem, even though gh
     // reports both as a failed command.
     if indicatesRateLimit(error.localizedDescription) {

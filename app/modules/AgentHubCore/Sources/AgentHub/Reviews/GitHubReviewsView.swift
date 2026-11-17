@@ -33,6 +33,7 @@ struct GitHubReviewsView: View {
   @State private var recoveryFeedbackMessage: String?
   @State private var recoveryFeedbackIsError = false
   @State private var reloadTask: Task<Void, Never>?
+  @State private var showSourceFilters = false
   @State private var sessionCommandContext: GitHubReviewSessionCommandContext?
   @State private var sessionCommandFeedback: GitHubReviewSessionCommandFeedback?
   @State private var sessionCommandFeedbackTask: Task<Void, Never>?
@@ -185,8 +186,13 @@ struct GitHubReviewsView: View {
 
   private var sidebarControls: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+      ReviewsSourcePicker(viewModel: viewModel)
+      Button("Source filters") { showSourceFilters.toggle() }
+        .popover(isPresented: $showSourceFilters) {
+          ReviewsFiltersPopover(viewModel: viewModel, onStop: viewModel.cancelRefresh)
+        }
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
-        Text("PROJECT")
+        Text("PROJECT (OPTIONAL)")
           .font(.geist(size: 9, weight: .semibold))
           .foregroundStyle(.tertiary)
         Picker("Project", selection: projectBinding) {
@@ -304,7 +310,8 @@ struct GitHubReviewsView: View {
             reviewSessionsCell(
               rows.first(where: { $0.pullRequest.id == request.id })?.sessionLinks
                 ?? GitHubReviewSessionLinker.links(for: request,
-                  launches: viewModel.reviewSessionLaunches(for: request), inventories: inventories),
+                  launches: viewModel.reviewSessionLaunches(for: request), inventories: inventories,
+                  sourceAccountKey: viewModel.sourceAccount?.persistenceKey),
               pullRequest: request)
               .padding(.horizontal).padding(.bottom)
           }
@@ -322,7 +329,7 @@ struct GitHubReviewsView: View {
           .font(.geist(size: 17, weight: .semibold))
           .lineLimit(1)
         Text(
-          [viewModel.selectedProject?.displayName ?? "Select a GitHub Project view", reviewCountLabel(visible: rows.count)]
+          [viewModel.sourceLabel, reviewCountLabel(visible: rows.count)]
             .joined(separator: " · ")
         )
         .font(.secondarySmall)
@@ -373,29 +380,21 @@ struct GitHubReviewsView: View {
       } description: {
         Text("Reading projects and saved views through your GitHub CLI login.")
       }
-    } else if viewModel.selectedProject == nil {
-      ContentUnavailableView {
-        Label("No GitHub Projects found", systemImage: "rectangle.3.group")
-      } description: {
-        Text("Make sure `gh` is authenticated with the `project` scope.")
-      }
-    } else if viewModel.selectedView == nil {
-      ContentUnavailableView {
-        Label("No project view selected", systemImage: "line.3.horizontal.decrease.circle")
-      } description: {
-        Text("Choose a saved view whose filter describes the review queue.")
-      }
+    } else if viewModel.selectedSources.isEmpty {
+      ContentUnavailableView(
+        "Choose a repository source", systemImage: "folder",
+        description: Text("Select Personal, an organisation, or the sources to include in All."))
     } else if viewModel.isLoadingPullRequests, viewModel.pullRequests.isEmpty {
       ContentUnavailableView {
         Label("Loading review queue", systemImage: "arrow.triangle.pull")
       } description: {
-        Text("Applying the selected project view filter.")
+        Text("Loading \(viewModel.sourceLabel).")
       }
     } else if viewModel.pullRequests.isEmpty {
       ContentUnavailableView(
         "No pull requests to review",
         systemImage: "checkmark.circle",
-        description: Text("The selected GitHub Project view contains no matching non-draft PRs.")
+        description: Text("No pull requests match \(viewModel.sourceLabel). Drafts are included.")
       )
     } else {
       pullRequestTable(rows: rows)
@@ -611,7 +610,7 @@ struct GitHubReviewsView: View {
 
       TableColumn("Repository", value: \.repository) { row in
         let pullRequest = row.pullRequest
-        Text(pullRequest.repositoryName)
+        Text(pullRequest.repositoryNameWithOwner)
           .font(.mono(size: 11))
           .foregroundStyle(.secondary)
           .lineLimit(1)
@@ -807,7 +806,7 @@ struct GitHubReviewsView: View {
         sessionLinks: GitHubReviewSessionLinker.links(
           for: pullRequest,
           launches: viewModel.reviewSessionLaunches(for: pullRequest),
-          inventories: inventories
+          inventories: inventories, sourceAccountKey: viewModel.sourceAccount?.persistenceKey
         )
       )
     }
@@ -1020,7 +1019,9 @@ struct GitHubReviewsView: View {
         resolvedPendingSessionIDs: claudeSessionsViewModel.resolvedPendingSessionHistory,
         customNames: claudeSessionsViewModel.sessionCustomNames,
         statuses: claudeSessionsViewModel.sessionStatuses,
-        ticketKeysBySessionID: ticketKeys(for: claudeSessionsViewModel)
+        ticketKeysBySessionID: ticketKeys(for: claudeSessionsViewModel),
+        sourceOrigins: claudeSessionsViewModel.sessionOrigins,
+        repositoryIdentities: viewModel.reviewRepositoryIdentities
       ),
       GitHubReviewSessionInventory(
         provider: .codex,
@@ -1029,7 +1030,9 @@ struct GitHubReviewsView: View {
         resolvedPendingSessionIDs: codexSessionsViewModel.resolvedPendingSessionHistory,
         customNames: codexSessionsViewModel.sessionCustomNames,
         statuses: codexSessionsViewModel.sessionStatuses,
-        ticketKeysBySessionID: ticketKeys(for: codexSessionsViewModel)
+        ticketKeysBySessionID: ticketKeys(for: codexSessionsViewModel),
+        sourceOrigins: codexSessionsViewModel.sessionOrigins,
+        repositoryIdentities: viewModel.reviewRepositoryIdentities
       ),
     ]
   }
@@ -1059,6 +1062,9 @@ struct GitHubReviewsView: View {
   }
 
   private func recoverAndRestoreReviewSessions() async {
+    await viewModel.resolveReviewRepositoryIdentities(
+      paths: (claudeSessionsViewModel.allSessions + codexSessionsViewModel.allSessions).map(
+        \.projectPath))
     await viewModel.resolveReviewLaunches(
       claudeSessionsViewModel.resolvedPendingSessionHistory,
       provider: .claude
@@ -1092,12 +1098,9 @@ struct GitHubReviewsView: View {
   }
 
   private func applyReviewSessionTitles() {
-    for (sessionID, title) in viewModel.linkedSessionTitles(provider: .claude) {
-      claudeSessionsViewModel.setCustomName(title, forSessionId: sessionID)
-    }
-    for (sessionID, title) in viewModel.linkedSessionTitles(provider: .codex) {
-      codexSessionsViewModel.setCustomName(title, forSessionId: sessionID)
-    }
+    // A PR link does not change an existing session's title.
+    claudeSessionsViewModel.loadCustomNames()
+    codexSessionsViewModel.loadCustomNames()
   }
 
   private var projectBinding: Binding<String?> {

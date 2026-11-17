@@ -300,7 +300,7 @@ struct ProjectDetailsSheetView: View {
           timestamp: pending.startedAt,
           isPending: true,
           status: nil,
-          customName: nil
+            customName: providerViewModel.sessionDisplayNames[pending.placeholderSession.id]
         ))
       }
       for session in providerViewModel.monitoredCLISessions where belongs(session.projectPath) {
@@ -311,7 +311,7 @@ struct ProjectDetailsSheetView: View {
           timestamp: session.lastActivityAt,
           isPending: false,
           status: providerViewModel.sessionStatus(for: session.id),
-          customName: providerViewModel.sessionCustomNames[session.id]
+            customName: providerViewModel.sessionDisplayNames[session.id]
         ))
       }
     }

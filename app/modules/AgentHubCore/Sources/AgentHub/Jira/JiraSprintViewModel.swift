@@ -117,7 +117,7 @@ public final class JiraSprintViewModel {
 
   static func sessionName(for ticket: JiraTicketSnapshot) -> String {
     let summary = ticket.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-    let shortened = summary.count > 70 ? String(summary.prefix(69)) + "…" : summary
+    let shortened = summary
     return "\(ticket.key): \(shortened)"
   }
 
@@ -605,6 +605,10 @@ public final class JiraSprintViewModel {
       }
     }
     return statuses
+  }
+
+  public func presentLaunchError(_ message: String, ticketKey: String) {
+    statusNotice = StatusNotice(ticketKey: ticketKey, text: message, isError: true)
   }
 
   public func dismissStatusNotice() {

@@ -161,6 +161,7 @@ public actor ACLITicketReader: JiraTicketReading, JiraTicketSearching,
     return JiraTicketSnapshot(
       key: key,
       summary: summary,
+      issueID: object["id"] as? String,
       issueType: issueType,
       status: status,
       assignee: assignee,

@@ -14,6 +14,7 @@ import SwiftUI
 public struct CLISessionRow: View {
   let session: CLISession
   let customName: String?
+  let displayTitle: String?
   let providerKind: SessionProviderKind
   let isMonitoring: Bool
   let onConnect: () -> Void
@@ -27,6 +28,7 @@ public struct CLISessionRow: View {
   public init(
     session: CLISession,
     customName: String? = nil,
+    displayTitle: String? = nil,
     providerKind: SessionProviderKind = .claude,
     isMonitoring: Bool,
     onConnect: @escaping () -> Void,
@@ -37,6 +39,7 @@ public struct CLISessionRow: View {
   ) {
     self.session = session
     self.customName = customName
+    self.displayTitle = displayTitle
     self.providerKind = providerKind
     self.isMonitoring = isMonitoring
     self.onConnect = onConnect
@@ -109,7 +112,13 @@ public struct CLISessionRow: View {
         .fill(statusColor)
         .frame(width: 8, height: 8)
 
-      if let customName = customName {
+      if let displayTitle {
+        Text(displayTitle)
+          .font(.primaryDefault)
+          .foregroundColor(.primary)
+          .lineLimit(1)
+          .help(displayTitle)
+      } else if let customName = customName {
         // Show user-provided custom name
         Text(customName)
           .font(.primaryDefault)

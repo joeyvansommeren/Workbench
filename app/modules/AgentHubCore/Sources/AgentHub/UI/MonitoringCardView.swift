@@ -759,32 +759,38 @@ public struct MonitoringCardView: View {
 
   // MARK: - Monitor Content
 
+  @ViewBuilder
   private var monitorContent: some View {
-    MonitoringCardContentArea(
-      session: session,
-      state: state,
-      providerKind: providerKind,
-      viewModel: viewModel,
-      hubProvider: hubProvider,
-      terminalKey: terminalKey,
-      cliConfiguration: liveCLIConfiguration,
-      initialPrompt: initialPrompt,
-      initialInputText: initialInputText,
-      launchContext: launchContext,
-      dangerouslySkipPermissions: dangerouslySkipPermissions,
-      permissionModePlan: permissionModePlan,
-      worktreeName: worktreeName,
-      mode: effectiveContentMode,
-      contentMode: $contentMode,
-      selectedEditorFilePath: $selectedEditorFilePath,
-      editorProjectPath: editorProjectPath,
-      editorNavigationRequest: editorNavigationRequest,
-      isPrimarySession: isPrimarySession,
-      liveTerminalStatus: liveTerminalStatus,
-      onTerminalInteraction: onTerminalInteraction,
-      onRequestShowEditor: onRequestShowEditor,
-      onInlineRequestSubmit: onInlineRequestSubmit
-    )
+    if let message = viewModel?.pendingLaunchRecoveryMessage(for: session.id) {
+      ContentUnavailableView(
+        "Session unavailable", systemImage: "exclamationmark.circle", description: Text(message))
+    } else {
+      MonitoringCardContentArea(
+        session: session,
+        state: state,
+        providerKind: providerKind,
+        viewModel: viewModel,
+        hubProvider: hubProvider,
+        terminalKey: terminalKey,
+        cliConfiguration: liveCLIConfiguration,
+        initialPrompt: initialPrompt,
+        initialInputText: initialInputText,
+        launchContext: launchContext,
+        dangerouslySkipPermissions: dangerouslySkipPermissions,
+        permissionModePlan: permissionModePlan,
+        worktreeName: worktreeName,
+        mode: effectiveContentMode,
+        contentMode: $contentMode,
+        selectedEditorFilePath: $selectedEditorFilePath,
+        editorProjectPath: editorProjectPath,
+        editorNavigationRequest: editorNavigationRequest,
+        isPrimarySession: isPrimarySession,
+        liveTerminalStatus: liveTerminalStatus,
+        onTerminalInteraction: onTerminalInteraction,
+        onRequestShowEditor: onRequestShowEditor,
+        onInlineRequestSubmit: onInlineRequestSubmit
+      )
+    }
   }
 
   private var sessionDisplayName: String {

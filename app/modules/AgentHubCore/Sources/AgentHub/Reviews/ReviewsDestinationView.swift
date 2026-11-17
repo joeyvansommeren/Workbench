@@ -128,6 +128,13 @@ struct ReviewsDestinationView: View {
         }
       }
     }
+    .onChange(of: viewModel.sourceRevision) { _, _ in
+      pendingBulkLaunch = nil
+      pendingFollowUp = nil
+      customMessageContext = nil
+      sessionCommandContext = nil
+      stopBulkLaunch()
+    }
     .onExitCommand { closeDetail() }
     .wbTracksPanelOpen(isOpen: isDetailOpen, wasClosed: $detailWasClosed)
     .task {
@@ -375,7 +382,9 @@ struct ReviewsDestinationView: View {
     let viewModel = viewModel
     let actions = actions
     bulkLauncher.run(
-      launch.pullRequests,
+      launch.pullRequests.filter { request in
+        viewModel.visiblePullRequests.contains { $0.reviewIdentity == request.reviewIdentity }
+      },
       begin: { viewModel.beginStartingReview(for: $0.id) },
       launch: { pullRequest in
         await actions.startReview(pullRequest, provider: launch.provider, template: launch.template)
@@ -400,7 +409,11 @@ struct ReviewsDestinationView: View {
     pendingFollowUp = nil
     var sent = 0
     for target in followUp.targets
-    where GitHubReviewSessionCommandPolicy.canSend(isPending: target.link.isPending) {
+    where GitHubReviewSessionCommandPolicy.canSend(isPending: target.link.isPending)
+      && viewModel.visiblePullRequests.contains(where: {
+        $0.reviewIdentity == target.pullRequest.reviewIdentity
+      })
+    {
       let sessions =
         target.link.provider == .claude
         ? agentHub.claudeSessionsViewModel : agentHub.codexSessionsViewModel
@@ -505,16 +518,21 @@ private struct ReviewsBar<Actions: View>: View {
 
   var body: some View {
     HStack(spacing: DesignTokens.Spacing.sm) {
+      ReviewsSourcePicker(viewModel: viewModel)
+        .frame(maxWidth: 190, alignment: .leading)
       WorkbenchSegmentedControl(
         selection: Binding(
           get: { viewModel.reviewScope },
           set: { viewModel.setReviewScope($0) }
         ),
         showCounts: { viewModel.count(for: $0) },
-        accessibilityLabel: "Review scope",
+        accessibilityLabel: "Relationship within \(viewModel.sourceLabel)",
         accessibilityIdentifier: "reviews.scope"
       )
       .fixedSize()
+      .help(
+        "All includes every author in \(viewModel.sourceLabel). Mine includes your pull requests in that source."
+      )
       Spacer(minLength: 0)
       if let feedback {
         Text(feedback)
@@ -644,6 +662,16 @@ private struct ReviewsQueueContent<Table: View>: View {
       .padding(.horizontal, DesignTokens.Spacing.sm)
       .padding(.top, DesignTokens.Spacing.sm)
     }
+    if viewModel.isShowingCachedPullRequests {
+      Text("Saved list for \(viewModel.sourceLabel) · not current")
+        .font(.caption).foregroundStyle(.secondary).padding(DesignTokens.Spacing.sm)
+    }
+    if viewModel.isQueueTruncated {
+      Text(
+        "Showing a limited set of pull requests. Choose one owner or repository to narrow the list."
+      )
+      .font(.caption).foregroundStyle(.secondary).padding(DesignTokens.Spacing.sm)
+    }
     if let message = viewModel.errorMessage ?? viewModel.sessionLinkErrorMessage {
       ErrorBanner(message)
         .padding(.horizontal, DesignTokens.Spacing.sm)
@@ -661,15 +689,11 @@ private struct ReviewsQueueContent<Table: View>: View {
       recoveryState(issue)
     } else if viewModel.isLoadingProjects, viewModel.projects.isEmpty {
       WBLoadingState("Loading pull requests")
-    } else if viewModel.selectedProject == nil {
+    } else if viewModel.selectedSources.isEmpty {
       state(
-        "rectangle.3.group", title: "Reviews uses GitHub Projects",
-        description: "This queue shows pull requests from a GitHub Project view. Pull requests outside a Project do not appear here."
+        "folder", title: "Choose a repository source",
+        description: "Select Personal, an organisation, or the sources to include in All."
       ) {
-        Button("Open Filters", action: onOpenFilters).buttonStyle(.wbSecondary)
-      }
-    } else if viewModel.selectedView == nil {
-      state("line.3.horizontal.decrease", title: "Choose a project view") {
         Button("Open Filters", action: onOpenFilters).buttonStyle(.wbSecondary)
       }
     } else if viewModel.isLoadingPullRequests, viewModel.pullRequests.isEmpty {
@@ -689,7 +713,9 @@ private struct ReviewsQueueContent<Table: View>: View {
       } else {
         state(
           "checkmark.circle",
-          title: viewModel.reviewScope == .all ? "No pull requests in this view" : "No pull requests in this scope")
+          title: "No pull requests match these filters",
+          description:
+            "\(viewModel.sourceLabel) · \(viewModel.reviewScope.description). Drafts are included.")
       }
     } else {
       table()

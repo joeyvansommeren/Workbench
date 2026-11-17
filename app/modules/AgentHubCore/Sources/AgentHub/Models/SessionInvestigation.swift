@@ -33,13 +33,17 @@ public struct SessionInvestigationSnapshot: Codable, Sendable, Equatable, Identi
 
   public var overview: SessionInvestigationOverview {
     let monitoredSessions = sessions.filter(\.isMonitored).count
-    let activeSessions = sessions.filter(\.isActive).count + pendingSessions.count
+    let runningPendingCount = pendingSessions.filter { !$0.isFailed && !$0.needsIdentification }
+      .count
+    let activeSessions = sessions.filter(\.isActive).count + runningPendingCount
     let worktreeSessions = sessions.filter(\.isWorktree).count
     let awaitingApprovalSessions = sessions.filter(\.isAwaitingApproval).count
-    let workingSessions = sessions.filter { session in
-      guard let status = session.status?.lowercased() else { return false }
-      return status.contains("working") || status.contains("tool:") || status.contains("executing")
-    }.count + pendingSessions.count
+    let workingSessions =
+      sessions.filter { session in
+        guard let status = session.status?.lowercased() else { return false }
+        return status.contains("working") || status.contains("tool:")
+          || status.contains("executing")
+      }.count + runningPendingCount
 
     return SessionInvestigationOverview(
       repositoryCount: repositories.count,
@@ -187,22 +191,31 @@ public struct SessionInvestigationSessionSnapshot: Codable, Sendable, Equatable,
 public struct SessionInvestigationPendingSessionSnapshot: Codable, Sendable, Equatable, Identifiable {
   public let id: UUID
   public let provider: SessionProviderKind
+  public let displayName: String
   public let worktreeName: String
   public let worktreePath: String
   public let startedAt: Date
+  public let isFailed: Bool
+  public let needsIdentification: Bool
 
   public init(
     id: UUID,
     provider: SessionProviderKind,
+    displayName: String = "Starting session",
     worktreeName: String,
     worktreePath: String,
-    startedAt: Date
+    startedAt: Date,
+    isFailed: Bool = false,
+    needsIdentification: Bool = false
   ) {
     self.id = id
     self.provider = provider
+    self.displayName = displayName
     self.worktreeName = worktreeName
     self.worktreePath = worktreePath
     self.startedAt = startedAt
+    self.isFailed = isFailed
+    self.needsIdentification = needsIdentification
   }
 }
 

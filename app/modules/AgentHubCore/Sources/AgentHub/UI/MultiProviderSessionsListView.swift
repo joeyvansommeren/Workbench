@@ -1748,6 +1748,7 @@ public struct MultiProviderSessionsListView: View {
           isPending: item.isPending,
           isPrimary: false,
           customName: selectedSessionCustomName(for: item),
+          displayTitle: sessionsViewModel(for: item.providerKind).displayName(for: item.session),
           sessionStatus: item.sessionStatus,
           linkedPullRequests: item.linkedPullRequests,
           colorScheme: colorScheme,
@@ -1805,6 +1806,7 @@ public struct MultiProviderSessionsListView: View {
         isPending: item.isPending,
         isPrimary: isPrimaryOverride ?? (item.id == primarySessionId),
         customName: selectedSessionCustomName(for: item),
+        displayTitle: sessionsViewModel(for: item.providerKind).displayName(for: item.session),
         sessionStatus: item.sessionStatus,
         linkedPullRequests: item.linkedPullRequests,
         colorScheme: colorScheme,
@@ -2414,7 +2416,7 @@ public struct MultiProviderSessionsListView: View {
   private func makeCommandPaletteSessions() -> [CommandPaletteSession] {
     var result: [CommandPaletteSession] = []
     for item in selectedSessionItems {
-      let name = selectedSessionCustomName(for: item) ?? item.session.slug ?? item.session.shortId
+      let name = sessionsViewModel(for: item.providerKind).displayName(for: item.session)
       result.append(
         CommandPaletteSession(
           id: item.id,
@@ -3393,6 +3395,7 @@ private struct ProviderSectionView: View {
           getCustomName: { sessionId in
             viewModel.sessionCustomNames[sessionId]
           },
+          getDisplayName: { viewModel.displayName(for: $0) },
           onStartInHubForWorktree: { worktree in
             viewModel.startNewSessionInHub(worktree)
           },

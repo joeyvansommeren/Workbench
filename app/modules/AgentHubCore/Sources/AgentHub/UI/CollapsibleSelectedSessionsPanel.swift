@@ -123,6 +123,8 @@ public struct CollapsibleSelectedSessionsPanel: View {
             isPending: item.isPending,
             isPrimary: item.id == primarySessionId,
             customName: customName(for: item),
+            displayTitle: (item.providerKind == .claude ? claudeViewModel : codexViewModel)
+              .displayName(for: item.session),
             sessionStatus: item.sessionStatus,
             linkedPullRequests: item.linkedPullRequests,
             colorScheme: colorScheme,
@@ -361,6 +363,7 @@ public struct SingleProviderCollapsibleSelectedSessionsPanel: View {
             isPending: item.isPending,
             isPrimary: item.id == primarySessionId,
             customName: viewModel.sessionCustomNames[item.session.id],
+            displayTitle: viewModel.displayName(for: item.session),
             sessionStatus: item.sessionStatus,
             linkedPullRequests: item.linkedPullRequests,
             colorScheme: colorScheme,

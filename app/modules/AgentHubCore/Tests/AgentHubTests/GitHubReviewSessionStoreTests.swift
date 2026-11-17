@@ -56,9 +56,14 @@ struct GitHubReviewSessionStoreTests {
   func migrationPreservesExistingMetadata() async throws {
     let path = temporaryGitHubReviewSessionDatabasePath()
     let sessionID = "existing-session"
-    let seeded = try SessionMetadataStore(path: path)
-    try await seeded.setCustomName("Existing name", for: sessionID)
-    try rewindPastGitHubReviewSessionMigration(at: path)
+    let queue = try DatabaseQueue(path: path)
+    let template = try SessionMetadataStore(path: ":memory:")
+    try template.migrator.migrate(
+      queue, upTo: SessionMetadataStore.MigrationID.addSelectedFolderPaths)
+    try await queue.write { db in
+      try SessionMetadata(sessionId: sessionID, customName: "Existing name").insert(db)
+    }
+    try queue.close()
 
     let migrated = try SessionMetadataStore(path: path)
 
@@ -75,17 +80,6 @@ struct GitHubReviewSessionStoreTests {
     )
     try await migrated.saveGitHubReviewSessionAssociation(association)
     #expect(try await migrated.githubReviewSessionAssociations().count == 1)
-  }
-}
-
-private func rewindPastGitHubReviewSessionMigration(at path: String) throws {
-  let queue = try DatabaseQueue(path: path)
-  try queue.write { db in
-    try db.execute(sql: "DROP TABLE IF EXISTS github_review_sessions")
-    try db.execute(
-      sql: "DELETE FROM grdb_migrations WHERE identifier = ?",
-      arguments: [SessionMetadataStore.MigrationID.createGitHubReviewSessions]
-    )
   }
 }
 

@@ -287,14 +287,21 @@ public final class AgentHubProvider {
   /// GitHub CLI service for PR/issue operations
   public private(set) lazy var gitHubService: any GitHubCLIServiceProtocol = GitHubCLIService()
 
+  private let userDefaults: UserDefaults
+  private let gitHubProjectReviewServiceOverride: (any GitHubProjectReviewServiceProtocol)?
+  private let claudeSessionsViewModelOverride: CLISessionsViewModel?
+  private let codexSessionsViewModelOverride: CLISessionsViewModel?
+
   /// Reads GitHub Projects, their saved views, and matching review pull requests.
   public private(set) lazy var gitHubProjectReviewService: any GitHubProjectReviewServiceProtocol =
-    GitHubProjectReviewService()
+    gitHubProjectReviewServiceOverride ?? GitHubProjectReviewService()
 
   /// Shared session-card GitHub quick access coordinator
   public private(set) lazy var gitHubQuickAccessCoordinator:
     any SessionGitHubQuickAccessCoordinatorProtocol = SessionGitHubQuickAccessCoordinator(
       service: gitHubService)
+
+  public let gitHubRepositoryIdentityResolver: any GitHubRepositoryIdentityResolverProtocol
 
   /// Shared GitHub PR/check observation service for panels and session rows
   public private(set) lazy var gitHubPRObservationService: any GitHubPRObservationServiceProtocol =
@@ -392,11 +399,11 @@ public final class AgentHubProvider {
 
   /// Claude sessions view model - created lazily and cached
   public private(set) lazy var claudeSessionsViewModel: CLISessionsViewModel =
-    makeSessionsViewModel(providerKind: .claude)
+    claudeSessionsViewModelOverride ?? makeSessionsViewModel(providerKind: .claude)
 
   /// Codex sessions view model - created lazily and cached
-  public private(set) lazy var codexSessionsViewModel: CLISessionsViewModel = makeSessionsViewModel(
-    providerKind: .codex)
+  public private(set) lazy var codexSessionsViewModel: CLISessionsViewModel =
+    codexSessionsViewModelOverride ?? makeSessionsViewModel(providerKind: .codex)
 
   /// Live workflow projection derived from the real Claude and Codex sessions.
   public private(set) lazy var workflowDashboardViewModel: AgentWorkflowDashboardViewModel = {
@@ -421,7 +428,8 @@ public final class AgentHubProvider {
   /// Project-driven queue of pull requests that are ready for independent review.
   public private(set) lazy var gitHubReviewsViewModel: GitHubReviewsViewModel = .init(
     service: gitHubProjectReviewService,
-    sessionStore: metadataStore
+    sessionStore: metadataStore,
+    userDefaults: userDefaults
   )
 
   /// Reads session transcripts into chat items, incrementally per file.
@@ -481,6 +489,12 @@ public final class AgentHubProvider {
   ///     target should pass a Ghostty-aware factory.
   public init(
     configuration: AgentHubConfiguration = .default,
+    gitHubRepositoryIdentityResolver: any GitHubRepositoryIdentityResolverProtocol =
+      GitHubRepositoryIdentityResolver(),
+    gitHubProjectReviewService: (any GitHubProjectReviewServiceProtocol)? = nil,
+    claudeSessionsViewModel: CLISessionsViewModel? = nil,
+    codexSessionsViewModel: CLISessionsViewModel? = nil,
+    userDefaults: UserDefaults = .standard,
     terminalSurfaceFactory: any EmbeddedTerminalSurfaceFactory = DefaultEmbeddedTerminalSurfaceFactory(),
     globalSessionControlPanelPresenterFactory: @escaping GlobalSessionControlPanelPresenterFactory = { _, _ in
       NoOpGlobalSessionControlPanelPresenter()
@@ -496,6 +510,11 @@ public final class AgentHubProvider {
     studioArtifactMonitor: (any StudioArtifactMonitorProtocol)? = nil
   ) {
     self.configuration = configuration
+    self.gitHubRepositoryIdentityResolver = gitHubRepositoryIdentityResolver
+    self.userDefaults = userDefaults
+    gitHubProjectReviewServiceOverride = gitHubProjectReviewService
+    claudeSessionsViewModelOverride = claudeSessionsViewModel
+    codexSessionsViewModelOverride = codexSessionsViewModel
     terminalBackend = .storedPreference
     self.terminalSurfaceFactory = terminalSurfaceFactory
     self.globalSessionControlPanelPresenterFactory = globalSessionControlPanelPresenterFactory
@@ -520,7 +539,7 @@ public final class AgentHubProvider {
     }
 
     // Persist developer-provided commands to UserDefaults
-    let defaults = UserDefaults.standard
+    let defaults = userDefaults
     defaults.register(defaults: [
       AgentHubDefaults.globalSessionPanelEnabled: true,
       AgentHubDefaults.globalSessionPanelDisplayMode: 0,

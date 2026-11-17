@@ -198,18 +198,23 @@ struct PullRequestDetailView: View {
         .foregroundStyle(Color.wbTextPrimary)
         .fixedSize(horizontal: false, vertical: true)
         .textSelection(.enabled)
+        .accessibilityLabel(Text(verbatim: pullRequest.title))
+        .accessibilityValue(Text(verbatim: pullRequest.title))
+        .accessibilityAddTraits(.isHeader)
       byline
       tags
     }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("reviews.detail.header")
   }
 
-  /// Two lines in the narrow panel: `repo #number · author`, then the branches.
+  /// Shows the repository owner and number above the branches.
   private var byline: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
       HStack(spacing: DesignTokens.Spacing.xsPlus) {
         LetterTile(letter: pullRequest.repositoryName.first ?? "?", color: tileColor)
         // Verbatim: a localized key would group the number ("#1.843").
-        Text(verbatim: "\(pullRequest.repositoryName) #\(pullRequest.number)")
+        Text(verbatim: "\(pullRequest.repositoryNameWithOwner) #\(pullRequest.number)")
           .wbText(.codeSmall)
           .lineLimit(1)
           .truncationMode(.middle)

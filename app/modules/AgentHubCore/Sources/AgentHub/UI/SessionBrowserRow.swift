@@ -18,7 +18,7 @@ struct SessionBrowserRow: View {
   let providerKind: SessionProviderKind
   let isFocused: Bool
   let isHighlighted: Bool
-  let customName: String?
+  let displayTitle: String
   let onSelect: () -> Void
 
   @Environment(\.colorScheme) private var colorScheme
@@ -156,12 +156,7 @@ struct SessionBrowserRow: View {
 
   // MARK: - Helpers
 
-  private var displayName: String {
-    if let customName = customName, !customName.isEmpty {
-      return customName
-    }
-    return session.displayName
-  }
+  var displayName: String { displayTitle }
 
   private var timeAgo: String {
     let activityDate = state?.lastActivityAt ?? session.lastActivityAt

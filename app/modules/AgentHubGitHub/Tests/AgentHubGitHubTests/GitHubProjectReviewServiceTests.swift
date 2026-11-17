@@ -19,7 +19,10 @@ struct GitHubProjectReviewServiceTests {
 
   @Test("OR is its own argument so gh does not quote the query as one phrase")
   func orTerms() {
-    #expect(GitHubProjectReviewService.orTerms(["A-1", "A-2", "A-3"]) == ["A-1", "OR", "A-2", "OR", "A-3"])
+    #expect(
+      GitHubProjectReviewService.orTerms(["A-1", "A-2", "A-3"]) == [
+        "A-1", "OR", "A-2", "OR", "A-3",
+      ])
     #expect(GitHubProjectReviewService.orTerms(["A-1"]) == ["A-1"])
   }
 
@@ -74,8 +77,8 @@ struct GitHubProjectReviewServiceTests {
     #expect(plan.merged == false)
   }
 
-  @Test("Draft PRs are always excluded")
-  func alwaysExcludesDrafts() {
+  @Test("Saved Project draft predicates do not hide drafts from Reviews")
+  func removesSavedDraftPredicate() {
     let plan = GitHubProjectReviewService.searchPlan(for: "is:pr label:backend is:draft")
 
     #expect(plan.query == "label:backend")
@@ -276,6 +279,42 @@ struct GitHubProjectReviewServiceTests {
     #expect(states["pr-2"] == nil)
     #expect(states["pr-51"] == .pending)
     #expect(states.count == 11)
+  }
+
+  @Test("Account-scoped partial checks keep verified results and continue")
+  func accountChecksPartialDataContinues() async {
+    let partial = """
+      {"data":{"viewer":{"id":"U1","login":"alex"},"nodes":[
+      {"id":"pr-1","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE"}}}]}},null
+      ]},"errors":[{"path":["nodes",1],"message":"not found"}]}
+      """
+    let runner = ChecksRunnerStub { call, ids in
+      if call == 1 { return partial }
+      return checksResponse(ids.map { ($0, "PENDING") })
+        .replacingOccurrences(
+          of: #""data":{"#, with: #""data":{"viewer":{"id":"U1","login":"alex"},"#)
+    }
+    let service = GitHubProjectReviewService(runChecksCommand: runner.run)
+    let account = GitHubReviewAccount(host: "code.example.test", nodeID: "U1", login: "alex")
+    let states = await service.checkRollups(
+      forPullRequestIDs: (1...60).map { "pr-\($0)" }, account: account)
+    #expect(await runner.calls == 2)
+    #expect(states["pr-1"] == .failure)
+    #expect(states["pr-51"] == .pending)
+  }
+
+  @Test("Partial checks never accept a different viewer")
+  func accountChecksRejectDifferentViewer() async {
+    let response = """
+      {"data":{"viewer":{"id":"U2","login":"sam"},"nodes":[
+      {"id":"pr-1","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}
+      ]},"errors":[{"path":["nodes",1],"message":"not found"}]}
+      """
+    let runner = ChecksRunnerStub { _, _ in response }
+    let service = GitHubProjectReviewService(runChecksCommand: runner.run)
+    let account = GitHubReviewAccount(host: "code.example.test", nodeID: "U1", login: "alex")
+    let states = await service.checkRollups(forPullRequestIDs: ["pr-1"], account: account)
+    #expect(states.isEmpty)
   }
 
   @Test("A response with errors and no data is a failure")

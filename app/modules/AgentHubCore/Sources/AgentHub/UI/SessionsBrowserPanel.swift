@@ -125,7 +125,7 @@ public struct SessionsBrowserPanel: View {
         providerKind: item.providerKind,
         isFocused: isFocused(item),
         isHighlighted: isHighlighted(item),
-        customName: viewModel.sessionCustomNames[session.id],
+        displayTitle: viewModel.displayName(for: session),
         onSelect: { selectSession(item) }
       )
     }
@@ -157,25 +157,37 @@ public struct SessionsBrowserPanel: View {
       }
 
       VStack(alignment: .leading, spacing: 2) {
-        Text(pending.isFailed ? "Failed to start" : "Starting session...")
+        Text(viewModel.displayName(for: pending.placeholderSession))
+          .lineLimit(1)
+          .help(viewModel.displayName(for: pending.placeholderSession))
           .font(.geist(size: 11, weight: .medium))
           .foregroundColor(pending.isFailed ? .red : .primary)
 
-        Text(URL(fileURLWithPath: pending.worktree.path).lastPathComponent)
-          .font(.geist(size: 10))
-          .foregroundColor(.secondary)
+        Text(
+          pending.removalError
+            ?? (pending.needsIdentification
+              ? "Session identity unavailable"
+              : pending.isFailed
+                ? "Failed to start"
+                : URL(fileURLWithPath: pending.worktree.path).lastPathComponent)
+        )
+        .font(.geist(size: 10))
+        .foregroundColor(.secondary)
       }
 
       Spacer()
 
       if pending.isFailed {
-        Button(action: { viewModel.retryPendingSession(pending) }) {
-          Image(systemName: "arrow.clockwise")
-            .font(.system(size: 12))
-            .foregroundColor(.secondary)
+        if pending.removalError == nil {
+          Button(action: { viewModel.retryPendingSession(pending) }) {
+            Image(systemName: "arrow.clockwise")
+              .font(.system(size: 12))
+              .foregroundColor(.secondary)
+          }
+          .buttonStyle(.plain)
+          .help("Retry")
+          .disabled(viewModel.restoredLaunchMessage(for: pending.placeholderSession.id) != nil)
         }
-        .buttonStyle(.plain)
-        .help("Retry")
 
         Button(action: { viewModel.removePendingSession(pending) }) {
           Image(systemName: "xmark.circle.fill")
