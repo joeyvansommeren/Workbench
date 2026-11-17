@@ -9,6 +9,7 @@ public protocol WorktreeDeletionRequestMonitorProtocol: AnyObject, Sendable {
 public actor WorktreeDeletionRequestMonitor: WorktreeDeletionRequestMonitorProtocol {
   private let queue: WorktreeDeletionRequestQueue
   private let pollInterval: Duration
+  private let sleep: @Sendable (Duration) async throws -> Void
   private var task: Task<Void, Never>?
   private var activeRequestIds: Set<String> = []
 
@@ -18,6 +19,17 @@ public actor WorktreeDeletionRequestMonitor: WorktreeDeletionRequestMonitorProto
   ) {
     self.queue = queue
     self.pollInterval = pollInterval
+    self.sleep = { try await Task.sleep(for: $0) }
+  }
+
+  init(
+    queue: WorktreeDeletionRequestQueue,
+    pollInterval: Duration,
+    sleep: @escaping @Sendable (Duration) async throws -> Void
+  ) {
+    self.queue = queue
+    self.pollInterval = pollInterval
+    self.sleep = sleep
   }
 
   public func start(
@@ -25,10 +37,10 @@ public actor WorktreeDeletionRequestMonitor: WorktreeDeletionRequestMonitorProto
   ) async {
     guard task == nil else { return }
 
-    task = Task { [queue, pollInterval] in
+    task = Task { [queue, pollInterval, sleep] in
       while !Task.isCancelled {
         await self.processPendingRequests(queue: queue, handler: handler)
-        try? await Task.sleep(for: pollInterval)
+        try? await sleep(pollInterval)
       }
     }
   }

@@ -70,6 +70,8 @@ public final class ApprovalResponseTracker {
   @ObservationIgnored private var watchTasks: [String: Task<Void, Never>] = [:]
   @ObservationIgnored private let timeout: Duration
   @ObservationIgnored private let pollInterval: Duration
+  @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
+  @ObservationIgnored private let sleep: @MainActor (Duration) async throws -> Void
 
   public static let defaultTimeout: Duration = .seconds(3)
 
@@ -79,6 +81,20 @@ public final class ApprovalResponseTracker {
   ) {
     self.timeout = timeout
     self.pollInterval = pollInterval
+    now = { ContinuousClock.now }
+    sleep = { try await Task.sleep(for: $0) }
+  }
+
+  init(
+    timeout: Duration,
+    pollInterval: Duration,
+    now: @escaping @MainActor () -> ContinuousClock.Instant,
+    sleep: @escaping @MainActor (Duration) async throws -> Void
+  ) {
+    self.timeout = timeout
+    self.pollInterval = pollInterval
+    self.now = now
+    self.sleep = sleep
   }
 
   /// The phase for the request the session shows now. Nil when there was no
@@ -108,10 +124,10 @@ public final class ApprovalResponseTracker {
     switch outcome {
     case .sent:
       entries[sessionId] = Entry(phase: .sending(decision), request: request, token: token)
-      watchTasks[sessionId] = Task { [weak self, timeout, pollInterval] in
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-          try? await Task.sleep(for: pollInterval)
+      watchTasks[sessionId] = Task { [weak self, timeout, pollInterval, now, sleep] in
+        let deadline = now().advanced(by: timeout)
+        while now() < deadline {
+          try? await sleep(pollInterval)
           guard !Task.isCancelled else { return }
           if menuStillVisible() == false {
             self?.settle(sessionId: sessionId, token: token, phase: .answered(decision))

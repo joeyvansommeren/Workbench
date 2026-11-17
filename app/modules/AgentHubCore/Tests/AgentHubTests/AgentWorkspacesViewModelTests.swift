@@ -197,6 +197,7 @@ struct AgentWorkspacesViewModelTests {
       coordinator: coordinator,
       detection: detection
     )
+    viewModel.onDetectionAttemptCompleted = coordinator.recordDetectionAttempt
     let workspaceID = try #require(await viewModel.createWorkspace(projectPath: "/tmp/project"))
     _ = viewModel.terminalSurface(for: workspaceID, isDark: true)
 
@@ -206,7 +207,8 @@ struct AgentWorkspacesViewModelTests {
       placement: placement,
       isDark: true
     )
-    try await Task.sleep(for: .milliseconds(80))
+    try await coordinator.detectionCompleted.wait(for: 1)
+    #expect(coordinator.detectionAttempts.count == 1)
 
     #expect(surface.launches.count == 1)
     #expect(surface.launches.first?.kind == .agent(.codex))
@@ -247,10 +249,12 @@ struct AgentWorkspacesViewModelTests {
       coordinator: coordinator,
       detection: detection
     )
+    viewModel.onDetectionAttemptCompleted = coordinator.recordDetectionAttempt
     await viewModel.load()
 
     _ = viewModel.terminalSurface(for: workspace.id, isDark: true)
-    try await Task.sleep(for: .milliseconds(80))
+    try await coordinator.detectionCompleted.wait(for: 1)
+    #expect(coordinator.detectionAttempts.count == 1)
 
     #expect(viewModel.linksByWorkspaceID[workspace.id]?.first?.relationshipOrigin == .detected)
     #expect(coordinator.monitoredSessionIDs == ["claude-session"])
@@ -314,10 +318,13 @@ struct AgentWorkspacesViewModelTests {
       coordinator: coordinator,
       detection: detection
     )
+    viewModel.onDetectionAttemptCompleted = coordinator.recordDetectionAttempt
     await viewModel.load()
 
     _ = viewModel.terminalSurface(for: workspace.id, isDark: true)
-    try await Task.sleep(for: .milliseconds(120))
+    try await coordinator.detectionCompleted.wait(for: 2)
+    #expect(coordinator.detectionAttempts.count == 2)
+    #expect(Set(coordinator.detectionAttempts.compactMap { $0.contextID }) == ["spy-0-0", "spy-1-0"])
 
     let savedWorkspace = try #require(await store.workspace(id: workspace.id))
     let savedTabs = try savedWorkspace.decodedSnapshot().panels.flatMap(\.tabs)
@@ -395,11 +402,20 @@ struct AgentWorkspacesViewModelTests {
     )
     let store = WorkspaceStoreSpy(workspaces: [workspace])
     let surface = WorkspaceTerminalSurfaceSpy()
-    let viewModel = makeViewModel(store: store, surface: surface, detection: detection)
+    let coordinator = WorkspaceSessionCoordinatorSpy()
+    let viewModel = makeViewModel(
+      store: store, surface: surface, coordinator: coordinator, detection: detection)
+    viewModel.onDetectionAttemptCompleted = coordinator.recordDetectionAttempt
     await viewModel.load()
 
     _ = viewModel.terminalSurface(for: workspace.id, isDark: true)
-    try await Task.sleep(for: .milliseconds(120))
+    try await coordinator.detectionCompleted.wait(for: 2)
+    #expect(coordinator.detectionAttempts.count == 2)
+    #expect(Set(coordinator.detectionAttempts.compactMap { $0.contextID }) == ["spy-0-0", "spy-1-0"])
+    #expect(coordinator.detectionAttempts.allSatisfy {
+      $0.workspaceID == workspace.id && $0.result.provider == .claude
+        && $0.result.sessionId == "shared-session"
+    })
 
     let savedWorkspace = try #require(await store.workspace(id: workspace.id))
     let linkedTabs = try savedWorkspace.decodedSnapshot().panels
@@ -493,6 +509,23 @@ private actor WorkspaceStoreSpy: AgentWorkspaceStoreProtocol {
 
 @MainActor
 private final class WorkspaceSessionCoordinatorSpy: AgentWorkspaceSessionCoordinating {
+  struct DetectionAttempt {
+    let workspaceID: String
+    let contextID: String?
+    let result: AccessorySessionDetectionResult
+  }
+
+  let detectionCompleted = TestCallbackReceipt()
+  private(set) var detectionAttempts: [DetectionAttempt] = []
+
+  func recordDetectionAttempt(
+    workspaceID: String, contextID: String?, result: AccessorySessionDetectionResult
+  ) {
+    detectionAttempts.append(DetectionAttempt(
+      workspaceID: workspaceID, contextID: contextID, result: result))
+    detectionCompleted.record()
+  }
+
   var monitoredSessionIDs: [String] = []
   var restoredReferences: [AgentWorkspaceSessionReference] = []
 

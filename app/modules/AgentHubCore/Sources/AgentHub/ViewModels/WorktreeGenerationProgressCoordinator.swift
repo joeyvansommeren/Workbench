@@ -111,6 +111,7 @@ public final class WorktreeGenerationProgressCoordinator {
   /// forever. Re-armed on every fresh snapshot, so an actively-progressing
   /// creation is never cleared early.
   private let mcpStalenessTimeout: Duration
+  @ObservationIgnored private let sleep: @MainActor (Duration) async throws -> Void
 
   // MARK: Private state (not observed)
 
@@ -130,6 +131,19 @@ public final class WorktreeGenerationProgressCoordinator {
     self.soundService = soundService
     self.notificationService = notificationService
     self.mcpStalenessTimeout = mcpStalenessTimeout
+    sleep = { try await Task.sleep(for: $0) }
+  }
+
+  init(
+    soundService: any WorktreeSuccessSoundServiceProtocol,
+    notificationService: any WorktreeReadyNotificationServiceProtocol,
+    mcpStalenessTimeout: Duration = .seconds(150),
+    sleep: @escaping @MainActor (Duration) async throws -> Void
+  ) {
+    self.soundService = soundService
+    self.notificationService = notificationService
+    self.mcpStalenessTimeout = mcpStalenessTimeout
+    self.sleep = sleep
   }
 
   // MARK: - Derived UI state
@@ -226,8 +240,8 @@ public final class WorktreeGenerationProgressCoordinator {
   private func armMCPStaleness(id: String) {
     mcpStalenessTasks[id]?.cancel()
     let timeout = mcpStalenessTimeout
-    mcpStalenessTasks[id] = Task { [weak self] in
-      try? await Task.sleep(for: timeout)
+    mcpStalenessTasks[id] = Task { [weak self, sleep] in
+      try? await sleep(timeout)
       guard !Task.isCancelled else { return }
       self?.finalizeStaleMCPOperation(id: id)
     }
@@ -404,8 +418,8 @@ public final class WorktreeGenerationProgressCoordinator {
 
   private func scheduleClear(id: String, delay: Duration) {
     clearTasks[id]?.cancel()
-    clearTasks[id] = Task { [weak self] in
-      try? await Task.sleep(for: delay)
+    clearTasks[id] = Task { [weak self, sleep] in
+      try? await sleep(delay)
       guard !Task.isCancelled else { return }
       self?.finalizeClear(id: id)
     }
@@ -434,8 +448,8 @@ public final class WorktreeGenerationProgressCoordinator {
     }
     guard !pendingReadyBranches.isEmpty else { return }
     doneDebounceTask?.cancel()
-    doneDebounceTask = Task { [weak self] in
-      try? await Task.sleep(for: Self.doneDebounce)
+    doneDebounceTask = Task { [weak self, sleep] in
+      try? await sleep(Self.doneDebounce)
       guard !Task.isCancelled else { return }
       self?.fireDoneIfStillIdle()
     }

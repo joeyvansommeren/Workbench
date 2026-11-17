@@ -40,6 +40,11 @@ public final class AgentWorkspacesViewModel {
   private let processProviderResolver: any WorkspaceSessionProcessProviderResolving
   private let detectionPollInterval: Duration
 
+  // Reports a settled attempt, including one rejected as already linked.
+  // It does not certify successful linking or add another owner of that state.
+  @ObservationIgnored var onDetectionAttemptCompleted:
+    ((_ workspaceID: String, _ contextID: String?, _ result: AccessorySessionDetectionResult) -> Void)?
+
   @ObservationIgnored private var activeSurfaces: [String: any EmbeddedTerminalSurface] = [:]
   @ObservationIgnored private var saveTasks: [String: Task<Void, Never>] = [:]
   @ObservationIgnored private var detectionTasks: [DetectionKey: Task<Void, Never>] = [:]
@@ -445,6 +450,7 @@ public final class AgentWorkspacesViewModel {
         }
         self.detectionTasks[key] = nil
         await self.resolveDetection(pending, result: result)
+        self.onDetectionAttemptCompleted?(pending.workspaceID, pending.surfaceContextID, result)
         return
       }
     }
