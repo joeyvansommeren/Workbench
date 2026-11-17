@@ -40,6 +40,7 @@ struct GitHubReviewsView: View {
   @State private var customMessageContext: GitHubReviewCustomMessageContext?
   @State private var pendingBulkLaunch: GitHubReviewBulkLaunch?
   @State private var pendingFollowUp: GitHubReviewBulkFollowUp?
+  @State private var bulkLaunchTask: Task<Void, Never>?
 
   init(
     viewModel: GitHubReviewsViewModel,
@@ -134,7 +135,15 @@ struct GitHubReviewsView: View {
     } message: { followUp in
       Text(followUp.message)
     }
+    .onChange(of: viewModel.sourceRevision) { _, _ in
+      pendingBulkLaunch = nil
+      pendingFollowUp = nil
+      customMessageContext = nil
+      sessionCommandContext = nil
+      bulkLaunchTask?.cancel()
+    }
     .onDisappear {
+      bulkLaunchTask?.cancel()
       sessionCommandFeedbackTask?.cancel()
     }
   }
@@ -196,9 +205,8 @@ struct GitHubReviewsView: View {
           .font(.geist(size: 9, weight: .semibold))
           .foregroundStyle(.tertiary)
         Picker("Project", selection: projectBinding) {
-          if viewModel.projects.isEmpty {
-            Text("No projects available").tag(String?.none)
-          } else {
+          Text("Any Project or no Project").tag(String?.none)
+          if !viewModel.projects.isEmpty {
             ForEach(viewModel.projects) { project in
               Text(project.displayName).tag(Optional(project.id))
             }
@@ -772,7 +780,9 @@ struct GitHubReviewsView: View {
   private func runFollowUp(_ followUp: GitHubReviewBulkFollowUp) {
     pendingFollowUp = nil
     var sent = 0
-    for target in followUp.targets where canSendCommand(to: target.link) {
+    let visibleIDs = Set(sortedReviewRows(inventories: reviewSessionInventories).map { $0.pullRequest.reviewIdentity })
+    for target in followUp.targets
+    where canSendCommand(to: target.link) && visibleIDs.contains(target.pullRequest.reviewIdentity) {
       if sessionsViewModel(for: target.link.provider).sendAutomatedPrompt(
         to: target.link.session, prompt: followUp.prompt(for: target))
       {
@@ -786,9 +796,13 @@ struct GitHubReviewsView: View {
 
   private func runBulkLaunch(_ launch: GitHubReviewBulkLaunch) {
     pendingBulkLaunch = nil
-    Task {
-      // Sequential: each launch registers its session link before the next starts.
-      for pullRequest in launch.pullRequests {
+    bulkLaunchTask?.cancel()
+    let revision = viewModel.sourceRevision
+    let visibleIDs = Set(sortedReviewRows(inventories: reviewSessionInventories).map { $0.pullRequest.reviewIdentity })
+    bulkLaunchTask = Task {
+      // Each launch rechecks the confirmed scope after the previous launch awaits.
+      for pullRequest in launch.pullRequests where visibleIDs.contains(pullRequest.reviewIdentity) {
+        guard !Task.isCancelled, viewModel.sourceRevision == revision else { break }
         guard viewModel.beginStartingReview(for: pullRequest.id) else { continue }
         defer { viewModel.endStartingReview(for: pullRequest.id) }
         await onReview(pullRequest, launch.provider, launch.template)
@@ -1107,7 +1121,7 @@ struct GitHubReviewsView: View {
     Binding(
       get: { viewModel.selectedProjectID },
       set: { id in
-        if let id { viewModel.selectProject(id: id) }
+        viewModel.selectProject(id: id)
       }
     )
   }

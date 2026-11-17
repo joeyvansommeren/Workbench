@@ -54,7 +54,10 @@ struct ReviewsFiltersPopover: View {
     }
     .padding(DesignTokens.Spacing.md)
     .frame(width: DesignTokens.Width.popover)
-    .onAppear { repositoryInput = viewModel.repositoryName }
+    .onAppear {
+      repositoryInput = viewModel.repositoryName
+      displayLabelInput = selectedOwner.map { viewModel.ownerLabels[$0.id] ?? "" } ?? ""
+    }
     .onChange(of: viewModel.selectedOwnerID) { _, _ in
       repositoryInput = viewModel.repositoryName
       displayLabelInput = selectedOwner.map { viewModel.ownerLabels[$0.id] ?? "" } ?? ""
