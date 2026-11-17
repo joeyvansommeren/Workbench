@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -24,6 +25,321 @@ struct SidebarTreeRowsTests {
     #expect(last.isLastInBranch)
   }
 
+  @Test("Accessibility hierarchy follows visible repository and branch ownership")
+  func accessibilityHierarchy() {
+    let rows = SidebarTreeRows.rows(
+      repos: [
+        repo("/tmp/A", branches: [branch("main", sessions: ["a1"], hasMore: true)]),
+        repo("/tmp/B", branches: [branch("dev", sessions: ["b1"])]),
+      ],
+      collapsedRepoPaths: [],
+      decorations: .empty,
+      title: { $0.id }
+    )
+    let hierarchy = SidebarTreeRows.accessibilityHierarchy(rows)
+    #expect(hierarchy.map(\.level) == [0, 1, 2, 2, 0, 1, 2])
+    #expect(
+      hierarchy.map(\.parentID) == [
+        nil, "repo|/tmp/A", "branch|/tmp/A|main", "branch|/tmp/A|main",
+        nil, "repo|/tmp/B", "branch|/tmp/B|dev",
+      ])
+  }
+
+  @Test("Session accessibility uses the projected display title")
+  func accessibilityUsesProjectedTitle() {
+    let rows = SidebarTreeRows.rows(
+      repos: [repo("/tmp/A", branches: [branch("feature/branch", sessions: ["a1"])])],
+      collapsedRepoPaths: [],
+      decorations: .empty,
+      title: { _ in "Ticket title chosen by the view model" }
+    )
+    guard case .session(let session) = rows.last else {
+      Issue.record("expected a session row")
+      return
+    }
+    #expect(session.sidebarAccessibilityLabel.hasPrefix("Ticket title chosen by the view model, "))
+  }
+
+  @MainActor
+  @Test("Outline keeps visible row identity across updates")
+  func outlineRowIdentity() {
+    let outline = SidebarTreeAccessibilityOutline()
+    let repository = SidebarTreeAccessibilityRow(id: "repo", parentID: nil, level: 0)
+    let branch = SidebarTreeAccessibilityRow(id: "branch", parentID: "repo", level: 1)
+    let session = SidebarTreeAccessibilityRow(id: "session", parentID: "branch", level: 2)
+    outline.update([repository, branch, session])
+    let first = outline.rows[0]
+    let selected = outline.rows[2]
+    outline.selectedID = "session"
+    let selectedRow = outline.accessibilitySelectedRows()?.first as? SidebarTreeAccessibilityElement
+    let parent = selected.accessibilityDisclosedByRow() as? SidebarTreeAccessibilityElement
+    #expect(selectedRow === selected)
+    #expect(parent === outline.rows[1])
+    let oldAnchor = NSView()
+    let newAnchor = NSView()
+    outline.registerAnchor(oldAnchor, for: "session")
+    outline.registerAnchor(newAnchor, for: "session")
+    outline.unregisterAnchor(oldAnchor, for: "session")
+    #expect(selected.anchor === newAnchor)
+    outline.unregisterAnchor(newAnchor, for: "session")
+    #expect(selected.anchor == nil)
+    outline.update([repository])
+    #expect(outline.rows[0] === first)
+    #expect(!selected.isActive)
+    #expect(!selected.isAccessibilityElement())
+    #expect(!selected.isAccessibilitySelected())
+    #expect(outline.accessibilitySelectedRows()?.isEmpty == true)
+    outline.update([repository, branch, session])
+    #expect(outline.rows[2] === selected)
+    #expect(selected.isActive)
+  }
+
+  @MainActor
+  @Test("Offscreen outline actions fail closed and result callbacks unregister safely")
+  func outlineActionsFailClosed() {
+    let row = SidebarTreeAccessibilityElement(id: "session")
+    var performed = false
+    let command = SidebarMenuCommand(id: "test", title: "Test", systemImage: "checkmark") {
+      performed = true
+    }
+    row.commands = [.command(command), .separator]
+    #expect(row.accessibilityCustomActions()?.map(\.name) == ["Test"])
+    #expect(!row.accessibilityPerformShowMenu())
+    #expect(!row.performCommand(id: command.id))
+    #expect(!performed)
+
+    let registry = SidebarTreeAccessibilityRegistry()
+    let old = SidebarTreeAccessibilityRowCallbacks()
+    let current = SidebarTreeAccessibilityRowCallbacks()
+    current.showResult = { performed = true }
+    registry.register(old, for: "session")
+    registry.register(current, for: "session")
+    registry.unregister(old, for: "session")
+    #expect(registry.showResult(for: "session"))
+    #expect(performed)
+    registry.unregister(current, for: "session")
+    #expect(!registry.showResult(for: "session"))
+    func registerTemporaryCallbacks() {
+      let temporary = SidebarTreeAccessibilityRowCallbacks()
+      registry.register(temporary, for: "session")
+    }
+    registerTemporaryCallbacks()
+    #expect(!registry.hasCallbacks(for: "session"))
+  }
+
+  @MainActor
+  @Test("Inactive rows cannot disclose, select, or request focus")
+  func inactiveRowSetters() {
+    let outline = SidebarTreeAccessibilityOutline()
+    let row = SidebarTreeAccessibilityElement(id: "session")
+    var effects = 0
+    row.owner = outline
+    row.canExpand = true
+    row.onDisclosure = { _ in effects += 1 }
+    row.onFocus = { effects += 1 }
+    outline.onSelect = { _ in effects += 1 }
+    row.setAccessibilityDisclosed(true)
+    row.setAccessibilitySelected(true)
+    row.setAccessibilityFocused(true)
+    #expect(effects == 0)
+    row.isActive = true
+    row.setAccessibilityFocused(true)
+    #expect(effects == 1)
+  }
+
+  @MainActor
+  @Test("A menu action resolves the latest command and rejects stale actions")
+  func refreshedMenuActions() {
+    var invoked = ""
+    let old = SidebarMenuCommand(id: "reviewResult", title: "Review result", systemImage: "doc") {
+      invoked = "old"
+    }
+    let current = SidebarMenuCommand(
+      id: "reviewResult", title: "Read result", systemImage: "doc.text"
+    ) { invoked = "current" }
+    #expect(performSidebarMenuCommand(id: old.id, entries: [.command(current)], isVisible: true))
+    #expect(invoked == "current")
+    invoked = ""
+    #expect(!performSidebarMenuCommand(id: old.id, entries: [], isVisible: true))
+    let disabled = SidebarMenuCommand(
+      id: "reviewResult", title: "Review result", systemImage: "doc", isAvailable: { false },
+      action: { invoked = "disabled" })
+    #expect(!performSidebarMenuCommand(id: old.id, entries: [.command(disabled)], isVisible: true))
+    #expect(!performSidebarMenuCommand(id: old.id, entries: [.command(current)], isVisible: false))
+    let changedContext = SidebarMenuCommand(
+      id: "startReview|Codex", title: "Start Review with Codex", systemImage: "checkmark"
+    ) { invoked = "changed context" }
+    #expect(
+      !performSidebarMenuCommand(
+        id: "startReview|Claude", entries: [.command(changedContext)], isVisible: true))
+    #expect(invoked.isEmpty)
+  }
+
+  @MainActor
+  @Test("Outline exposes approval detail and the current sending phase")
+  func outlineApprovalDetailAndPhase() {
+    let actions = SidebarActionSpy()
+    actions.presentation = ApprovalRequestPresentation(toolName: "Bash", input: "swift test")
+    let node = SessionNode(
+      id: "approval", session: CLISession(id: "approval", projectPath: "/tmp/fixture"),
+      providerKind: .claude, isPending: false, status: nil, pendingToolName: "Bash")
+    let model = SessionRowModel(
+      node: node, title: "Fixture task", roleLabel: nil,
+      isFirstInBranch: true, isLastInBranch: true)
+    let outline = SidebarTreeAccessibilityOutline()
+    outline.configure(
+      rows: [.session(model)], selectedID: nil, sessionsByRepo: [:],
+      sessionsByBranch: [:], registry: SidebarTreeAccessibilityRegistry(), actions: actions,
+      onLoadMore: { _ in }, onFocus: { _ in })
+    let row = outline.rows[0]
+    #expect(row.accessibilityLabel()?.contains("Review request: swift test") == true)
+    #expect((row.accessibilityValue() as? String) != "Sending")
+    actions.phase = .sending(.approveOnce)
+    #expect((row.accessibilityValue() as? String) == "Sending")
+    actions.phase = .answered(.approveOnce)
+    #expect((row.accessibilityValue() as? String) == "Sending")
+    actions.phase = .checkTerminal
+    #expect((row.accessibilityValue() as? String) != "Sending")
+    actions.presentation = nil
+    #expect(row.accessibilityLabel()?.contains("Review request: Bash") == true)
+    #expect(row.accessibilityLabel()?.contains("swift test") == false)
+  }
+
+  @MainActor
+  @Test("Removing an outline row releases captured payload and preserves its identity")
+  func outlineReleasesRemovedRowPayload() {
+    let outline = SidebarTreeAccessibilityOutline()
+    let entry = SidebarTreeAccessibilityRow(id: "session", parentID: nil, level: 2)
+    let child = SidebarTreeAccessibilityRow(id: "child", parentID: "session", level: 3)
+    outline.update([entry, child])
+    let row = outline.rows[0]
+    #expect(row.childRows.count == 1)
+    weak var weakSentinel: SidebarRetentionSentinel?
+    func installCapturedPayload() {
+      let sentinel = SidebarRetentionSentinel()
+      weakSentinel = sentinel
+      row.label = "private fixture text"
+      outline.onSelect = { _ in _ = sentinel }
+      row.onFocus = { _ = sentinel }
+      row.approvalAccessibility = {
+        _ = sentinel
+        return ("Review request", "Sending")
+      }
+      row.onPress = {
+        _ = sentinel
+        return true
+      }
+      row.onDisclosure = { _ in _ = sentinel }
+      row.commands = [
+        .command(
+          SidebarMenuCommand(id: "test", title: "Test", systemImage: "checkmark") {
+            _ = sentinel
+          })
+      ]
+    }
+    installCapturedPayload()
+    #expect(weakSentinel != nil)
+    outline.update([])
+    #expect(weakSentinel == nil)
+    #expect(row.commands.isEmpty)
+    #expect(row.label.isEmpty)
+    #expect(row.childRows.isEmpty)
+    outline.update([entry])
+    #expect(outline.rows[0] === row)
+    #expect(row.isActive)
+    #expect(row.commands.isEmpty)
+  }
+
+  @MainActor
+  @Test("Real menu factories expose their conditional commands and route Open")
+  func actualMenuFactoryConditions() {
+    let actions = SidebarActionSpy()
+    let claude = SessionNode(
+      id: "claude", session: CLISession(id: "claude", projectPath: "/tmp/fixture"),
+      providerKind: .claude, isPending: false, status: nil)
+    let codex = SessionNode(
+      id: "codex", session: CLISession(id: "codex", projectPath: "/tmp/fixture"),
+      providerKind: .codex, isPending: false, status: nil)
+    let pending = SessionNode(
+      id: "pending", session: CLISession(id: "pending", projectPath: "/tmp/fixture"),
+      providerKind: .claude, isPending: true, status: nil)
+    func ids(_ entries: [SidebarMenuEntry]) -> [String] {
+      entries.compactMap {
+        guard case .command(let command) = $0 else { return nil }
+        return command.id
+      }
+    }
+    let claudeEntries = sessionMenuEntries(node: claude, actions: actions, onShowResult: {})
+    #expect(
+      ids(claudeEntries) == [
+        "open", "reviewResult", "copySessionID", "viewTranscript",
+        "openInTerminal", "fork", "archive",
+      ])
+    #expect(
+      !ids(sessionMenuEntries(node: codex, actions: actions, onShowResult: {})).contains(
+        "openInTerminal"))
+    #expect(
+      ids(sessionMenuEntries(node: pending, actions: actions, onShowResult: {})) == [
+        "open", "cancelLaunch",
+      ])
+    #expect(performSidebarMenuCommand(id: "open", entries: claudeEntries, isVisible: true))
+    #expect(actions.opened == ["claude"])
+    let repoModel = RepoHeaderRowModel(
+      path: "/tmp/fixture", name: "Fixture", isCollapsed: false,
+      attentionCount: 0, isFirst: true)
+    #expect(
+      !ids(repositoryMenuEntries(model: repoModel, sessions: [], actions: actions)).contains(
+        "archiveSessions"))
+    #expect(
+      ids(repositoryMenuEntries(model: repoModel, sessions: [claude], actions: actions)).contains(
+        "archiveSessions"))
+    let branchModel = BranchRowModel(
+      id: "branch", repositoryPath: "/tmp/fixture", repositoryName: "Fixture",
+      name: "main", worktreePath: nil, isWorktree: false, isFirstInRepo: true, decoration: nil)
+    #expect(
+      !ids(branchMenuEntries(model: branchModel, sessions: [], actions: actions)).contains(
+        "deleteWorktree"))
+    let workflow = BranchWorkflowDecoration(
+      branchWorkflowID: "workflow", archivableWorkflowID: "workflow",
+      repositoryPath: "/tmp/fixture", branchName: "main", title: "main", ticketKey: "TES-1",
+      isManual: false, pullRequest: nil, roles: [:], reviewProvider: .codex, canCompare: true)
+    let worktree = BranchRowModel(
+      id: "worktree", repositoryPath: "/tmp/fixture", repositoryName: "Fixture",
+      name: "main", worktreePath: "/tmp/fixture-worktree", isWorktree: true, isFirstInRepo: true,
+      decoration: workflow)
+    #expect(
+      ids(branchMenuEntries(model: worktree, sessions: [claude], actions: actions)) == [
+        "newSessionOnBranch", "startReview|Codex", "compare", "openTicket", "archiveWorkflow",
+        "openInFinder", "archiveSessions", "removeWorktree", "deleteWorktree",
+      ])
+  }
+
+  @MainActor
+  @Test("Outline configuration routes visible tree callbacks through existing actions")
+  func outlineConfigurationRoutesActions() {
+    let actions = SidebarActionSpy()
+    let rows = SidebarTreeRows.rows(
+      repos: [repo("/tmp/A", branches: [branch("main", sessions: ["a1"], hasMore: true)])],
+      collapsedRepoPaths: [], decorations: .empty, title: { $0.id })
+    let outline = SidebarTreeAccessibilityOutline()
+    var loaded: [String] = []
+    var focused: [String] = []
+    outline.configure(
+      rows: rows, selectedID: "a1", sessionsByRepo: [:], sessionsByBranch: [:],
+      registry: SidebarTreeAccessibilityRegistry(), actions: actions,
+      onLoadMore: { loaded.append($0.branchID) }, onFocus: { focused.append($0) })
+    outline.rows[0].onDisclosure(true)
+    #expect(actions.repositoryChanges == ["/tmp/A|expanded"])
+    #expect(outline.rows[2].onPress())
+    outline.onSelect("a1")
+    outline.onSelect("not-present")
+    #expect(actions.opened == ["a1", "a1"])
+    outline.rows[2].setAccessibilityFocused(true)
+    #expect(focused == ["a1"])
+    #expect(outline.rows[3].onPress())
+    #expect(loaded == ["/tmp/A|main"])
+  }
+
   @Test("A collapsed repository shows only its header, with the attention count")
   func collapsedRepository() {
     let rows = SidebarTreeRows.rows(
@@ -43,6 +359,8 @@ struct SidebarTreeRowsTests {
     }
     #expect(header.isCollapsed && header.attentionCount == 2 && header.isFirst)
     #expect(!second.isFirst)
+    let hierarchy = SidebarTreeRows.accessibilityHierarchy(rows)
+    #expect(hierarchy.map(\.parentID) == [nil, nil, "repo|/tmp/B", "branch|/tmp/B|main"])
   }
 
   @Test("Arrow keys walk session rows and stop at the ends")
@@ -236,3 +554,40 @@ private func decoration(roles: [String: DetectedAgentRole]) -> BranchWorkflowDec
     title: "main", ticketKey: nil, isManual: false, pullRequest: nil, roles: roles,
     reviewProvider: nil, canCompare: false)
 }
+
+@MainActor
+private final class SidebarActionSpy: SidebarTreeActionHandling {
+  var phase: ApprovalResponsePhase?
+  var presentation: ApprovalRequestPresentation?
+  var opened: [String] = []
+  var repositoryChanges: [String] = []
+  func approvalPhase(for node: SessionNode) -> ApprovalResponsePhase? { phase }
+  func approvalPresentation(for node: SessionNode) -> ApprovalRequestPresentation? { presentation }
+  func open(_ node: SessionNode) { opened.append(node.id) }
+  func setRepository(_ model: RepoHeaderRowModel, collapsed: Bool) {
+    repositoryChanges.append(model.path + (collapsed ? "|collapsed" : "|expanded"))
+  }
+  func startSession(at path: String) {}
+  func startSession(onBranch model: BranchRowModel) {}
+  func createWorktree(repositoryPath: String) {}
+  func createWorkspace(projectPath: String) {}
+  func showProjectDetails(path: String, name: String) {}
+  func showGitHub(path: String) {}
+  func openInFinder(path: String) {}
+  func archiveSessions(_ nodes: [SessionNode], groupName: String) {}
+  func requestRemoveRepository(path: String, name: String, sessionCount: Int) {}
+  func requestRemoveWorktree(_ branch: BranchRowModel, sessions: [SessionNode]) {}
+  func requestDeleteWorktree(_ branch: BranchRowModel, sessions: [SessionNode]) {}
+  func startReview(_ decoration: BranchWorkflowDecoration) {}
+  func compare(_ decoration: BranchWorkflowDecoration) {}
+  func openPullRequest(_ decoration: BranchWorkflowDecoration) {}
+  func openTicket(_ decoration: BranchWorkflowDecoration) {}
+  func archiveWorkflow(_ decoration: BranchWorkflowDecoration) {}
+  func copySessionID(_ node: SessionNode) {}
+  func viewTranscript(_ node: SessionNode) {}
+  func openInTerminal(_ node: SessionNode) {}
+  func fork(_ node: SessionNode) {}
+  func archive(_ node: SessionNode) {}
+}
+
+private final class SidebarRetentionSentinel {}

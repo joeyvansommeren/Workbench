@@ -10,6 +10,13 @@
 import Foundation
 import AgentHubGitDiff
 
+/// Leading positions for the flat sidebar's three visible hierarchy levels.
+enum SidebarTreeInset {
+  static let repository = DesignTokens.Spacing.smPlus
+  static let branch = repository + DesignTokens.Spacing.sm
+  static let session = branch + DesignTokens.Spacing.sm
+}
+
 struct RepoHeaderRowModel: Equatable {
   let path: String
   let name: String
@@ -75,7 +82,32 @@ enum SidebarTreeRow: Identifiable, Equatable {
   }
 }
 
+/// Accessibility relationships derived from the same visible rows as the list.
+struct SidebarTreeAccessibilityRow: Equatable {
+  let id: String
+  let parentID: String?
+  let level: Int
+}
+
 enum SidebarTreeRows {
+  static func accessibilityHierarchy(_ rows: [SidebarTreeRow]) -> [SidebarTreeAccessibilityRow] {
+    var repositoryID: String?
+    var branchID: String?
+    return rows.map { row in
+      switch row {
+      case .repo:
+        repositoryID = row.id
+        branchID = nil
+        return SidebarTreeAccessibilityRow(id: row.id, parentID: nil, level: 0)
+      case .branch:
+        branchID = row.id
+        return SidebarTreeAccessibilityRow(id: row.id, parentID: repositoryID, level: 1)
+      case .session, .loadMore:
+        return SidebarTreeAccessibilityRow(id: row.id, parentID: branchID, level: 2)
+      }
+    }
+  }
+
   /// - Parameters:
   ///   - repos: The projected (and workflow-merged) tree.
   ///   - collapsedRepoPaths: Repositories whose body is hidden.

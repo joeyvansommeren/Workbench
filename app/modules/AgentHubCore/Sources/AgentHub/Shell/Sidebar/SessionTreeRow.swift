@@ -21,6 +21,8 @@ struct SessionTreeRow: View, Equatable {
   @State private var isHovered = false
   @State private var showsPreview = false
   @State private var showsResult = false
+  @State private var accessibilityCallbacks = SidebarTreeAccessibilityRowCallbacks()
+  @Environment(\.sidebarTreeAccessibilityRegistry) private var accessibilityRegistry
   @Environment(SessionDetailStateModel.self) private var resultDetailState
 
   nonisolated static func == (lhs: SessionTreeRow, rhs: SessionTreeRow) -> Bool {
@@ -76,7 +78,12 @@ struct SessionTreeRow: View, Equatable {
         actions.hoverPreview.previewClosed(at: .now)
       }
     }
+    .onAppear {
+      accessibilityCallbacks.showResult = { showsResult = true }
+      accessibilityRegistry?.register(accessibilityCallbacks, for: model.id)
+    }
     .onDisappear {
+      accessibilityRegistry?.unregister(accessibilityCallbacks, for: model.id)
       if showsPreview { actions.hoverPreview.previewClosed(at: .now) }
     }
     .popover(isPresented: $showsPreview, arrowEdge: .trailing) {
@@ -154,21 +161,27 @@ struct SessionTreeRowLabel: View {
         }
       }
     }
-    .padding(.leading, DesignTokens.Spacing.smPlus)
+    .padding(.leading, SidebarTreeInset.session)
     .padding(.vertical, DesignTokens.Spacing.xs)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     .contentShape(Rectangle())
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(
-      "\(model.title), \(node.providerKind.agentDisplayName) session, \(presentation.accessibilityLabel)"
-        + (model.roleLabel.map { ", \($0)" } ?? "")
-        + (model.action.map { ", \($0)" } ?? "")
-        + (model.diff.flatMap {
-          $0.fileCount > 0 ? ", Worktree changes: \($0.additions) additions, \($0.deletions) deletions" : nil
-        } ?? "")
-        + (model.isUnread ? ", Unread updates" : ""))
+    .accessibilityLabel(model.sidebarAccessibilityLabel)
   }
 
+}
+
+extension SessionRowModel {
+  var sidebarAccessibilityLabel: String {
+    let status = SessionStatusPresentation(status: node.status, isPending: node.isPending)
+    return "\(title), \(node.providerKind.agentDisplayName) session, \(status.accessibilityLabel)"
+      + (roleLabel.map { ", \($0)" } ?? "")
+      + (action.map { ", \($0)" } ?? "")
+      + (diff.flatMap {
+        $0.fileCount > 0 ? ", Worktree changes: \($0.additions) additions, \($0.deletions) deletions" : nil
+      } ?? "")
+      + (isUnread ? ", Unread updates" : "")
+  }
 }
 
 // MARK: - Guide line
@@ -179,8 +192,8 @@ private struct SessionGuideLine: View {
   let isFirst: Bool
   let isLast: Bool
 
-  /// Centre of the lead column: row inset (10) + half the tile (9).
-  fileprivate static let x = DesignTokens.Spacing.smPlus + DesignTokens.Size.tile / 2
+  /// Centre of the session status column.
+  fileprivate static let x = SidebarTreeInset.session + DesignTokens.Size.tile / 2
   /// Gap above and below the glyph centre.
   fileprivate static let gap: CGFloat = 9
   /// The line stops this far above the last row's bottom.
@@ -227,19 +240,11 @@ private struct SessionApprovePill: View {
     let presentation = actions.approvalPresentation(for: node)
     AttentionPill(
       title: "Review request",
-      isBusy: Self.isBusy(phase),
+      isBusy: SidebarApprovePillText.isBusy(phase),
       help: SidebarApprovePillText.help(phase, presentation: presentation),
       accessibilityLabel: SidebarApprovePillText.accessibilityLabel(
         toolName: node.pendingToolName, presentation: presentation)
     ) { actions.open(node) }
-  }
-
-  /// Spinner while the key is in flight and while an approved tool runs.
-  private static func isBusy(_ phase: ApprovalResponsePhase?) -> Bool {
-    switch phase {
-    case .sending, .answered: true
-    case .checkTerminal, .answerInTerminal, nil: false
-    }
   }
 }
 
@@ -319,26 +324,10 @@ private struct SessionRowMenu: View {
   let onShowResult: () -> Void
 
   var body: some View {
-    Button("Open", systemImage: "arrow.right.circle") { actions.open(node) }
-    if !node.isPending {
-      Button("Review result", systemImage: "doc.text.magnifyingglass", action: onShowResult)
-      Button("Copy Session ID", systemImage: "doc.on.doc") { actions.copySessionID(node) }
-      Button("View Transcript", systemImage: "doc.text") { actions.viewTranscript(node) }
-      if node.providerKind == .claude {
-        Button("Open in Terminal", systemImage: "rectangle.portrait.and.arrow.right") {
-          actions.openInTerminal(node)
-        }
-      }
-      Button("Fork…", systemImage: "arrow.triangle.branch") { actions.fork(node) }
-    }
-    Divider()
-    Button(
-      node.isPending ? "Cancel Launch" : "Archive",
-      systemImage: node.isPending ? "xmark" : "archivebox"
-    ) {
-      actions.archive(node)
-    }
+    SidebarMenuCommands(
+      entries: sessionMenuEntries(node: node, actions: actions, onShowResult: onShowResult))
   }
+
 }
 
 // MARK: - Hover preview

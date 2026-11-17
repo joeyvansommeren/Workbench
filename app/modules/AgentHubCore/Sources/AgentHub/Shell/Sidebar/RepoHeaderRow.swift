@@ -16,6 +16,7 @@ struct RepoHeaderRow: View, Equatable {
   let actions: SidebarTreeActions
 
   @State private var isHovered = false
+  @Environment(\.colorScheme) private var colorScheme
 
   nonisolated static func == (lhs: RepoHeaderRow, rhs: RepoHeaderRow) -> Bool {
     lhs.model == rhs.model && lhs.sessions == rhs.sessions
@@ -30,7 +31,8 @@ struct RepoHeaderRow: View, Equatable {
           .frame(width: DesignTokens.Size.tile)
         Text(model.name)
           .wbText(.headline)
-          .foregroundStyle(Color.wbTextPrimary)
+          .fontWeight(colorScheme == .dark ? .medium : .semibold)
+          .foregroundStyle(colorScheme == .dark ? Color.wbTextSecondary : Color.wbTextPrimary)
           .lineLimit(1)
           .truncationMode(.tail)
         SidebarIcon(glyph: .chevronDown, size: DesignTokens.Size.iconSmall)
@@ -45,7 +47,8 @@ struct RepoHeaderRow: View, Equatable {
             .accessibilityLabel("\(model.attentionCount) need attention")
         }
       }
-      .padding(.horizontal, DesignTokens.Spacing.smPlus)
+      .padding(.leading, SidebarTreeInset.repository)
+      .padding(.trailing, DesignTokens.Spacing.smPlus)
       .frame(height: DesignTokens.Size.row)
       .contentShape(Rectangle())
     }
@@ -61,30 +64,8 @@ struct RepoHeaderRow: View, Equatable {
     .padding(.top, model.isFirst ? 0 : DesignTokens.Spacing.xl)
   }
 
-  @ViewBuilder
   private var menu: some View {
-    Button("New Session", systemImage: "plus") { actions.startSession(at: model.path) }
-    Button("New Worktree…", systemImage: "arrow.triangle.branch") {
-      actions.createWorktree(repositoryPath: model.path)
-    }
-    Button("New Workspace", systemImage: "rectangle.3.group") {
-      actions.createWorkspace(projectPath: model.path)
-    }
-    Button("Project Details", systemImage: "info.circle") {
-      actions.showProjectDetails(path: model.path, name: model.name)
-    }
-    Divider()
-    Button("Open in Finder", systemImage: "folder") { actions.openInFinder(path: model.path) }
-    Button("GitHub", systemImage: "link") { actions.showGitHub(path: model.path) }
-    Divider()
-    if !sessions.isEmpty {
-      Button("Archive Sessions", systemImage: "archivebox") {
-        actions.archiveSessions(sessions, groupName: model.name)
-      }
-    }
-    Button("Remove…", systemImage: "xmark") {
-      actions.requestRemoveRepository(path: model.path, name: model.name, sessionCount: sessions.count)
-    }
+    SidebarMenuCommands(
+      entries: repositoryMenuEntries(model: model, sessions: sessions, actions: actions))
   }
 }
-
