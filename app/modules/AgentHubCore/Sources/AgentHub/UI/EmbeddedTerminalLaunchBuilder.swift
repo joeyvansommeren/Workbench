@@ -250,13 +250,15 @@ public enum EmbeddedTerminalLaunchBuilder {
     inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment
   ) -> [String: String] {
     var environment = inheritedEnvironment
-    // Automation hosts use NO_COLOR for their own non-interactive output. A
-    // new interactive PTY must not inherit that choice from a dumb host.
-    // Keep intentional terminal contexts; explicit Workbench overrides below
-    // remain authoritative, including an explicit NO_COLOR preference.
+    // Codex's automation host exports CODEX_CI=1 with its non-interactive
+    // colour policy. Do not carry that policy into a new interactive PTY.
+    // A dumb GUI host alone proves no automation: preserve its NO_COLOR.
+    // Explicit Workbench overrides below remain authoritative in every case.
     let inheritedTerm = inheritedEnvironment["TERM"] ?? ""
     let inheritedColorTerm = inheritedEnvironment["COLORTERM"] ?? ""
-    if (inheritedTerm.isEmpty || inheritedTerm == "dumb"), inheritedColorTerm.isEmpty {
+    if inheritedEnvironment["CODEX_CI"] == "1",
+      (inheritedTerm.isEmpty || inheritedTerm == "dumb"),
+      inheritedColorTerm.isEmpty {
       environment.removeValue(forKey: "NO_COLOR")
     }
     environment["TERM"] = "xterm-256color"

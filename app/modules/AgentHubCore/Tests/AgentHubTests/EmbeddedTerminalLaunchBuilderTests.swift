@@ -79,8 +79,8 @@ struct EmbeddedTerminalLaunchBuilderAgentHubCLITests {
     }
   }
 
-  @Test("A non-colour app host does not disable colour in a new terminal")
-  func nonColourHostDoesNotDisableTerminalColour() {
+  @Test("A known automation host does not disable colour in a new terminal")
+  func knownAutomationHostDoesNotDisableTerminalColour() {
     let suite = EphemeralDefaultsSuite(prefix: "AgentHubTests.TerminalColour")
     defer { suite.cleanUp() }
     let hostContexts: [[String: String]] = [
@@ -92,6 +92,7 @@ struct EmbeddedTerminalLaunchBuilderAgentHubCLITests {
     for context in hostContexts {
       var inherited = context
       inherited["NO_COLOR"] = "1"
+      inherited["CODEX_CI"] = "1"
       inherited["FORCE_COLOR"] = "0"
       inherited["CLICOLOR"] = "0"
       inherited["AGENTHUB_TEST_KEEP"] = "preserved"
@@ -119,15 +120,41 @@ struct EmbeddedTerminalLaunchBuilderAgentHubCLITests {
       ["TERM": "dumb", "NO_COLOR": ""]
     ]
     for context in hostContexts {
+      var inherited = context
+      inherited["CODEX_CI"] = "1"
       let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
         additionalPaths: [],
         agentHubCLIPath: nil,
         defaults: suite.defaults,
-        inheritedEnvironment: context
+        inheritedEnvironment: inherited
       )
       #expect(environment["NO_COLOR"] == nil)
       #expect(environment["TERM"] == "xterm-256color")
       #expect(environment["COLORTERM"] == "truecolor")
+    }
+  }
+
+  @Test("A GUI host colour preference survives without the known automation marker")
+  func guiHostColourPreferenceSurvivesWithoutKnownAutomationMarker() {
+    let suite = EphemeralDefaultsSuite(prefix: "AgentHubTests.TerminalColour")
+    defer { suite.cleanUp() }
+    let hostContexts: [[String: String]] = [
+      [:],
+      ["TERM": "dumb"],
+      ["TERM": "dumb", "COLORTERM": "", "CODEX_CI": "0"],
+      ["TERM": "dumb", "CODEX_CI": "true"],
+      ["TERM": "dumb", "CI": "1"]
+    ]
+    for context in hostContexts {
+      var inherited = context
+      inherited["NO_COLOR"] = "1"
+      let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
+        additionalPaths: [],
+        agentHubCLIPath: nil,
+        defaults: suite.defaults,
+        inheritedEnvironment: inherited
+      )
+      #expect(environment["NO_COLOR"] == "1")
     }
   }
 
@@ -144,6 +171,7 @@ struct EmbeddedTerminalLaunchBuilderAgentHubCLITests {
     for context in hostContexts {
       var inherited = context
       inherited["NO_COLOR"] = "1"
+      inherited["CODEX_CI"] = "1"
       let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
         additionalPaths: [],
         agentHubCLIPath: nil,
@@ -167,7 +195,7 @@ struct EmbeddedTerminalLaunchBuilderAgentHubCLITests {
       additionalPaths: [],
       agentHubCLIPath: nil,
       defaults: suite.defaults,
-      inheritedEnvironment: ["TERM": "dumb", "NO_COLOR": "1"]
+      inheritedEnvironment: ["TERM": "dumb", "NO_COLOR": "1", "CODEX_CI": "1"]
     )
     #expect(environment["NO_COLOR"] == "1")
     #expect(environment["TERM"] == "vt100")
