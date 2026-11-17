@@ -340,6 +340,38 @@ struct SidebarTreeRowsTests {
     #expect(loaded == ["/tmp/A|main"])
   }
 
+  @MainActor
+  @Test("Native outline routes visible actions and rejects scrolled-out controls")
+  func nativeOutlineViewportActions() {
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+      styleMask: [.borderless], backing: .buffered, defer: false)
+    let outline = SidebarTreeAccessibilityOutline(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+    window.contentView = outline
+    defer { window.contentView = nil }
+    let actions = SidebarActionSpy()
+    let rows = SidebarTreeRows.rows(
+      repos: [repo("/tmp/A", branches: [branch("main", sessions: ["a1"])])],
+      collapsedRepoPaths: [], decorations: .empty, title: { $0.id })
+    outline.configure(
+      rows: rows, selectedID: "a1", sessionsByRepo: [:], sessionsByBranch: [:],
+      registry: SidebarTreeAccessibilityRegistry(), actions: actions,
+      onLoadMore: { _ in }, onFocus: { _ in })
+    let anchor = NSView(frame: NSRect(x: 0, y: 30, width: 240, height: 32))
+    outline.addSubview(anchor)
+    outline.registerAnchor(anchor, for: "a1")
+    let session = outline.rows[2]
+    #expect(session.isVisible)
+    #expect(session.accessibilityPerformPress())
+    #expect(actions.opened == ["a1"])
+    #expect(outline.accessibilityHitTest(session.accessibilityFrame().origin) as? SidebarTreeAccessibilityElement === session)
+    anchor.frame.origin.y = 300
+    #expect(!session.isVisible)
+    #expect(!session.accessibilityPerformPress())
+    #expect(!session.performCommand(id: "open"))
+    #expect(actions.opened == ["a1"])
+  }
+
   @Test("A collapsed repository shows only its header, with the attention count")
   func collapsedRepository() {
     let rows = SidebarTreeRows.rows(

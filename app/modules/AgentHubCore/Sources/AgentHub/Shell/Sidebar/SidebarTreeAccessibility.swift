@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// A native outline backed by the same visible rows as the SwiftUI sidebar.
-/// It is not mounted until every row action has an accessible equivalent.
+/// Shared command factories keep native actions aligned with the visible context menus.
 @MainActor
 final class SidebarTreeAccessibilityOutline: NSView {
   private(set) var rows: [SidebarTreeAccessibilityElement] = []
@@ -418,5 +418,25 @@ extension EnvironmentValues {
   var sidebarTreeAccessibilityRegistry: SidebarTreeAccessibilityRegistry? {
     get { self[SidebarTreeAccessibilityRegistryKey.self] }
     set { self[SidebarTreeAccessibilityRegistryKey.self] = newValue }
+  }
+}
+
+/// The viewport-sized outline leaves pointer and keyboard input with the SwiftUI list.
+struct SidebarTreeAccessibilityView: NSViewRepresentable {
+  let outline: SidebarTreeAccessibilityOutline
+  let snapshot: SessionTreeSnapshot
+  let selectedID: String?
+  let registry: SidebarTreeAccessibilityRegistry
+  let actions: SidebarTreeActions
+  let onLoadMore: (LoadMoreRowModel) -> Void
+  let onFocus: (String) -> Void
+
+  func makeNSView(context: Context) -> SidebarTreeAccessibilityOutline { outline }
+
+  func updateNSView(_ view: SidebarTreeAccessibilityOutline, context: Context) {
+    view.configure(
+      rows: snapshot.rows, selectedID: selectedID, sessionsByRepo: snapshot.sessionsByRepo,
+      sessionsByBranch: snapshot.sessionsByBranch, registry: registry, actions: actions,
+      onLoadMore: onLoadMore, onFocus: onFocus)
   }
 }

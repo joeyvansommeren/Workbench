@@ -17,6 +17,7 @@ struct RepoHeaderRow: View, Equatable {
 
   @State private var isHovered = false
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
   nonisolated static func == (lhs: RepoHeaderRow, rhs: RepoHeaderRow) -> Bool {
     lhs.model == rhs.model && lhs.sessions == rhs.sessions
@@ -32,7 +33,9 @@ struct RepoHeaderRow: View, Equatable {
         Text(model.name)
           .wbText(.headline)
           .fontWeight(colorScheme == .dark ? .medium : .semibold)
-          .foregroundStyle(colorScheme == .dark ? Color.wbTextSecondary : Color.wbTextPrimary)
+          .foregroundStyle(
+            colorScheme == .dark && colorSchemeContrast != .increased
+              ? Color.wbTextSecondary : Color.wbTextPrimary)
           .lineLimit(1)
           .truncationMode(.tail)
         SidebarIcon(glyph: .chevronDown, size: DesignTokens.Size.iconSmall)
