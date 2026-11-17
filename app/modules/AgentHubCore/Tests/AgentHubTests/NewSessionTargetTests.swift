@@ -284,12 +284,15 @@ struct NewSessionTargetTests {
     #expect(!model.canStart)
     #expect(model.applyToLaunchViewModel() == nil)
   }
-  @Test("Only creation of a new pending terminal routes this request")
-  func successfulCreationWitness() {
+  @Test(
+    "Only creation of a new pending terminal changes the originating destination",
+    arguments: ShellDestination.allCases, SessionProviderKind.allCases
+  )
+  func successfulCreationWitness(origin: ShellDestination, provider: SessionProviderKind) {
     let vm = makeLaunchViewModel()
     let gate = NewSessionNavigationGate()
     let shell = WorkbenchShellModel()
-    shell.select(.reviews)
+    shell.select(origin)
     let request = UUID()
     gate.begin(request)
     var callbacks = 0
@@ -298,35 +301,43 @@ struct NewSessionTargetTests {
       if gate.complete(request) { shell.select(.sessions) }
     }
     let old = UUID()
-    vm.recordCreatedSession(previous: old, current: nil, provider: .claude)
-    vm.recordCreatedSession(previous: old, current: old, provider: .claude)
+    vm.recordCreatedSession(previous: old, current: nil, provider: provider)
+    vm.recordCreatedSession(previous: old, current: old, provider: provider)
     #expect(callbacks == 0)
-    #expect(shell.destination == .reviews)
-    vm.recordCreatedSession(previous: old, current: UUID(), provider: .claude)
+    #expect(shell.destination == origin)
+    vm.recordCreatedSession(previous: old, current: UUID(), provider: provider)
     #expect(callbacks == 1)
     #expect(shell.destination == .sessions)
   }
 
-  @Test("Cancel during More options prevents a late successful launch from routing")
-  func cancelledPresentationCannotNavigate() {
+  @Test(
+    "Cancel preserves every originating destination and rejects late session creation",
+    arguments: ShellDestination.allCases, SessionProviderKind.allCases
+  )
+  func cancelledPresentationCannotNavigate(origin: ShellDestination, provider: SessionProviderKind) {
     let vm = makeLaunchViewModel()
     let gate = NewSessionNavigationGate()
     let shell = WorkbenchShellModel()
-    shell.select(.linear)
+    shell.select(origin)
     let first = UUID()
     gate.begin(first)
     vm.onLaunchPresentationCancelled = { gate.cancel(first) }
     vm.onSessionCreated = { _, _ in
       if gate.complete(first) { shell.select(.sessions) }
     }
+    // Both the compact sheet and More options cancel through this callback.
+    // Escape invokes the compact sheet's Cancel button via .cancelAction.
+    #expect(shell.destination == origin)
     vm.cancelLaunch()
-    vm.recordCreatedSession(previous: nil, current: UUID(), provider: .codex)
-    #expect(shell.destination == .linear)
+    #expect(gate.requestID == nil)
+    #expect(shell.destination == origin)
+    vm.recordCreatedSession(previous: nil, current: UUID(), provider: provider)
+    #expect(shell.destination == origin)
     let second = UUID()
     gate.begin(second)
     vm.recordCreatedSession(previous: nil, current: UUID(), provider: .claude)
     #expect(gate.requestID == second)
-    #expect(shell.destination == .linear)
+    #expect(shell.destination == origin)
   }
 
   @Test("Missing provider selection preserves all session choices")
@@ -341,6 +352,75 @@ struct NewSessionTargetTests {
     #expect(model.project?.path == repository.path)
     #expect(model.prompt == "Check this result")
     #expect(SessionProviderKind.codex.installationGuideURL.host == "github.com")
+  }
+
+  @Test("Checking an installed agent enables Start without losing session choices", arguments: SessionProviderKind.allCases)
+  func installedProviderRecoveryPreservesForm(provider: SessionProviderKind) {
+    let availability = NewSessionCLIAvailability(claudeAvailable: false, codexAvailable: false)
+    let model = NewSessionSheetModel(
+      launchViewModel: makeLaunchViewModel(availability: availability),
+      repositories: [other, repository],
+      preselectedWorktree: feature
+    )
+    model.agent = provider
+    model.prompt = "Check this result"
+    #expect(!model.isAgentAvailable(provider))
+    #expect(!model.canStart)
+
+    availability.results[provider] = true
+    // The sheet must perform the same fresh lookup as its Check again action.
+    #expect(!model.isAgentAvailable(provider))
+    model.launchViewModel.refreshCLIAvailability()
+
+    #expect(model.isAgentAvailable(provider))
+    #expect(model.canStart)
+    #expect(model.agent == provider)
+    #expect(model.project?.path == repository.path)
+    #expect(model.worktreeChoice == .existing(feature))
+    #expect(model.prompt == "Check this result")
+  }
+
+  @Test("Checking an agent that is still missing keeps Start blocked and preserves choices", arguments: SessionProviderKind.allCases)
+  func missingProviderRecheckPreservesForm(provider: SessionProviderKind) {
+    let model = NewSessionSheetModel(
+      launchViewModel: makeLaunchViewModel(claudeAvailable: false, codexAvailable: false),
+      repositories: [other, repository],
+      preselectedWorktree: feature
+    )
+    model.agent = provider
+    model.prompt = "Check this result"
+
+    model.launchViewModel.refreshCLIAvailability()
+
+    #expect(!model.isAgentAvailable(provider))
+    #expect(!model.canStart)
+    #expect(model.agent == provider)
+    #expect(model.project?.path == repository.path)
+    #expect(model.worktreeChoice == .existing(feature))
+    #expect(model.prompt == "Check this result")
+  }
+
+  @Test("A missing unselected agent does not block the available agent", arguments: SessionProviderKind.allCases)
+  func availableProviderDoesNotNeedRecovery(provider: SessionProviderKind) {
+    let model = NewSessionSheetModel(
+      launchViewModel: makeLaunchViewModel(
+        claudeAvailable: provider == .claude,
+        codexAvailable: provider == .codex
+      ),
+      repositories: [repository],
+      preselectedWorktree: feature
+    )
+    let missingProvider: SessionProviderKind = provider == .claude ? .codex : .claude
+    model.agent = provider
+    model.launchViewModel.refreshCLIAvailability()
+
+    #expect(model.isAgentAvailable(model.agent))
+    #expect(model.canStart)
+    #expect(!model.isAgentAvailable(missingProvider))
+
+    model.agent = missingProvider
+    #expect(!model.isAgentAvailable(model.agent))
+    #expect(!model.canStart)
   }
 
   @Test("Cancel during suspended registration creates no terminal", arguments: ["compact", "moreOptions"])
@@ -388,25 +468,49 @@ struct NewSessionTargetTests {
 @MainActor
 private func makeLaunchViewModel(
   claudeAvailable: Bool = true,
-  codexAvailable: Bool = true
+  codexAvailable: Bool = true,
+  availability: NewSessionCLIAvailability? = nil
 ) -> MultiSessionLaunchViewModel {
-  func sessions(_ provider: SessionProviderKind, available: Bool) -> CLISessionsViewModel {
+  let availability = availability ?? NewSessionCLIAvailability(
+    claudeAvailable: claudeAvailable, codexAvailable: codexAvailable
+  )
+  func sessions(_ provider: SessionProviderKind) -> CLISessionsViewModel {
     let viewModel = CLISessionsViewModel(
       monitorService: NewSessionMonitorService(),
       fileWatcher: NewSessionFileWatcher(),
       searchService: nil,
       cliConfiguration: provider == .claude ? .claudeDefault : .codexDefault,
       providerKind: provider,
-      approvalNotificationService: NoOpApprovalNotificationService()
+      approvalNotificationService: NoOpApprovalNotificationService(),
+      cliAvailabilityService: availability
     )
-    viewModel.isCLIAvailable = available
+    viewModel.refreshCLIAvailability()
     return viewModel
   }
   return MultiSessionLaunchViewModel(
-    claudeViewModel: sessions(.claude, available: claudeAvailable),
-    codexViewModel: sessions(.codex, available: codexAvailable)
+    claudeViewModel: sessions(.claude),
+    codexViewModel: sessions(.codex)
   )
 }
+/// Read and changed only by this suite's MainActor tests and synchronous refreshes.
+private final class NewSessionCLIAvailability: CLIAvailabilityChecking, @unchecked Sendable {
+  var results: [SessionProviderKind: Bool]
+
+  init(claudeAvailable: Bool, codexAvailable: Bool) {
+    results = [.claude: claudeAvailable, .codex: codexAvailable]
+  }
+
+  func isAvailable(for provider: SessionProviderKind) -> Bool {
+    results[provider] ?? false
+  }
+
+  func checkAvailability(for provider: SessionProviderKind) -> Bool {
+    results[provider] ?? false
+  }
+
+  func checkAll() -> [SessionProviderKind: Bool] { results }
+}
+
 private final class NewSessionMonitorService: SessionMonitorServiceProtocol, @unchecked Sendable {
   private let subject = CurrentValueSubject<[SelectedRepository], Never>([])
 

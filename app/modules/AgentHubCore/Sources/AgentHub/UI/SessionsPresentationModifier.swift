@@ -185,26 +185,35 @@ struct SessionsPresentationModifier: ViewModifier {
     let provider = claudeViewModel.agentHubProvider ?? codexViewModel.agentHubProvider
     return GitHubPanelView(
       projectPath: item.projectPath,
+      branchName: item.branchName,
+      linkedPullRequests: item.linkedPullRequests,
       onDismiss: { coordinator.gitHubSheetItem = nil },
       isEmbedded: false,
+      session: item.session,
       viewModel: GitHubViewModel(
         service: provider?.gitHubService ?? GitHubCLIService(),
         observationService: provider?.gitHubPRObservationService
       ),
-      onSendToSession: { prompt, session in
-        claudeViewModel.showTerminalWithPrompt(for: session, prompt: prompt)
-      },
-      onStartNewSession: { inputText, providerKind in
-        coordinator.launchGitHubReviewSession(
-          projectPath: item.projectPath,
-          inputText: inputText,
-          providerKind: providerKind,
-          orderedTrackedRepos: mergedRepos,
-          claudeViewModel: claudeViewModel,
-          codexViewModel: codexViewModel
-        )
-      }
+      onSendToSession: coordinator.gitHubSendToSession(
+        item: item, claudeViewModel: claudeViewModel, codexViewModel: codexViewModel,
+        workspaceViewModel: workspaceViewModel, navigationModel: navigationModel),
+      onStartNewSession: item.session == nil
+        ? { inputText, providerKind in
+          coordinator.launchGitHubReviewSession(
+            projectPath: item.projectPath,
+            inputText: inputText,
+            providerKind: providerKind,
+            orderedTrackedRepos: mergedRepos,
+            claudeViewModel: claudeViewModel,
+            codexViewModel: codexViewModel
+          )
+        } : nil
     )
+    .alert("Couldn’t send to session", isPresented: $coordinator.gitHubSendError) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(coordinator.gitHubSendErrorMessage)
+    }
   }
 
   private func projectDetailsSheet(item: ProjectDetailsSheetItem) -> some View {

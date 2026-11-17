@@ -6,6 +6,7 @@
 //  and new shell can share archive, remove, delete, new-session and fork flows.
 //
 
+import AgentHubGitHub
 import AppKit
 import Foundation
 import SwiftUI
@@ -44,6 +45,11 @@ struct StartSessionSheetContext: Identifiable {
 struct GitHubSheetItem: Identifiable {
   let id = UUID()
   let projectPath: String
+  var branchName: String?
+  var session: CLISession?
+  var provider: SessionProviderKind?
+  var workspaceID: String?
+  var linkedPullRequests: [GitHubPullRequestURLReference] = []
 }
 
 /// Context for presenting the project details sheet.
@@ -83,6 +89,11 @@ final class SessionsActionCoordinator {
   var createWorktreeContext: WorktreeCreateContext?
   var startSessionSheetContext: StartSessionSheetContext?
   var gitHubSheetItem: GitHubSheetItem?
+  var gitHubSendError = false
+  var gitHubSendErrorMessage =
+    "The session or its terminal is no longer available. Open the session and try again."
+  @ObservationIgnored private(set) var gitHubSendTask: Task<Void, Never>?
+  var attentionResultRequestID: String?
   var projectDetailsSheetItem: ProjectDetailsSheetItem?
   var archiveUndo: ArchivedSessionsUndo?
   var removeConfirmation: RemoveConfirmation?
@@ -94,7 +105,15 @@ final class SessionsActionCoordinator {
 
   // MARK: - Init
 
-  init() {}
+  private let currentBranch: (String) async throws -> String
+
+  init(
+    currentBranch: @escaping (String) async throws -> String = {
+      try await GitWorktreeService().getCurrentBranch(at: $0)
+    }
+  ) {
+    self.currentBranch = currentBranch
+  }
 
   // MARK: - Transient State
 
@@ -105,6 +124,12 @@ final class SessionsActionCoordinator {
     createWorktreeContext = nil
     startSessionSheetContext = nil
     gitHubSheetItem = nil
+    gitHubSendTask?.cancel()
+    gitHubSendTask = nil
+    gitHubSendError = false
+    gitHubSendErrorMessage =
+      "The session or its terminal is no longer available. Open the session and try again."
+    attentionResultRequestID = nil
     projectDetailsSheetItem = nil
     sessionFileSheetItem = nil
     sessionFileTask?.cancel()
@@ -321,6 +346,73 @@ final class SessionsActionCoordinator {
     let launchViewModel = makeLaunchViewModel()
     if launchViewModel.configureForFork(from: session, targetProvider: targetProvider) {
       startSessionSheetContext = StartSessionSheetContext(launchViewModel: launchViewModel)
+    }
+  }
+
+  /// Checks the live branch before sending to the selected standalone session.
+  func gitHubSendToSession(
+    item: GitHubSheetItem,
+    claudeViewModel: CLISessionsViewModel,
+    codexViewModel: CLISessionsViewModel,
+    workspaceViewModel: AgentWorkspacesViewModel,
+    navigationModel: SessionNavigationModel
+  ) -> ((String, CLISession) -> Void)? {
+    guard item.session != nil else { return nil }
+    return { [weak self] prompt, requestedSession in
+      guard let self else { return }
+      self.gitHubSendTask?.cancel()
+      self.gitHubSendTask = nil
+      self.gitHubSendError = false
+      if item.workspaceID != nil {
+        self.gitHubSendErrorMessage =
+          "AgentHub can’t verify the workspace session. Open its terminal and enter the context yourself."
+        self.gitHubSendError = true
+        return
+      }
+      self.gitHubSendErrorMessage =
+        "The session or its terminal is no longer available. Open the session and try again."
+      self.gitHubSendTask = Task { @MainActor in
+        guard !Task.isCancelled, self.gitHubSheetItem?.id == item.id else { return }
+        guard let session = item.session, let provider = item.provider,
+          let expectedBranch = item.branchName, !expectedBranch.isEmpty,
+          session.projectPath == item.projectPath, session.branchName == expectedBranch,
+          requestedSession.id == session.id, requestedSession.projectPath == session.projectPath,
+          requestedSession.branchName == expectedBranch
+        else {
+          self.gitHubSendError = true
+          return
+        }
+        await workspaceViewModel.load()
+        guard !Task.isCancelled, self.gitHubSheetItem?.id == item.id else { return }
+        let actualBranch = try? await self.currentBranch(item.projectPath)
+        guard !Task.isCancelled, self.gitHubSheetItem?.id == item.id else { return }
+        guard actualBranch == expectedBranch,
+          navigationModel.selectedWorkspaceID == nil,
+          navigationModel.primarySessionId
+            == SidebarSessionItemID.monitored(
+              provider: provider, sessionId: session.id),
+          workspaceViewModel.hasLoadedWorkspaceOwnership,
+          workspaceViewModel.workspaceIDs(owningSession: session.id, provider: provider).isEmpty
+        else {
+          self.gitHubSendErrorMessage =
+            "The session, terminal, or branch changed. Open the session and try again."
+          self.gitHubSendError = true
+          return
+        }
+        let viewModel = provider == .claude ? claudeViewModel : codexViewModel
+        guard viewModel.providerKind == provider,
+          let current = viewModel.monitoredCLISessions.first(where: { $0.id == session.id }),
+          current.projectPath == session.projectPath, current.branchName == expectedBranch
+        else {
+          self.gitHubSendError = true
+          return
+        }
+        // Keep verified context out of the deferred initial-prompt queue.
+        guard viewModel.sendPromptToActiveTerminal(forKey: current.id, prompt: prompt) else {
+          self.gitHubSendError = true
+          return
+        }
+      }
     }
   }
 

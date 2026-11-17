@@ -62,10 +62,14 @@ enum SimulatorRecordingPromptBuilder {
     }
 
     if recording.duration > 0 {
-      let duration = recording.duration.formatted(.number.precision(.fractionLength(1)))
+      let duration = durationText(recording.duration)
       lines.append("Duration: \(duration) seconds")
     }
 
     return lines.joined(separator: "\n")
+  }
+
+  private static func durationText(_ duration: TimeInterval) -> String {
+    duration.formatted(.number.locale(Locale(identifier: "en_US_POSIX")).precision(.fractionLength(1)))
   }
 }

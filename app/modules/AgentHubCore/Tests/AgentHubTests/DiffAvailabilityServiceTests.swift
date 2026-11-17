@@ -5,6 +5,19 @@ import Testing
 @testable import AgentHubCore
 @testable import AgentHubGitDiff
 
+private final class DiffAvailabilityTestClock: @unchecked Sendable {
+  private let lock = NSLock()
+  private var date = Date(timeIntervalSinceReferenceDate: 0)
+
+  func now() -> Date {
+    lock.withLock { date }
+  }
+
+  func advance(_ seconds: TimeInterval) {
+    lock.withLock { date.addTimeInterval(seconds) }
+  }
+}
+
 private actor DiffAvailabilityEvaluatorSpy {
   private var queuedStatuses: [DiffAvailabilityStatus]
   private(set) var evaluationCount = 0
@@ -361,20 +374,30 @@ struct DiffAvailabilityServiceTests {
 
   @Test("Invalidate succeeds after the adaptive window elapses")
   func invalidateSucceedsAfterAdaptiveWindow() async {
+    let clock = DiffAvailabilityTestClock()
     let evaluator = DiffAvailabilityEvaluatorSpy(
       queuedStatuses: [.available, .unavailable],
       delay: .milliseconds(100)
     )
     let service = DiffAvailabilityService(
       evaluator: { projectPath in
-        await evaluator.evaluate(projectPath: projectPath)
+        let status = await evaluator.evaluate(projectPath: projectPath)
+        // Executor delays must not widen the throttle window measured by this test.
+        clock.advance(0.1)
+        return status
       },
       minimumRefreshInterval: 0,
-      adaptiveThrottleMultiplier: 3
+      adaptiveThrottleMultiplier: 3,
+      now: { clock.now() }
     )
 
     let first = await service.availability(for: "/tmp/project")
-    try? await Task.sleep(for: .milliseconds(700))
+    await service.invalidate(projectPath: "/tmp/project")
+    let beforeWindow = await service.availability(for: "/tmp/project")
+    #expect(beforeWindow == .available)
+    #expect(await evaluator.evaluationCount == 1)
+
+    clock.advance(0.7)
     await service.invalidate(projectPath: "/tmp/project")
     let second = await service.availability(for: "/tmp/project")
     let evaluationCount = await evaluator.evaluationCount

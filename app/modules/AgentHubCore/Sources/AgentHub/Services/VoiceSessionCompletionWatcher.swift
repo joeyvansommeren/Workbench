@@ -21,9 +21,10 @@ public final class VoiceSessionCompletionWatcher: VoiceSessionCompletionWatching
   private let armingDelay: Duration
   private let completionDebounce: Duration
   private let maximumDuration: Duration
+  private let sleep: @MainActor (Duration) async throws -> Void
   private var tasks: [String: Task<Void, Never>] = [:]
 
-  public init(
+  public convenience init(
     executor: any VoiceAgentToolExecuting,
     armingDelay: Duration = .seconds(10),
     completionDebounce: Duration = .seconds(2),
@@ -31,10 +32,31 @@ public final class VoiceSessionCompletionWatcher: VoiceSessionCompletionWatching
     onActiveCountChanged: (@MainActor @Sendable (Int) -> Void)? = nil,
     onUpdate: @escaping @MainActor @Sendable (String) -> Void
   ) {
+    self.init(
+      executor: executor,
+      armingDelay: armingDelay,
+      completionDebounce: completionDebounce,
+      maximumDuration: maximumDuration,
+      sleep: { try await Task.sleep(for: $0) },
+      onActiveCountChanged: onActiveCountChanged,
+      onUpdate: onUpdate
+    )
+  }
+
+  init(
+    executor: any VoiceAgentToolExecuting,
+    armingDelay: Duration,
+    completionDebounce: Duration,
+    maximumDuration: Duration,
+    sleep: @escaping @MainActor (Duration) async throws -> Void,
+    onActiveCountChanged: (@MainActor @Sendable (Int) -> Void)?,
+    onUpdate: @escaping @MainActor @Sendable (String) -> Void
+  ) {
     self.executor = executor
     self.armingDelay = armingDelay
     self.completionDebounce = completionDebounce
     self.maximumDuration = maximumDuration
+    self.sleep = sleep
     self.onActiveCountChanged = onActiveCountChanged
     self.onUpdate = onUpdate
   }
@@ -48,6 +70,7 @@ public final class VoiceSessionCompletionWatcher: VoiceSessionCompletionWatching
     let stream = executor.completionStream(sessionId: sessionId)
     let armingDelay = self.armingDelay
     let maximumDuration = self.maximumDuration
+    let sleep = self.sleep
 
     tasks[sessionId] = Task { @MainActor [weak self] in
       guard let self else { return }
@@ -59,12 +82,12 @@ public final class VoiceSessionCompletionWatcher: VoiceSessionCompletionWatching
         }
       }
       let armTask = Task {
-        try? await Task.sleep(for: armingDelay)
+        try? await sleep(armingDelay)
         guard !Task.isCancelled else { return }
         continuation.yield(.armedByTimeout)
       }
       let capTask = Task {
-        try? await Task.sleep(for: maximumDuration)
+        try? await sleep(maximumDuration)
         continuation.finish()
       }
       defer {
@@ -142,7 +165,7 @@ public final class VoiceSessionCompletionWatcher: VoiceSessionCompletionWatching
     name: String,
     expected: SessionStatus
   ) async -> Bool {
-    try? await Task.sleep(for: completionDebounce)
+    try? await sleep(completionDebounce)
     guard !Task.isCancelled else { return false }
     let current = executor.sessionStatus(sessionId: sessionId)?.status
     guard current == expected.displayName else { return false }

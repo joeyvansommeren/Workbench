@@ -534,6 +534,7 @@ struct LocalDiffSummaryServiceTests {
 
   @Test("concurrent awaiters share one evaluation and keep throttle state intact")
   func concurrentAwaitersRecordOneDuration() async {
+    let clock = TrailingTestClock()
     let evaluator = LocalDiffSummaryEvaluatorSpy(
       queuedSummaries: [
         LocalDiffSummary(fileCount: 1, additions: 1, deletions: 0),
@@ -543,10 +544,13 @@ struct LocalDiffSummaryServiceTests {
     )
     let service = LocalDiffSummaryService(
       evaluator: { projectPath in
-        await evaluator.evaluate(projectPath: projectPath)
+        let summary = await evaluator.evaluate(projectPath: projectPath)
+        clock.advance(0.2)
+        return summary
       },
       minimumRefreshInterval: 0,
-      adaptiveThrottleMultiplier: 3
+      adaptiveThrottleMultiplier: 3,
+      now: { clock.now() }
     )
 
     async let first = service.summary(for: "/tmp/project")
@@ -554,7 +558,8 @@ struct LocalDiffSummaryServiceTests {
     let summaries = await [first, second]
     let sharedCount = await evaluator.evaluationCount
 
-    try? await Task.sleep(for: .milliseconds(900))
+    // Throttle time follows the evaluator, not test-runner scheduling.
+    clock.advance(0.9)
     await service.invalidate(projectPath: "/tmp/project")
     let refreshed = await service.summary(for: "/tmp/project")
     let finalCount = await evaluator.evaluationCount

@@ -95,6 +95,7 @@ private struct ApprovalBannerHost: View {
     .padding(DesignTokens.Spacing.lg)
     .sheet(isPresented: $isReviewingPermissionScope) {
       ApprovalPermissionScopeSheet(
+        toolName: pending.toolName,
         providerOption: viewModel.approvalPersistenceOption(
           sessionId: sessionId, terminalKey: terminalKey),
         onCancel: { isReviewingPermissionScope = false },
@@ -116,6 +117,7 @@ private struct ApprovalBannerHost: View {
     }
     .onChange(of: isTerminalConcealed) { _, _ in updateShortcut() }
     .onChange(of: isRevealingTerminal) { _, _ in updateShortcut() }
+    .onChange(of: isReviewingPermissionScope) { _, _ in updateShortcut() }
     .onChange(of: phase) { _, _ in updateShortcut() }
     // Keyed by request: this runs after the exit fade, when the next
     // request's banner may already own ⌘↩.
@@ -132,7 +134,9 @@ private struct ApprovalBannerHost: View {
   /// revealed, or once the request was answered, the terminal gets its normal
   /// shortcut back. A second answer is refused by the view model regardless.
   private func updateShortcut() {
-    guard !isTerminalConcealed, !isRevealingTerminal, !(phase?.isAnswered ?? false) else {
+    guard !isTerminalConcealed, !isRevealingTerminal, !isReviewingPermissionScope,
+      !(phase?.isAnswered ?? false)
+    else {
       viewModel.setApprovalShortcutHandler(forKey: terminalKey, request: request, nil)
       return
     }
@@ -322,12 +326,13 @@ struct ApprovalBanner: View {
 /// No grant is sent from this sheet. Claude's option is shown verbatim;
 /// unavailable scope facts stay unknown and the provider owns the decision.
 private struct ApprovalPermissionScopeSheet: View {
+  let toolName: String
   let providerOption: String?
   let onCancel: () -> Void
   let onShowInTerminal: () -> Void
 
   private var disclosure: ClaudePermissionScopeDisclosure {
-    ClaudePermissionScopeDisclosure(providerOption: providerOption)
+    ClaudePermissionScopeDisclosure(toolName: toolName, providerOption: providerOption)
   }
 
   var body: some View {
@@ -335,7 +340,7 @@ private struct ApprovalPermissionScopeSheet: View {
       Text("Review permission scope")
         .wbText(.headline)
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-        Text("Claude's offered permission")
+        Text("Target — Claude’s exact option")
           .wbText(.subheadline)
         ScrollView {
           Text(providerOption ?? "The app cannot read Claude's permission option.")
@@ -345,10 +350,13 @@ private struct ApprovalPermissionScopeSheet: View {
         }
         .frame(maxHeight: 140)
       }
-      Text("Duration: \(disclosure.duration). Revocation: \(disclosure.revocation).")
-        .wbText(.body)
+      scopeFact("Duration", disclosure.duration)
+      scopeFact("Saved in", disclosure.storage)
+      scopeFact("Revoke", disclosure.revocation)
       Text(
-        "Review the target, duration and revocation in Claude's terminal before choosing this permission."
+        disclosure.isRecognized
+          ? "Continue to Claude's terminal to choose this permission. Opening the terminal does not approve it."
+          : "The app cannot confirm this permission's duration or how to revoke it. Review it in Claude's terminal before choosing."
       )
       .wbText(.body)
       .foregroundStyle(Color.wbTextSecondary)
@@ -363,6 +371,19 @@ private struct ApprovalPermissionScopeSheet: View {
     }
     .padding(DesignTokens.Spacing.lg)
     .frame(width: 440)
+  }
+
+  private func scopeFact(_ title: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+      Text(title)
+        .wbText(.subheadline)
+        .foregroundStyle(Color.wbTextSecondary)
+      Text(value)
+        .wbText(.body)
+        .textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .accessibilityElement(children: .combine)
   }
 }
 

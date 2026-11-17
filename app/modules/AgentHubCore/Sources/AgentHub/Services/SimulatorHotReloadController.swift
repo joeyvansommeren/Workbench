@@ -64,6 +64,7 @@ public final class SimulatorHotReloadController {
   private let consoleParser = HotReloadConsoleParser()
   private let seedChangedFiles: @Sendable (String) async -> [String]
   private let autoRunDebounce: Duration
+  private let sleep: @MainActor (Duration) async throws -> Void
   private var activeContext: (udid: String, projectPath: String)?
   private var preparationTask: Task<Void, Never>?
   private var isRebuilding = false
@@ -72,10 +73,10 @@ public final class SimulatorHotReloadController {
   private var isAutoRunObservationEnabled = false
   private var isSourceObservationActive = false
   private var observedProjectPath: String?
-  private var hasPendingAutoRun = false
+  private(set) var hasPendingAutoRun = false
   private var autoRunDebounceTask: Task<Void, Never>?
 
-  public init(
+  public convenience init(
     artifactStore: any HotReloadArtifactProviding = HotReloadArtifactStore(),
     sourceWatcher: any HotReloadSourceWatching = HotReloadSourceWatcher(),
     consoleTail: any HotReloadConsoleTailing = HotReloadConsoleTail(),
@@ -88,12 +89,35 @@ public final class SimulatorHotReloadController {
     )? = nil,
     autoRunDebounce: Duration = .seconds(2)
   ) {
+    self.init(
+      artifactStore: artifactStore,
+      sourceWatcher: sourceWatcher,
+      consoleTail: consoleTail,
+      previewClient: previewClient,
+      seedChangedFiles: seedChangedFiles,
+      rebuildExecutor: rebuildExecutor,
+      autoRunDebounce: autoRunDebounce,
+      sleep: { try await Task.sleep(for: $0) }
+    )
+  }
+
+  init(
+    artifactStore: any HotReloadArtifactProviding,
+    sourceWatcher: any HotReloadSourceWatching,
+    consoleTail: any HotReloadConsoleTailing,
+    previewClient: any PreviewHostClientProtocol,
+    seedChangedFiles: @escaping @Sendable (String) async -> [String],
+    rebuildExecutor: ((String, String, HotReloadLaunchPlan) async -> Bool)?,
+    autoRunDebounce: Duration,
+    sleep: @escaping @MainActor (Duration) async throws -> Void
+  ) {
     self.artifactStore = artifactStore
     self.sourceWatcher = sourceWatcher
     self.consoleTail = consoleTail
     self.previewClient = previewClient
     self.seedChangedFiles = seedChangedFiles
     self.autoRunDebounce = autoRunDebounce
+    self.sleep = sleep
     self.rebuildExecutor = rebuildExecutor ?? { udid, projectPath, plan in
       // Panel-scoped rebuilds relaunch behind the mirror; keep the real
       // Simulator.app window from stealing focus when the user hides it.
@@ -348,7 +372,7 @@ public final class SimulatorHotReloadController {
     autoRunDebounceTask?.cancel()
     autoRunDebounceTask = Task { [weak self] in
       guard let self else { return }
-      try? await Task.sleep(for: self.autoRunDebounce)
+      try? await self.sleep(self.autoRunDebounce)
       guard !Task.isCancelled else { return }
       self.fireAutoRunIfPending()
     }
@@ -374,7 +398,7 @@ public final class SimulatorHotReloadController {
       autoRunDebounceTask?.cancel()
       autoRunDebounceTask = Task { [weak self] in
         guard let self else { return }
-        try? await Task.sleep(for: self.autoRunDebounce)
+        try? await self.sleep(self.autoRunDebounce)
         guard !Task.isCancelled else { return }
         self.fireAutoRunIfPending()
       }
