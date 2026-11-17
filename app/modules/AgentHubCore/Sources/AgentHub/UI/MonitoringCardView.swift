@@ -762,8 +762,15 @@ public struct MonitoringCardView: View {
   @ViewBuilder
   private var monitorContent: some View {
     if let message = viewModel?.pendingLaunchRecoveryMessage(for: session.id) {
-      ContentUnavailableView(
-        "Session unavailable", systemImage: "exclamationmark.circle", description: Text(message))
+      VStack(spacing: 12) {
+        ContentUnavailableView(
+          "Session unavailable", systemImage: "exclamationmark.circle", description: Text(message))
+        if let viewModel,
+          let pending = viewModel.pendingHubSessions.first(where: { $0.placeholderSession.id == session.id })
+        {
+          PendingLaunchRecoveryPicker(pending: pending, viewModel: viewModel)
+        }
+      }
     } else {
       MonitoringCardContentArea(
         session: session,

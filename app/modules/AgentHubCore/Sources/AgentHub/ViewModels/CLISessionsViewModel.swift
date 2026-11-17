@@ -2413,12 +2413,67 @@ public final class CLISessionsViewModel {
     if let removalError = pending.removalError { return removalError }
     if pending.needsIdentification {
       return
-        "Session identity is unavailable. The ticket title is saved. Open the matching session from Sessions."
+        "Choose the session started for this ticket, then confirm the link. The saved ticket title will follow it."
     }
     if recoveredPendingIDs.contains(pending.id) {
       return "Waiting to identify the previous session. Workbench has not started another agent."
     }
     return nil
+  }
+
+  /// Candidates are offered for explicit confirmation only; opening a session never renames it.
+  func recoveryCandidates(for pending: PendingHubSession) -> [CLISession] {
+    guard recoveredPendingIDs.contains(pending.id), pending.needsIdentification,
+      !pending.isFailed, pending.removalError == nil, pending.origin != nil
+    else { return [] }
+    var seen: Set<String> = []
+    return (allSessions + monitoredSessionList).filter { session in
+      guard seen.insert(session.id).inserted, sessionOrigins[session.id] == nil,
+        pendingSessionClaims[session.id] == nil, session.projectPath == pending.projectPath,
+        !session.id.hasPrefix("pending-"),
+        pending.expectedSessionID == nil || pending.expectedSessionID == session.id
+      else { return false }
+      if providerKind == .codex {
+        guard let path = session.sessionFilePath,
+          !pending.existingSessionIdentifiers.contains(path),
+          let meta = CodexSessionFileScanner.readSessionMeta(from: path),
+          meta.isInteractiveCLI, meta.sessionId == session.id,
+          meta.projectPath == pending.projectPath, let startedAt = meta.startedAt
+        else { return false }
+        return startedAt >= pending.startedAt
+      }
+      return !pending.existingSessionIdentifiers.contains(session.id)
+    }.sorted { $0.lastActivityAt > $1.lastActivityAt }
+  }
+
+  /// The caller presents an explicit confirmation naming both the ticket and session.
+  @discardableResult
+  func confirmRecoveredLaunch(_ pendingID: UUID, sessionID: String) -> Bool {
+    guard let pending = pendingHubSessions.first(where: { $0.id == pendingID }),
+      let origin = pending.origin,
+      let session = recoveryCandidates(for: pending).first(where: { $0.id == sessionID }),
+      let launchOriginStore
+    else { return false }
+    do {
+      try launchOriginStore.confirmLaunchOrigin(
+        pendingID: pendingID, provider: providerKind, sessionID: sessionID)
+      // Read committed manual names. A pre-existing resolved rename always wins.
+      let names = try metadataStore?.customNames(for: [sessionID]) ?? [:]
+      sessionCustomNames.merge(names) { _, saved in saved }
+    } catch {
+      launchError = "Could not save the session link. Try again."
+      return false
+    }
+    sessionOrigins[sessionID] = origin
+    pendingSessionClaims[sessionID] = pendingID
+    resolvedPendingSessions[pendingID] = sessionID
+    resolvedPendingSessionHistory[pendingID] = sessionID
+    pendingSessionWatchers.removeValue(forKey: pendingID)?.cancel()
+    pendingHubSessions.removeAll { $0.id == pendingID }
+    recoveredPendingIDs.remove(pendingID)
+    sessionOrigins.removeValue(forKey: "pending-\(pendingID.uuidString)")
+    startMonitoring(session: session)
+    return true
   }
 
   /// Sets a custom name for a session

@@ -66,6 +66,7 @@ protocol SessionLaunchOriginStoring: Sendable {
   func saveLaunchOrigin(_ record: SessionLaunchOriginRecord) throws
   func launchOrigins(provider: SessionProviderKind) throws -> [SessionLaunchOriginRecord]
   func resolveLaunchOrigin(pendingID: UUID, provider: SessionProviderKind, sessionID: String) throws
+  func confirmLaunchOrigin(pendingID: UUID, provider: SessionProviderKind, sessionID: String) throws
   func updateLaunchOrigin(pendingID: UUID, failed: Bool, needsIdentification: Bool) throws
   func removeLaunchOrigin(pendingID: UUID) throws
 }

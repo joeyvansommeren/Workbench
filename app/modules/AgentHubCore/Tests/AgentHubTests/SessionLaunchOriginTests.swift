@@ -153,6 +153,65 @@ struct SessionLaunchOriginTests {
     restored.cancelPendingSession(pending)
   }
 
+  @Test(
+    "Explicit recovery after restart binds only the confirmed candidate and preserves manual names",
+    arguments: [SessionProviderKind.claude, .codex], [SessionLaunchOrigin.Source.linear, .jira])
+  func confirmedRestartRecovery(
+    provider: SessionProviderKind, source: SessionLaunchOrigin.Source
+  ) async throws {
+    for resolvedRename in [false, true] {
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent("recovery-\(UUID())")
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let store = try SessionMetadataStore(path: directory.appendingPathComponent("metadata.sqlite").path)
+      let sessionID = "11111111-2222-3333-4444-555555555555"
+      let startedAt = Date().addingTimeInterval(-30)
+      let file = directory.appendingPathComponent("session.jsonl")
+      let oldFile = directory.appendingPathComponent("old.jsonl")
+      let pending = PendingHubSession(
+        worktree: WorktreeBranch(name: "main", path: directory.path), startedAt: startedAt,
+        origin: origin(source), expectedSessionID: provider == .claude ? sessionID : nil,
+        needsIdentification: true, existingSessionIdentifiers: [oldFile.path, "old-session"])
+      try store.saveLaunchOrigin(SessionLaunchOriginRecord(pending: pending, provider: provider))
+      try await store.setCustomName("Pending rename", for: "pending-\(pending.id.uuidString)")
+      if resolvedRename { try await store.setCustomName("Existing manual rename", for: sessionID) }
+      let payload: [String: Any] = [
+        "type": "session_meta", "timestamp": ISO8601DateFormatter().string(from: Date()),
+        "payload": ["id": sessionID, "cwd": directory.path, "source": "cli"]]
+      var data = try JSONSerialization.data(withJSONObject: payload)
+      data.append(0x0a)
+      try data.write(to: file)
+      try data.write(to: oldFile)
+      let candidate = CLISession(
+        id: sessionID, projectPath: directory.path, slug: "Provider title", sessionFilePath: file.path)
+      let unrelated = CLISession(id: "unrelated", projectPath: "/different/repository")
+      let old = CLISession(
+        id: "old-session", projectPath: directory.path, sessionFilePath: oldFile.path)
+      let monitor = OriginMonitor()
+      let restored = makeViewModel(store: store, provider: provider, monitor: monitor)
+      var repository = SelectedRepository(path: directory.path)
+      repository.worktrees = [
+        WorktreeBranch(name: "main", path: directory.path, sessions: [candidate, unrelated, old])]
+      await monitor.setSelectedRepositories([repository])
+      for _ in 0..<100 where restored.allSessions.isEmpty { await Task.yield() }
+      let recovered = try #require(restored.pendingHubSessions.first)
+      #expect(restored.recoveryCandidates(for: recovered).map(\.id) == [sessionID])
+      #expect(!restored.confirmRecoveredLaunch(pending.id, sessionID: unrelated.id))
+      #expect(!restored.confirmRecoveredLaunch(pending.id, sessionID: old.id))
+      #expect(try store.launchOrigins(provider: provider).first?.sessionID == nil)
+      #expect(restored.confirmRecoveredLaunch(pending.id, sessionID: sessionID))
+      #expect(restored.pendingHubSessions.isEmpty)
+      #expect(restored.resolvedPendingSessionHistory[pending.id] == sessionID)
+      #expect(restored.displayName(for: candidate) == (resolvedRename ? "Existing manual rename" : "Pending rename"))
+      #expect(restored.sessionOrigins[unrelated.id] == nil)
+      #expect(!restored.confirmRecoveredLaunch(pending.id, sessionID: sessionID))
+      let reopened = makeViewModel(store: store, provider: provider)
+      #expect(reopened.sessionOrigins[sessionID] == origin(source))
+      #expect(reopened.displayName(for: candidate) == restored.displayName(for: candidate))
+      restored.stopMonitoring(sessionId: sessionID)
+    }
+  }
+
   @Test("Concurrent Codex launches cannot resolve without process evidence")
   func concurrentCodex() throws {
     let store = try SessionMetadataStore(path: ":memory:")
