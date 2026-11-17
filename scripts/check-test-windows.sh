@@ -6,10 +6,17 @@ FILES=()
 if [ "$#" -gt 0 ]; then
   FILES=("$@")
 else
-  while IFS= read -r file; do
-    FILES+=("$file")
-  done < <(find "$ROOT/app/modules" -path '*/Tests/*' -name '*.swift' \
-    ! -path '*/AgentHubTests/BackgroundTestWindow.swift' | sort)
+  # Scan repository-owned tests, including new files before they are staged.
+  # Generated dependency checkouts can contain unrelated APIs such as SQL order().
+  # NUL separators preserve paths containing whitespace or newlines.
+  while IFS= read -r -d '' file; do
+    case "$file" in
+      app/modules/AgentHubCore/Tests/AgentHubTests/BackgroundTestWindow.swift) continue ;;
+      app/modules/*/Tests/*.swift)
+        [ -f "$ROOT/$file" ] && FILES+=("$ROOT/$file")
+        ;;
+    esac
+  done < <(git -C "$ROOT" ls-files -z --cached --others --exclude-standard -- app/modules)
 fi
 if [ "${#FILES[@]}" -eq 0 ]; then
   echo "check-test-windows: no test files found" >&2
