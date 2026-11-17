@@ -21,12 +21,11 @@ struct ChatTranscriptStressTests {
     let view = ChatTranscriptView(
       transcriptPath: path, providerKind: provider, reader: ChatTranscriptReader(),
       onSend: { _ in true })
-    let window = NSWindow(
+    let window = BackgroundTestWindow(
       contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false)
     window.contentView = NSHostingView(rootView: view)
-    window.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
+    window.presentForTesting()
     defer { window.close() }
 
     // Count main-loop turns for 8 s; a layout loop starves them.

@@ -254,7 +254,7 @@ struct ShellTitleBarHitTests {
 /// A window configured like the app's main window, ordered in offscreen.
 @MainActor
 private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
-  let window: NSWindow
+  let window: BackgroundTestWindow
   let shellModel = WorkbenchShellModel()
   let overlays = ShellOverlayModel()
   private(set) var zoomRequests = 0
@@ -275,7 +275,7 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     // any, become the window's `NSToolbar`.
     controller.sceneBridgingOptions = [.toolbars, .title]
     // `.windowStyle(.hiddenTitleBar)`.
-    window = NSWindow(
+    window = BackgroundTestWindow(
       contentRect: CGRect(x: 0, y: 0, width: width, height: 800),
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
       backing: .buffered,
@@ -289,8 +289,7 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     window.delegate = self
     window.setContentSize(CGSize(width: width, height: 800))
     // Offscreen, so the run never shows a window on the user's display.
-    window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-    window.orderFrontRegardless()
+    window.presentForTesting()
     await settle()
   }
 

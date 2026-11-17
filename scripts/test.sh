@@ -8,6 +8,7 @@
 #   scripts/test.sh packages    # motion + shell guards + fast `swift test` packages only
 #   scripts/test.sh motion      # motion guard only (scripts/check-motion.sh)
 #   scripts/test.sh shell       # shell toolbar guard only (scripts/check-shell.sh)
+#   AGENTHUB_TEST_VISIBLE_WINDOWS=1 scripts/test.sh core  # explicit desktop interaction
 #
 # Notes:
 #   - The AgentHubCore suite cannot run under `swift test`: it depends on
@@ -87,7 +88,18 @@ run_shell_check() {
   fi
 }
 
+run_test_window_check() {
+  echo ""
+  echo "▶ background test window guard"
+  if bash "$ROOT/scripts/check-test-windows.sh"; then
+    :
+  else
+    FAILURES+=("background test window guard (scripts/check-test-windows.sh)")
+  fi
+}
+
 run_core() {
+  run_test_window_check
   echo ""
   echo "▶ pending session watcher lifecycle guard"
   if python3 "$ROOT/scripts/test-pending-session-watcher.py"; then
@@ -111,7 +123,7 @@ run_core() {
   # (non-blocking, see test.yml), so a single deterministic-duration pass is what
   # we want; flaky tests are tracked in TestQuarantine.md / #380.
   if ( cd "$MODULES/AgentHubCore" && \
-       xcodebuild test \
+       TEST_RUNNER_AGENTHUB_TEST_VISIBLE_WINDOWS="${AGENTHUB_TEST_VISIBLE_WINDOWS:-0}" xcodebuild test \
          -scheme AgentHubCore-Tests \
          -destination 'platform=macOS' \
          -test-timeouts-enabled YES \
@@ -128,10 +140,10 @@ run_core() {
 
 case "${1:-all}" in
   core)     run_core ;;
-  packages) run_motion_check; run_shell_check; run_packages ;;
+  packages) run_motion_check; run_shell_check; run_test_window_check; run_packages ;;
   motion)   run_motion_check ;;
   shell)    run_shell_check ;;
-  all)      run_motion_check; run_shell_check; run_packages; run_core ;;   # cheap failures surface first
+  all)      run_motion_check; run_shell_check; run_test_window_check; run_packages; run_core ;;   # cheap failures surface first
   *)        echo "usage: scripts/test.sh [all|core|packages|motion|shell]" >&2; exit 2 ;;
 esac
 

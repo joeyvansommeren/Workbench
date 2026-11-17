@@ -6,6 +6,24 @@ They are temporarily disabled with `.disabled("headless-quarantine: …; see Tes
 so the gate is green. **Each is a real follow-up**, grouped by root cause below. Re-enable
 by removing the `.disabled(...)` trait once the underlying issue is fixed.
 
+## Local desktop behaviour
+
+`make test` keeps native fixtures in the background by default. The package test
+runner uses a prohibited activation policy. Ordered fixtures use an offscreen,
+non-key window that AppKit cannot move onto a display. No test is skipped by this
+mode. Native layout, direct event routing, and first-responder assertions still run.
+These checks do not establish foreground keyboard or VoiceOver behaviour.
+
+For an intentional visible interaction run, use
+`AGENTHUB_TEST_VISIBLE_WINDOWS=1 make test`. This can activate windows and interrupt
+other work. Only run it when the desktop is available. Direct `xcodebuild` calls
+can opt in with `TEST_RUNNER_AGENTHUB_TEST_VISIBLE_WINDOWS=1`; default calls remain
+in background mode. Do not use visible mode while Joey is using this device.
+
+`BackgroundTestWindowTests` checks the background policy. `scripts/check-test-windows.sh`
+rejects direct foreground presentation in test files so new fixtures use the same policy.
+The installed app and macOS user settings are unchanged.
+
 ## CI gate status
 
 CI (`.github/workflows/test.yml`) gates on the **fast `swift test` packages only**
