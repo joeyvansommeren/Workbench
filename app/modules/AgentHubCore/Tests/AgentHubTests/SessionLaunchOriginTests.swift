@@ -505,7 +505,8 @@ struct SessionLaunchOriginTests {
     let pendingKey = pending.placeholderSession.id
     try await store.setCustomName("Pending manual name", for: pendingKey)
     if resolvedRename { try await store.setCustomName("Resolved manual name", for: sessionID) }
-    _ = vm.getOrCreateTerminal(forKey: pendingKey, sessionId: nil, projectPath: directory.path)
+    _ = vm.getOrCreateTerminal(
+      forKey: pendingKey, sessionId: nil, projectPath: directory.path, initialPrompt: nil)
     let terminal = try #require(factory.surfaces.first)
     let payload: [String: Any] = [
       "type": "session_meta", "timestamp": ISO8601DateFormatter().string(from: Date()),
