@@ -60,19 +60,60 @@ struct ApprovalResponderTests {
     #expect(ClaudePermissionMenu.persistentOption(in: replaced) == nil)
   }
 
-  @Test("Disclosure reports an explicit session lifetime and leaves other facts unknown")
-  func scopeFactsFollowProviderText() {
-    let session = ClaudePermissionScopeDisclosure(
-      providerOption: ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.edit))
-    #expect(session.duration == "This session")
-    #expect(session.revocation == "Not confirmed")
-    let directory = ClaudePermissionScopeDisclosure(
-      providerOption: ClaudePermissionMenu.persistentOption(
-        in: ClaudePermissionMenuFixtures.bashPlain))
-    #expect(directory.duration == "Not confirmed")
-    #expect(directory.revocation == "Not confirmed")
-    #expect(ClaudePermissionScopeDisclosure(providerOption: nil).providerOption == nil)
-    #expect(ClaudePermissionScopeDisclosure(providerOption: nil).duration == "Not confirmed")
+  @Test("Session edit scope names its lifetime, storage and revocation")
+  func sessionEditScopeFacts() {
+    for tool in ["Edit", "MultiEdit", "Write", "NotebookEdit"] {
+      let option = ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.edit)
+      let disclosure = ClaudePermissionScopeDisclosure(toolName: tool, providerOption: option)
+      #expect(disclosure.providerOption == option)
+      #expect(disclosure.isRecognized)
+      #expect(disclosure.duration == "Until this session ends or you change permission mode")
+      #expect(disclosure.storage == "Session only; not saved to a settings file")
+      #expect(disclosure.revocation.contains("Shift+Tab"))
+      #expect(disclosure.revocation.contains("Manual mode (default)"))
+    }
+  }
+
+  @Test("Saved rules retain the exact target and name future sessions and rule removal")
+  func savedRuleScopeFacts() {
+    let options = [
+      ("Bash", ClaudePermissionMenu.persistentOption(in: ClaudePermissionMenuFixtures.bashPlain)!),
+      ("Bash", "2. Yes, and don't ask again for: git diff *"),
+      ("WebFetch", "2. Yes, and don’t ask again for example.com"),
+      ("WebSearch", "2. Yes, and don't ask again for web searches"),
+      ("Bash", "2. Yes, and don't ask again for ls commands\nin /tmp/a long directory"),
+    ]
+    for (tool, option) in options {
+      let disclosure = ClaudePermissionScopeDisclosure(toolName: tool, providerOption: option)
+      #expect(disclosure.providerOption == option)
+      #expect(disclosure.isRecognized)
+      #expect(disclosure.duration == "Until you remove the saved rule; includes future sessions")
+      #expect(disclosure.storage.contains(".claude/settings.local.json"))
+      #expect(disclosure.storage.contains("Exact location not confirmed"))
+      #expect(!disclosure.storage.contains("repository root"))
+      #expect(disclosure.revocation.contains("/permissions"))
+      #expect(disclosure.revocation.contains("remove the matching Allow rule"))
+    }
+  }
+
+  @Test("Missing, changed and unsupported options never claim a saved rule or session duration")
+  func unknownScopeFacts() {
+    let options: [(String, String?)] = [
+      ("Bash", nil), ("Bash", ""), ("Bash", "2. Yes"),
+      ("Bash", "2. Yes, and switch to auto mode"),
+      ("Bash", "2. Yes, and don't ask again for "),
+      ("Bash", "2. Yes, allow all edits during this session"),
+      ("Edit", "2. Yes, and don't ask again for edits"),
+      ("mcp__server__tool", "2. Yes, and don't ask again for this tool"),
+    ]
+    for (tool, option) in options {
+      let disclosure = ClaudePermissionScopeDisclosure(toolName: tool, providerOption: option)
+      #expect(disclosure.providerOption == option)
+      #expect(!disclosure.isRecognized)
+      #expect(disclosure.duration == "Not confirmed")
+      #expect(disclosure.storage == "Not confirmed")
+      #expect(disclosure.revocation.hasPrefix("Not confirmed"))
+    }
   }
 
   @Test("Deny sends Escape, never a number")

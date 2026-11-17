@@ -25,17 +25,25 @@ public final class PendingSessionDirectoryWatcher: @unchecked Sendable {
   }
 
   private let queue = DispatchQueue(label: "com.agenthub.pending-session-watcher")
+  private let queueKey = DispatchSpecificKey<Bool>()
   private var source: DispatchSourceFileSystemObject?
   private var isCancelled = false
   private var didStart = false
   private var foundFile: String?
 
-  public init() {}
+  public init() {
+    queue.setSpecific(key: queueKey, value: true)
+  }
 
   deinit {
-    queue.sync {
+    if DispatchQueue.getSpecific(key: queueKey) != nil {
       isCancelled = true
       source?.cancel()
+    } else {
+      queue.sync {
+        isCancelled = true
+        source?.cancel()
+      }
     }
   }
 

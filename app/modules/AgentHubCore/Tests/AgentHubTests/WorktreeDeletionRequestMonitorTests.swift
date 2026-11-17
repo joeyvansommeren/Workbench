@@ -4,12 +4,15 @@ import Testing
 
 @testable import AgentHubCore
 
+@MainActor
 @Suite("WorktreeDeletionRequestMonitor")
 struct WorktreeDeletionRequestMonitorTests {
   @Test("Monitor handles queued deletion request and removes it")
   func monitorHandlesQueuedRequestAndRemovesIt() async throws {
     let directory = try temporaryDeletionMonitorRequestDirectory()
     defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let clock = ManualTaskClock()
+    defer { clock.close() }
 
     let queue = WorktreeDeletionRequestQueue(directoryURL: directory)
     let request = WorktreeDeletionRequest(
@@ -22,22 +25,34 @@ struct WorktreeDeletionRequestMonitorTests {
     try queue.enqueue(request)
 
     let recorder = WorktreeDeletionRequestRecorder()
-    let monitor = WorktreeDeletionRequestMonitor(queue: queue, pollInterval: .milliseconds(20))
+    let monitor = WorktreeDeletionRequestMonitor(
+      queue: queue,
+      pollInterval: .milliseconds(20),
+      sleep: { try await clock.sleep(for: $0) }
+    )
     await monitor.start { queued in
       await recorder.record(queued.request)
     }
 
-    await waitForDeletionMonitorCondition {
-      await recorder.requests() == [request]
-        && ((try? queue.pendingRequests().isEmpty) == true)
+    do {
+      let completedPoll = try await clock.nextSleep(for: .milliseconds(20))
+      await monitor.stop()
+      try await clock.waitForCompletion(of: completedPoll)
+      #expect(await recorder.requests() == [request])
+      #expect(try queue.pendingRequests().isEmpty)
+    } catch {
+      await monitor.stop()
+      clock.close()
+      throw error
     }
-    await monitor.stop()
   }
 
   @Test("Monitor marks failed deletion request out of pending queue")
   func monitorMarksFailedRequestOutOfPendingQueue() async throws {
     let directory = try temporaryDeletionMonitorRequestDirectory()
     defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let clock = ManualTaskClock()
+    defer { clock.close() }
 
     let queue = WorktreeDeletionRequestQueue(directoryURL: directory)
     let queued = try queue.enqueue(WorktreeDeletionRequest(
@@ -47,17 +62,58 @@ struct WorktreeDeletionRequestMonitorTests {
       branchName: "feature"
     ))
 
-    let monitor = WorktreeDeletionRequestMonitor(queue: queue, pollInterval: .milliseconds(20))
+    let monitor = WorktreeDeletionRequestMonitor(
+      queue: queue,
+      pollInterval: .milliseconds(20),
+      sleep: { try await clock.sleep(for: $0) }
+    )
     await monitor.start { _ in
       throw WorktreeDeletionRequestHandlingError.deletionFailed("failed")
     }
 
-    await waitForDeletionMonitorCondition {
+    do {
+      let completedPoll = try await clock.nextSleep(for: .milliseconds(20))
+      await monitor.stop()
+      try await clock.waitForCompletion(of: completedPoll)
       let failedURL = queued.fileURL.deletingPathExtension().appendingPathExtension("failed")
-      return ((try? queue.pendingRequests().isEmpty) == true)
-        && FileManager.default.fileExists(atPath: failedURL.path)
+      #expect(try queue.pendingRequests().isEmpty)
+      #expect(FileManager.default.fileExists(atPath: failedURL.path))
+    } catch {
+      await monitor.stop()
+      clock.close()
+      throw error
     }
-    await monitor.stop()
+  }
+
+  @Test("Public defaults deliver a queued request to the handler")
+  func publicDefaultsDeliverQueuedRequest() async throws {
+    let directory = try temporaryDeletionMonitorRequestDirectory()
+    defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let queue = WorktreeDeletionRequestQueue(directoryURL: directory)
+    let request = WorktreeDeletionRequest(
+      id: "delete-1",
+      repositoryPath: "/tmp/repo",
+      worktreePath: "/tmp/repo/.worktrees/feature",
+      branchName: "feature",
+      removeFromDisk: false
+    )
+    try queue.enqueue(request)
+
+    let recorder = WorktreeDeletionRequestRecorder()
+    let received = TestCallbackReceipt()
+    let monitor = WorktreeDeletionRequestMonitor(queue: queue)
+    await monitor.start { queued in
+      await recorder.record(queued.request)
+      received.record()
+    }
+    do {
+      try await received.wait()
+      await monitor.stop()
+      #expect(await recorder.requests() == [request])
+    } catch {
+      await monitor.stop()
+      throw error
+    }
   }
 }
 
@@ -71,17 +127,6 @@ private actor WorktreeDeletionRequestRecorder {
   func requests() -> [WorktreeDeletionRequest] {
     recordedRequests
   }
-}
-
-private func waitForDeletionMonitorCondition(
-  timeout: Duration = .seconds(2),
-  condition: @escaping () async -> Bool
-) async {
-  let start = ContinuousClock.now
-  while !(await condition()), ContinuousClock.now - start < timeout {
-    try? await Task.sleep(for: .milliseconds(20))
-  }
-  #expect(await condition())
 }
 
 private func temporaryDeletionMonitorRequestDirectory() throws -> URL {

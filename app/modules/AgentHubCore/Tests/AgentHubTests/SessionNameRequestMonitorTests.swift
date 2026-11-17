@@ -4,16 +4,21 @@ import Testing
 
 @testable import AgentHubCore
 
+@MainActor
 @Suite("SessionNameRequestMonitor")
 struct SessionNameRequestMonitorTests {
   @Test("Monitor handles queued request and removes it")
   func monitorHandlesQueuedRequestAndRemovesIt() async throws {
     let directory = try temporarySessionNameMonitorRequestDirectory()
     defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let clock = ManualTaskClock()
+    defer { clock.close() }
 
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
     let queue = SessionNameRequestQueue(directoryURL: directory)
     let request = SessionNameRequest(
       id: "name-1",
+      createdAt: now,
       name: "Session Naming",
       sourceProvider: .codex,
       sourceSessionId: "session-1",
@@ -22,54 +27,83 @@ struct SessionNameRequestMonitorTests {
     try queue.enqueue(request)
 
     let recorder = SessionNameRequestRecorder()
-    let monitor = SessionNameRequestMonitor(queue: queue, pollInterval: .milliseconds(20))
+    let monitor = SessionNameRequestMonitor(
+      queue: queue,
+      pollInterval: .milliseconds(20),
+      sleep: { try await clock.sleep(for: $0) },
+      now: { now }
+    )
     await monitor.start { queued in
       await recorder.record(queued.request)
     }
 
-    await waitForSessionNameMonitorCondition {
-      await recorder.requests() == [request]
-        && ((try? queue.pendingRequests().isEmpty) == true)
+    do {
+      let completedPoll = try await clock.nextSleep(for: .milliseconds(20))
+      await monitor.stop()
+      try await clock.waitForCompletion(of: completedPoll)
+      #expect(await recorder.requests() == [request])
+      #expect(try queue.pendingRequests().isEmpty)
+    } catch {
+      await monitor.stop()
+      clock.close()
+      throw error
     }
-    await monitor.stop()
   }
 
   @Test("Monitor marks failed request out of pending queue")
   func monitorMarksFailedRequestOutOfPendingQueue() async throws {
     let directory = try temporarySessionNameMonitorRequestDirectory()
     defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let clock = ManualTaskClock()
+    defer { clock.close() }
 
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
     let queue = SessionNameRequestQueue(directoryURL: directory)
     let queued = try queue.enqueue(SessionNameRequest(
       id: "name-1",
-      createdAt: Date.now.addingTimeInterval(-11),
+      createdAt: now.addingTimeInterval(-11),
       name: "Session Naming",
       sourceProvider: .claude,
       sourceSessionId: nil,
       sourceProcessId: 42
     ))
 
-    let monitor = SessionNameRequestMonitor(queue: queue, pollInterval: .milliseconds(20))
+    let monitor = SessionNameRequestMonitor(
+      queue: queue,
+      pollInterval: .milliseconds(20),
+      sleep: { try await clock.sleep(for: $0) },
+      now: { now }
+    )
     await monitor.start { _ in
       throw SessionNameRequestHandlingError.sessionUnavailable
     }
 
-    await waitForSessionNameMonitorCondition {
+    do {
+      let completedPoll = try await clock.nextSleep(for: .milliseconds(20))
+      await monitor.stop()
+      try await clock.waitForCompletion(of: completedPoll)
       let failedURL = queued.fileURL.deletingPathExtension().appendingPathExtension("failed")
-      return ((try? queue.pendingRequests().isEmpty) == true)
-        && FileManager.default.fileExists(atPath: failedURL.path)
+      #expect(try queue.pendingRequests().isEmpty)
+      #expect(FileManager.default.fileExists(atPath: failedURL.path))
+    } catch {
+      await monitor.stop()
+      clock.close()
+      throw error
     }
-    await monitor.stop()
   }
 
   @Test("Monitor retries a fresh request while its session is being discovered")
   func monitorRetriesFreshUnavailableSession() async throws {
     let directory = try temporarySessionNameMonitorRequestDirectory()
     defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let clock = ManualTaskClock()
+    defer { clock.close() }
 
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
     let queue = SessionNameRequestQueue(directoryURL: directory)
     try queue.enqueue(SessionNameRequest(
       id: "name-1",
+      createdAt: now,
       name: "Session Naming",
       sourceProvider: .claude,
       sourceSessionId: nil,
@@ -77,7 +111,12 @@ struct SessionNameRequestMonitorTests {
     ))
 
     let recorder = SessionNameRequestRetryRecorder()
-    let monitor = SessionNameRequestMonitor(queue: queue, pollInterval: .milliseconds(20))
+    let monitor = SessionNameRequestMonitor(
+      queue: queue,
+      pollInterval: .milliseconds(20),
+      sleep: { try await clock.sleep(for: $0) },
+      now: { now }
+    )
     await monitor.start { _ in
       let attempt = await recorder.recordAttempt()
       if attempt == 1 {
@@ -85,11 +124,54 @@ struct SessionNameRequestMonitorTests {
       }
     }
 
-    await waitForSessionNameMonitorCondition {
-      await recorder.attemptCount() == 2
-        && ((try? queue.pendingRequests().isEmpty) == true)
+    do {
+      let firstPoll = try await clock.nextSleep(for: .milliseconds(20))
+      #expect(await recorder.attemptCount() == 1)
+      #expect(try queue.pendingRequests().count == 1)
+      clock.advance(by: .milliseconds(20))
+      let completedPoll = try await clock.nextSleep(for: .milliseconds(20), after: firstPoll.id)
+      await monitor.stop()
+      try await clock.waitForCompletion(of: completedPoll)
+      #expect(await recorder.attemptCount() == 2)
+      #expect(try queue.pendingRequests().isEmpty)
+    } catch {
+      await monitor.stop()
+      clock.close()
+      throw error
     }
-    await monitor.stop()
+  }
+
+  @Test("Public defaults deliver a queued request to the handler")
+  func publicDefaultsDeliverQueuedRequest() async throws {
+    let directory = try temporarySessionNameMonitorRequestDirectory()
+    defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let now = Date.now
+    let queue = SessionNameRequestQueue(directoryURL: directory)
+    let request = SessionNameRequest(
+      id: "name-1",
+      createdAt: now,
+      name: "Session Naming",
+      sourceProvider: .codex,
+      sourceSessionId: "session-1",
+      sourceProcessId: 42
+    )
+    try queue.enqueue(request)
+
+    let recorder = SessionNameRequestRecorder()
+    let received = TestCallbackReceipt()
+    let monitor = SessionNameRequestMonitor(queue: queue)
+    await monitor.start { queued in
+      await recorder.record(queued.request)
+      received.record()
+    }
+    do {
+      try await received.wait()
+      await monitor.stop()
+      #expect(await recorder.requests() == [request])
+    } catch {
+      await monitor.stop()
+      throw error
+    }
   }
 }
 
@@ -116,17 +198,6 @@ private actor SessionNameRequestRetryRecorder {
   func attemptCount() -> Int {
     attempts
   }
-}
-
-private func waitForSessionNameMonitorCondition(
-  timeout: Duration = .seconds(2),
-  condition: @escaping () async -> Bool
-) async {
-  let start = ContinuousClock.now
-  while !(await condition()), ContinuousClock.now - start < timeout {
-    try? await Task.sleep(for: .milliseconds(20))
-  }
-  #expect(await condition())
 }
 
 private func temporarySessionNameMonitorRequestDirectory() throws -> URL {
