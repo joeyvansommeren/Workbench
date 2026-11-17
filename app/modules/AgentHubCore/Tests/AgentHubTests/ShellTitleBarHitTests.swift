@@ -170,6 +170,13 @@ struct ShellTitleBarHitTests {
     }
   }
 
+  // Temporary focused entry point for the background-window regression.
+  // Remove after the event-routing cause is established; oneLine already covers it.
+  @Test("Diagnose the minimum-width sidebar toggle alignment")
+  func diagnoseMinimumWidthSidebarToggleAlignment() async throws {
+    try await oneLine(width: 900, control: .sidebarToggle)
+  }
+
   @Test("The traffic lights sit in the prototype's 52 pt bar", arguments: [1440.0, 900.0])
   func lightsInPrototypeBar(width: Double) async throws {
     let host = try await ShellTitleBarTestWindow(width: width)
@@ -343,6 +350,9 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
   /// points below the top edge. `reset` runs before every click.
   func verticalCentre(atX x: CGFloat, reset: () -> Void, hit: () -> Bool) async -> CGFloat? {
     var ys: [CGFloat] = []
+    let initialMetrics = shellModel.titleBar
+    let initialFrame = window.frame
+    let initialKeyState = window.isKeyWindow
     for fromTop in stride(from: 1, through: shellModel.titleBar.bandHeight + 20, by: 1) {
       reset()
       await settle(turns: 1)
@@ -351,6 +361,13 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     }
     reset()
     await settle()
+    let hitViews = [14.0, 26.0, 38.0].map { fromTop in
+      let hit = frameViewHit(at: bandPoint(x: x, fromTop: fromTop))
+      return "\(fromTop):\(hit.map { String(describing: type(of: $0)) } ?? "nil")"
+    }
+    print("TITLEBAR_DIAGNOSTIC x=\(x) hits=\(ys) metrics=\(initialMetrics)->\(shellModel.titleBar) "
+      + "frame=\(initialFrame)->\(window.frame) key=\(initialKeyState)->\(window.isKeyWindow) "
+      + "frameHits=\(hitViews)")
     return Self.centreOfLongestRun(ys, step: 1)
   }
 
