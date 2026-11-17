@@ -684,6 +684,21 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
       .sessionID ?? sessionID
   }
 
+  /// Also used by explicitly confirmed launches that have no ticket provenance.
+  nonisolated func transferPendingName(pendingID: UUID, sessionID: String) throws {
+    try dbQueue.write { db in
+      guard let pending = try SessionMetadata.fetchOne(db, key: "pending-\(pendingID.uuidString)"),
+        let name = pending.customName
+      else { return }
+      var resolved = try SessionMetadata.fetchOne(db, key: sessionID)
+        ?? SessionMetadata(sessionId: sessionID)
+      if resolved.customName == nil {
+        resolved.customName = name
+        try resolved.save(db)
+      }
+    }
+  }
+
   nonisolated func canonicalNameSessionID(_ sessionID: String) throws -> String {
     try dbQueue.read { try Self.canonicalNameSessionID(sessionID, db: $0) }
   }

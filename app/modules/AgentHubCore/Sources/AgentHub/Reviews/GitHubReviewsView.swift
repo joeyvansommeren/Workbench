@@ -1035,7 +1035,8 @@ struct GitHubReviewsView: View {
         statuses: claudeSessionsViewModel.sessionStatuses,
         ticketKeysBySessionID: ticketKeys(for: claudeSessionsViewModel),
         sourceOrigins: claudeSessionsViewModel.sessionOrigins,
-        repositoryIdentities: viewModel.reviewRepositoryIdentities
+        repositoryIdentities: viewModel.reviewRepositoryIdentities,
+        quarantinedSessionIDs: viewModel.quarantinedReviewSessionIDs(provider: .claude)
       ),
       GitHubReviewSessionInventory(
         provider: .codex,
@@ -1046,7 +1047,8 @@ struct GitHubReviewsView: View {
         statuses: codexSessionsViewModel.sessionStatuses,
         ticketKeysBySessionID: ticketKeys(for: codexSessionsViewModel),
         sourceOrigins: codexSessionsViewModel.sessionOrigins,
-        repositoryIdentities: viewModel.reviewRepositoryIdentities
+        repositoryIdentities: viewModel.reviewRepositoryIdentities,
+        quarantinedSessionIDs: viewModel.quarantinedReviewSessionIDs(provider: .codex)
       ),
     ]
   }

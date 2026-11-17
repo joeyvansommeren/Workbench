@@ -480,6 +480,90 @@ struct SessionLaunchOriginTests {
     #expect(!vm.shouldWatchPendingSession(pending.id))
   }
 
+  @Test(
+    "Wrapper child writer offers explicit live recovery without replacing the terminal",
+    arguments: [false, true], [false, true])
+  func wrapperWriterRecovery(withOrigin: Bool, resolvedRename: Bool) async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "wrapper-recovery-\(UUID())")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("wrapper-session.jsonl")
+    let sessionID = "wrapper-session"
+    let store = try SessionMetadataStore(path: ":memory:")
+    let monitor = OriginMonitor()
+    let factory = OriginTerminalFactory()
+    let vm = makeViewModel(
+      store: store, provider: .codex, monitor: monitor, terminalFactory: factory)
+    let pending = PendingHubSession(
+      worktree: WorktreeBranch(name: "main", path: directory.path),
+      startedAt: Date().addingTimeInterval(-10), origin: withOrigin ? origin() : nil)
+    vm.pendingHubSessions = [pending]
+    if withOrigin {
+      try store.saveLaunchOrigin(SessionLaunchOriginRecord(pending: pending, provider: .codex))
+    }
+    let pendingKey = pending.placeholderSession.id
+    try await store.setCustomName("Pending manual name", for: pendingKey)
+    if resolvedRename { try await store.setCustomName("Resolved manual name", for: sessionID) }
+    _ = vm.getOrCreateTerminal(forKey: pendingKey, sessionId: nil, projectPath: directory.path)
+    let terminal = try #require(factory.surfaces.first)
+    let payload: [String: Any] = [
+      "type": "session_meta", "timestamp": ISO8601DateFormatter().string(from: Date()),
+      "payload": ["id": sessionID, "cwd": directory.path, "source": "cli"]]
+    var data = try JSONSerialization.data(withJSONObject: payload)
+    data.append(0x0a)
+    try data.write(to: file)
+    let wrapper = Process()
+    let input = Pipe()
+    let output = Pipe()
+    wrapper.executableURL = URL(fileURLWithPath: "/bin/sh")
+    // Reproduce a launcher that waits while its native child owns the session file.
+    wrapper.arguments = [
+      "-c",
+      "exec 4<&0; /bin/sh -c 'exec 3>> \"$1\"; printf \"ready\\n\"; read -r line' fixture \"$1\" <&4 & wait",
+      "wrapper", file.path,
+    ]
+    wrapper.standardInput = input
+    wrapper.standardOutput = output
+    wrapper.standardError = FileHandle.nullDevice
+    try wrapper.run()
+    defer {
+      try? input.fileHandleForWriting.write(contentsOf: Data("done\n".utf8))
+      try? input.fileHandleForWriting.close()
+      wrapper.waitUntilExit()
+      for row in vm.pendingHubSessions { vm.cancelPendingSession(row) }
+      vm.stopMonitoring(sessionId: sessionID)
+    }
+    _ = try output.fileHandleForReading.read(upToCount: 6)
+    vm.recordPendingLaunchProcess(forKey: pendingKey, processID: wrapper.processIdentifier)
+    let session = CLISession(
+      id: sessionID, projectPath: directory.path, slug: "Provider title", sessionFilePath: file.path)
+    var repository = SelectedRepository(path: directory.path)
+    repository.worktrees = [
+      WorktreeBranch(name: "main", path: directory.path, sessions: [session])]
+    await monitor.setSelectedRepositories([repository])
+    for _ in 0..<100 where vm.allSessions.isEmpty { await Task.yield() }
+    #expect(await vm.findRecentCodexSession(
+      in: [file.path], pending: pending, worktree: pending.worktree,
+      pendingStartedAt: pending.startedAt) == nil)
+    let recovery = try #require(vm.pendingHubSessions.first)
+    #expect(recovery.needsIdentification)
+    #expect(!vm.shouldWatchPendingSession(pending.id))
+    #expect(vm.pendingLaunchRecoveryMessage(for: pendingKey)?.contains("Link session") == true)
+    #expect(vm.recoveryCandidates(for: recovery).map(\.id) == [sessionID])
+    #expect(vm.activeTerminals[pendingKey] as? OriginTerminalSurface === terminal)
+    #expect(vm.confirmRecoveredLaunch(pending.id, sessionID: sessionID))
+    #expect(vm.pendingHubSessions.isEmpty)
+    #expect(vm.activeTerminals[pendingKey] == nil)
+    #expect(vm.activeTerminals[sessionID] as? OriginTerminalSurface === terminal)
+    #expect(terminal.configureCount == 1)
+    #expect(terminal.restartCount == 0)
+    #expect(terminal.terminateCount == 0)
+    #expect(vm.displayName(for: session)
+      == (resolvedRename ? "Resolved manual name" : "Pending manual name"))
+    if withOrigin { #expect(vm.sessionOrigins[sessionID] == origin()) }
+  }
+
   @Test("Claude directory fallback returns for a failed row")
   func failedClaudePolling() async throws {
     let vm = makeViewModel(store: nil, provider: .claude)

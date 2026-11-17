@@ -989,7 +989,7 @@ struct GitHubReviewsViewModelTests {
     )
   }
 
-  @Test("Recovers generated review prompts once and persists their real session id")
+  @Test("URL-only legacy review prompts are not adopted by the current account")
   func recoversGeneratedReviewPrompt() async throws {
     let service = GitHubProjectReviewServiceStub()
     let project = makeProject()
@@ -1023,9 +1023,9 @@ struct GitHubReviewsViewModelTests {
 
     await viewModel.recoverReviewSessions(provider: .claude, searchResults: [result])
 
-    #expect(viewModel.reviewSessionLaunches(for: pullRequest).first?.sessionID == result.id)
+    #expect(viewModel.reviewSessionLaunches(for: pullRequest).isEmpty)
     let stored = try await store.githubReviewSessionAssociations()
-    #expect(stored.first?.sessionID == result.id)
+    #expect(stored.isEmpty)
   }
 
   private func makeProject() -> GitHubReviewProject {

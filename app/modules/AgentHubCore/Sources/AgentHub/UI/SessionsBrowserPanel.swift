@@ -144,6 +144,11 @@ public struct SessionsBrowserPanel: View {
             .font(.system(size: 12))
             .foregroundColor(.red)
         }
+      } else if pending.needsIdentification {
+        Image(systemName: "questionmark.circle")
+          .font(.system(size: 20))
+          .foregroundStyle(.secondary)
+          .accessibilityLabel("Choose a session to finish linking")
       } else {
         // Provider icon with pulsing animation
         ZStack {
@@ -166,7 +171,7 @@ public struct SessionsBrowserPanel: View {
         Text(
           pending.removalError
             ?? (pending.needsIdentification
-              ? "Session identity unavailable"
+              ? "Choose Link session to continue"
               : pending.isFailed
                 ? "Failed to start"
                 : URL(fileURLWithPath: pending.worktree.path).lastPathComponent)
@@ -316,7 +321,7 @@ struct PendingLaunchRecoveryPicker: View {
       }
       .help("Choose the session started for this ticket")
       .confirmationDialog(
-        "Link this session to \(pending.origin?.key ?? "the ticket")?",
+        "Confirm this session for \(pending.origin?.key ?? "the pending launch")?",
         isPresented: Binding(
           get: { selectedSession != nil },
           set: { if !$0 { selectedSession = nil } }),
@@ -331,7 +336,7 @@ struct PendingLaunchRecoveryPicker: View {
         Button("Cancel", role: .cancel) { selectedSession = nil }
       } message: {
         if let selectedSession {
-          Text("Session: \(viewModel.displayName(for: selectedSession)) · \(selectedSession.id)\nTicket: \(pending.origin?.displayName ?? "")\nA custom session name will be kept.")
+          Text("Session: \(viewModel.displayName(for: selectedSession)) · \(selectedSession.id)\nLaunch: \(viewModel.displayName(for: pending.placeholderSession))\nA custom session name will be kept.")
         }
       }
     }

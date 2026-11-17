@@ -75,6 +75,10 @@ struct ReviewsFiltersPopover: View {
       Text("GitHub CLI: \(account.login) · \(account.host)")
         .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
     }
+    if viewModel.hasUnverifiedReviewSessions {
+      Text("Older session links have no verified GitHub account. They stay saved and cannot receive review commands.")
+        .font(.caption).foregroundStyle(.secondary)
+    }
     if let owner = selectedOwner {
       Text("Repositories owned by \(owner.login)")
         .font(.caption).foregroundStyle(.secondary)
