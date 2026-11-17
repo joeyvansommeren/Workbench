@@ -9,6 +9,8 @@ public protocol SessionNameRequestMonitorProtocol: AnyObject, Sendable {
 public actor SessionNameRequestMonitor: SessionNameRequestMonitorProtocol {
   private let queue: SessionNameRequestQueue
   private let pollInterval: Duration
+  private let sleep: @Sendable (Duration) async throws -> Void
+  private let now: @Sendable () -> Date
   private var task: Task<Void, Never>?
   private var activeRequestIds: Set<String> = []
 
@@ -18,6 +20,20 @@ public actor SessionNameRequestMonitor: SessionNameRequestMonitorProtocol {
   ) {
     self.queue = queue
     self.pollInterval = pollInterval
+    self.sleep = { try await Task.sleep(for: $0) }
+    self.now = { .now }
+  }
+
+  init(
+    queue: SessionNameRequestQueue,
+    pollInterval: Duration,
+    sleep: @escaping @Sendable (Duration) async throws -> Void,
+    now: @escaping @Sendable () -> Date
+  ) {
+    self.queue = queue
+    self.pollInterval = pollInterval
+    self.sleep = sleep
+    self.now = now
   }
 
   public func start(
@@ -25,10 +41,10 @@ public actor SessionNameRequestMonitor: SessionNameRequestMonitorProtocol {
   ) async {
     guard task == nil else { return }
 
-    task = Task { [queue, pollInterval] in
+    task = Task { [queue, pollInterval, sleep] in
       while !Task.isCancelled {
         await self.processPendingRequests(queue: queue, handler: handler)
-        try? await Task.sleep(for: pollInterval)
+        try? await sleep(pollInterval)
       }
     }
   }
@@ -78,6 +94,6 @@ public actor SessionNameRequestMonitor: SessionNameRequestMonitorProtocol {
     else {
       return false
     }
-    return Date.now.timeIntervalSince(request.createdAt) < 10
+    return now().timeIntervalSince(request.createdAt) < 10
   }
 }

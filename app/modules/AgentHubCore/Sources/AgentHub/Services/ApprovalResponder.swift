@@ -105,22 +105,53 @@ public enum ClaudePermissionMenu {
   }
 }
 
-/// Facts the live provider option actually establishes. Unknown revocation
-/// keeps the lasting permission decision in the provider's own terminal.
+/// Provider text defines the target verbatim. Only recognized choices get
+/// lifetime/storage facts; unknown or future choices must not inherit them.
+/// Provider contract: https://code.claude.com/docs/en/permissions
 public struct ClaudePermissionScopeDisclosure: Equatable, Sendable {
   public let providerOption: String?
   public let duration: String
-  public let revocation = "Not confirmed"
+  public let storage: String
+  public let revocation: String
+  public let isRecognized: Bool
 
-  public init(providerOption: String?) {
+  public init(toolName: String, providerOption: String?) {
     self.providerOption = providerOption
-    let normalized = providerOption?.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-    if normalized == "2. Yes, allow all edits during this session (shift+tab)"
-      || normalized == "2. Yes, allow all edits during this session"
-    {
-      duration = "This session"
+    let normalized =
+      providerOption?.split(whereSeparator: \.isWhitespace).joined(separator: " ") ?? ""
+    let isSessionEdit =
+      ["Edit", "MultiEdit", "Write", "NotebookEdit"].contains(toolName)
+      && [
+        "2. Yes, allow all edits during this session (shift+tab)",
+        "2. Yes, allow all edits during this session",
+      ].contains(normalized)
+    let savedRulePrefixes = [
+      "2. Yes, and don't ask again for ",
+      "2. Yes, and don’t ask again for ",
+      "2. Yes, and don't ask again for: ",
+      "2. Yes, and don’t ask again for: ",
+    ]
+    let isSavedRule =
+      ["Bash", "WebFetch", "WebSearch"].contains(toolName)
+      && savedRulePrefixes.contains { prefix in
+        normalized.hasPrefix(prefix)
+          && !normalized.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces).isEmpty
+      }
+
+    isRecognized = isSessionEdit || isSavedRule
+    if isSessionEdit {
+      duration = "Until this session ends or you change permission mode"
+      storage = "Session only; not saved to a settings file"
+      revocation = "In Claude's terminal, use Shift+Tab to switch to Manual mode (default)."
+    } else if isSavedRule {
+      duration = "Until you remove the saved rule; includes future sessions"
+      storage =
+        "Claude's local settings (.claude/settings.local.json). Exact location not confirmed."
+      revocation = "In Claude's terminal, open /permissions and remove the matching Allow rule."
     } else {
       duration = "Not confirmed"
+      storage = "Not confirmed"
+      revocation = "Not confirmed. Check Claude's permission controls in the terminal."
     }
   }
 }

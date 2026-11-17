@@ -3308,6 +3308,12 @@ public final class CLISessionsViewModel {
     )
   }
 
+  /// Test seam: waits for the currently captured save, not future replacements.
+  func awaitCurrentWorkspaceStateSave() async {
+    let currentSave = workspaceStatePersistTask
+    await currentSave?.value
+  }
+
   private func persistWorkspaceState() {
     guard let metadataStore else { return }
     guard canPersistWorkspaceState else {

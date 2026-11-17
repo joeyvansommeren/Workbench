@@ -48,6 +48,7 @@ public actor DiffAvailabilityService: DiffAvailabilityServiceProtocol {
   private let evaluator: Evaluator
   private let minimumRefreshInterval: TimeInterval
   private let adaptiveThrottleMultiplier: Double
+  private let now: @Sendable () -> Date
   private var cache: [String: DiffAvailabilityStatus] = [:]
   private var cacheGeneration: [String: Int] = [:]
   private var inFlightTasks: [String: InFlightEvaluation] = [:]
@@ -57,13 +58,15 @@ public actor DiffAvailabilityService: DiffAvailabilityServiceProtocol {
   init(
     evaluator: Evaluator? = nil,
     minimumRefreshInterval: TimeInterval = 1.0,
-    adaptiveThrottleMultiplier: Double = 3.0
+    adaptiveThrottleMultiplier: Double = 3.0,
+    now: @escaping @Sendable () -> Date = { .now }
   ) {
     self.evaluator = evaluator ?? { projectPath in
       await Self.defaultEvaluator(projectPath: projectPath)
     }
     self.minimumRefreshInterval = minimumRefreshInterval
     self.adaptiveThrottleMultiplier = adaptiveThrottleMultiplier
+    self.now = now
   }
 
   public func cachedAvailability(for projectPath: String) async -> DiffAvailabilityStatus? {
@@ -84,7 +87,7 @@ public actor DiffAvailabilityService: DiffAvailabilityServiceProtocol {
     let task = Task(priority: .utility) {
       await evaluator(normalizedProjectPath)
     }
-    let evaluationStartedAt = Date.now
+    let evaluationStartedAt = now()
     lastEvaluationStartedAt[normalizedProjectPath] = evaluationStartedAt
     let inFlightEvaluation = InFlightEvaluation(
       id: UUID(),
@@ -96,7 +99,7 @@ public actor DiffAvailabilityService: DiffAvailabilityServiceProtocol {
     let status = await task.value
     if inFlightTasks[normalizedProjectPath]?.id == inFlightEvaluation.id {
       inFlightTasks.removeValue(forKey: normalizedProjectPath)
-      lastEvaluationDuration[normalizedProjectPath] = Date.now.timeIntervalSince(evaluationStartedAt)
+      lastEvaluationDuration[normalizedProjectPath] = now().timeIntervalSince(evaluationStartedAt)
       if (cacheGeneration[normalizedProjectPath] ?? 0) == inFlightEvaluation.generation {
         cache[normalizedProjectPath] = status
       }
@@ -112,7 +115,7 @@ public actor DiffAvailabilityService: DiffAvailabilityServiceProtocol {
     }
 
     if let lastEvaluationStartedAt = lastEvaluationStartedAt[normalizedProjectPath],
-       Date.now.timeIntervalSince(lastEvaluationStartedAt) < effectiveRefreshInterval(for: normalizedProjectPath) {
+       now().timeIntervalSince(lastEvaluationStartedAt) < effectiveRefreshInterval(for: normalizedProjectPath) {
       return
     }
 
