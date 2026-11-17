@@ -142,6 +142,6 @@ struct SessionResultStateTests {
     model.setShowsResult(false, for: pending)
     model.migrateResolvedPendingSessions([pendingID: "real"], provider: .claude)
     #expect(!model.showsResult(for: SidebarSessionItemID.monitored(provider: .claude, sessionId: "real")))
-    #expect(model.showsResult(for: "codex-unvisited"))
+    #expect(!model.showsResult(for: "codex-unvisited"))
   }
 }
