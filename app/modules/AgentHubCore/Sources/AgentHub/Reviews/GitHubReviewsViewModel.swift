@@ -577,43 +577,38 @@ public final class GitHubReviewsViewModel {
     provider: SessionProviderKind,
     searchResults: [SessionSearchResult]
   ) async {
-    for pullRequest in pullRequests {
-      let existing = reviewSessionLaunches(for: pullRequest).first {
-        $0.provider == provider && $0.sessionID != nil
-      }
-      guard existing == nil else { continue }
-      guard
-        let result =
-          searchResults
-          .filter({ isReviewResult($0, for: pullRequest) })
-          .max(by: { $0.lastActivityAt < $1.lastActivityAt })
-      else { continue }
-
-      let launch = GitHubReviewSessionLaunch(
-        pullRequestID: "\(sourceAccount?.persistenceKey ?? "legacy")|\(pullRequest.reviewIdentity)",
-        pullRequestURL: pullRequest.url,
-        provider: provider,
-        pendingID: nil,
-        sessionID: result.id,
-        projectPath: result.projectPath,
-        launchedAt: result.lastActivityAt, sourceAccountKey: sourceAccount?.persistenceKey,
-        branchName: result.gitBranch
-      )
-      upsert(launch)
-      await persist(launch)
-    }
+    // A matching URL or prompt does not prove which GitHub account launched a
+    // session. Keep legacy records unchanged until the user explicitly links
+    // them through an account-verified action; search must never adopt them.
   }
 
   func finishLegacySessionRecovery() {
     didAttemptLegacySessionRecovery = true
   }
 
+  var hasUnverifiedReviewSessions: Bool {
+    sourceAccount != nil && reviewSessionLaunchesByPullRequestID.values
+      .flatMap { $0 }.contains { $0.sourceAccountKey == nil }
+  }
+
+  func quarantinedReviewSessionIDs(provider: SessionProviderKind) -> Set<String> {
+    let launches = reviewSessionLaunchesByPullRequestID.values.flatMap { $0 }
+      .filter { $0.provider == provider }
+    let accountKey = sourceAccount?.persistenceKey
+    let verified = Set(launches.filter {
+      accountKey != nil && $0.sourceAccountKey == accountKey
+    }.compactMap(\.sessionID))
+    // Do not let ticket/URL inference bypass an unverified persisted association.
+    return Set(launches.compactMap(\.sessionID)).subtracting(verified)
+  }
+
   func reviewSessionLaunches(
     for pullRequest: GitHubProjectPullRequest
   ) -> [GitHubReviewSessionLaunch] {
-    reviewSessionLaunchesByPullRequestID.values.flatMap { $0 }.filter {
+    guard let accountKey = sourceAccount?.persistenceKey else { return [] }
+    return reviewSessionLaunchesByPullRequestID.values.flatMap { $0 }.filter {
       $0.pullRequestURL.caseInsensitiveCompare(pullRequest.url) == .orderedSame
-        && ($0.sourceAccountKey == nil || $0.sourceAccountKey == sourceAccount?.persistenceKey)
+        && $0.sourceAccountKey == accountKey
     }
   }
 
@@ -704,18 +699,6 @@ public final class GitHubReviewsViewModel {
       sessionLinkErrorMessage =
         "Could not save the review session link: \(error.localizedDescription)"
     }
-  }
-
-  private func isReviewResult(
-    _ result: SessionSearchResult,
-    for pullRequest: GitHubProjectPullRequest
-  ) -> Bool {
-    guard let message = result.firstMessage,
-      message.contains(pullRequest.url)
-    else { return false }
-    return message.localizedCaseInsensitiveContains("independent code review")
-      || message.localizedCaseInsensitiveContains("Review this pull request independently")
-      || message.localizedCaseInsensitiveContains("read-only review")
   }
 
   private func loadSources() async {

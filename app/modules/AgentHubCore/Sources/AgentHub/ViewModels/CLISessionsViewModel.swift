@@ -2413,7 +2413,7 @@ public final class CLISessionsViewModel {
     if let removalError = pending.removalError { return removalError }
     if pending.needsIdentification {
       return
-        "Choose the session started for this ticket, then confirm the link. The saved ticket title will follow it."
+        "Workbench cannot identify this session automatically. Choose Link session to confirm the matching session. Your session name will be kept."
     }
     if recoveredPendingIDs.contains(pending.id) {
       return "Waiting to identify the previous session. Workbench has not started another agent."
@@ -2423,8 +2423,9 @@ public final class CLISessionsViewModel {
 
   /// Candidates are offered for explicit confirmation only; opening a session never renames it.
   func recoveryCandidates(for pending: PendingHubSession) -> [CLISession] {
-    guard recoveredPendingIDs.contains(pending.id), pending.needsIdentification,
-      !pending.isFailed, pending.removalError == nil, pending.origin != nil
+    guard pending.needsIdentification,
+      (recoveredPendingIDs.contains(pending.id) || providerKind == .codex),
+      !pending.isFailed, pending.removalError == nil
     else { return [] }
     var seen: Set<String> = []
     return (allSessions + monitoredSessionList).filter { session in
@@ -2450,13 +2451,16 @@ public final class CLISessionsViewModel {
   @discardableResult
   func confirmRecoveredLaunch(_ pendingID: UUID, sessionID: String) -> Bool {
     guard let pending = pendingHubSessions.first(where: { $0.id == pendingID }),
-      let origin = pending.origin,
-      let session = recoveryCandidates(for: pending).first(where: { $0.id == sessionID }),
-      let launchOriginStore
+      let session = recoveryCandidates(for: pending).first(where: { $0.id == sessionID })
     else { return false }
     do {
-      try launchOriginStore.confirmLaunchOrigin(
-        pendingID: pendingID, provider: providerKind, sessionID: sessionID)
+      if pending.origin != nil {
+        guard let launchOriginStore else { return false }
+        try launchOriginStore.confirmLaunchOrigin(
+          pendingID: pendingID, provider: providerKind, sessionID: sessionID)
+      } else {
+        try metadataStore?.transferPendingName(pendingID: pendingID, sessionID: sessionID)
+      }
       // Read committed manual names. A pre-existing resolved rename always wins.
       let names = try metadataStore?.customNames(for: [sessionID]) ?? [:]
       sessionCustomNames.merge(names) { _, saved in saved }
@@ -2464,7 +2468,10 @@ public final class CLISessionsViewModel {
       launchError = "Could not save the session link. Try again."
       return false
     }
-    sessionOrigins[sessionID] = origin
+    if let origin = pending.origin { sessionOrigins[sessionID] = origin }
+    transferTerminal(fromPendingId: pendingID, toSessionId: sessionID)
+    transferAuxiliaryShellTerminal(fromPendingId: pendingID, toSessionId: sessionID)
+    pendingLaunchProcesses.removeValue(forKey: pendingID)
     pendingSessionClaims[sessionID] = pendingID
     resolvedPendingSessions[pendingID] = sessionID
     resolvedPendingSessionHistory[pendingID] = sessionID
@@ -5288,12 +5295,33 @@ public final class CLISessionsViewModel {
 
       candidates.append(meta)
     }
-    guard let process = pendingLaunchProcesses[pending.id] else { return nil }
-    let owned = await pendingSessionFileOwnership.ownedFiles(
-      in: Set(candidates.map(\.sessionFilePath)), process: process)
+    let owned: Set<String>
+    if let process = pendingLaunchProcesses[pending.id] {
+      owned = await pendingSessionFileOwnership.ownedFiles(
+        in: Set(candidates.map(\.sessionFilePath)), process: process)
+    } else {
+      owned = []
+    }
     guard shouldWatchPendingSession(pending.id) else { return nil }
-    candidates.removeAll { !owned.contains($0.sessionFilePath) }
-    return candidates.count == 1 ? candidates.first : nil
+    let verified = candidates.filter { owned.contains($0.sessionFilePath) }
+    if verified.count == 1 { return verified.first }
+    // Node-based launchers can keep the native writer in a child process. Do
+    // not trust arbitrary descendants: make uncertainty actionable while live.
+    if !candidates.isEmpty, Date().timeIntervalSince(pending.startedAt) >= 5 {
+      do {
+        if pending.origin != nil {
+          guard let launchOriginStore else { return nil }
+          try launchOriginStore.updateLaunchOrigin(
+            pendingID: pending.id, failed: false, needsIdentification: true)
+        }
+        if let index = pendingHubSessions.firstIndex(where: { $0.id == pending.id }) {
+          pendingHubSessions[index].needsIdentification = true
+        }
+      } catch {
+        launchError = "Could not save session recovery. Workbench will keep trying to identify it."
+      }
+    }
+    return nil
   }
 
   private func codexSessionMatchesPending(

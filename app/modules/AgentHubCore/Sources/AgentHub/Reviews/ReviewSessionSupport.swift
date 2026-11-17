@@ -58,6 +58,7 @@ struct ReviewSessionSupport {
     }
     for sessions in [claude, codex] {
       hasher.combine(sessions.providerKind)
+      hasher.combine(viewModel.quarantinedReviewSessionIDs(provider: sessions.providerKind))
       for session in sessions.allSessions {
         Self.combineSessionKey(session, into: &hasher)
       }
@@ -136,7 +137,8 @@ struct ReviewSessionSupport {
       statuses: sessions.sessionStatuses,
       ticketKeysBySessionID: ticketKeys(for: sessions),
       sourceOrigins: sessions.sessionOrigins,
-      repositoryIdentities: viewModel.reviewRepositoryIdentities
+      repositoryIdentities: viewModel.reviewRepositoryIdentities,
+      quarantinedSessionIDs: viewModel.quarantinedReviewSessionIDs(provider: sessions.providerKind)
     )
   }
 

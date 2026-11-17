@@ -90,6 +90,7 @@ struct GitHubReviewSessionInventory {
   var ticketKeysBySessionID: [String: [String]] = [:]
   var sourceOrigins: [String: SessionLaunchOrigin] = [:]
   var repositoryIdentities: [String: Set<GitHubRepositoryIdentity>] = [:]
+  var quarantinedSessionIDs: Set<String> = []
   /// Built on first use and shared by every PR row: linking used to scan all
   /// sessions' messages once per PR, per render.
   let lookup = GitHubReviewSessionLookup()
@@ -149,8 +150,7 @@ enum GitHubReviewSessionLinker {
       let providerLaunches = launches.filter {
         $0.pullRequestURL.caseInsensitiveCompare(pullRequest.url) == .orderedSame
           && $0.provider == inventory.provider
-          && (sourceAccountKey == nil || $0.sourceAccountKey == nil
-            || $0.sourceAccountKey == sourceAccountKey)
+          && $0.sourceAccountKey == sourceAccountKey
       }
       for launch in providerLaunches {
         if let sessionID = launch.sessionID,
@@ -206,10 +206,10 @@ enum GitHubReviewSessionLinker {
       }
 
       for session in lookup.reviewSessionsByURL[pullRequest.url] ?? [] {
-        if let sourceAccountKey, let origin = inventory.sourceOrigins[session.id],
-          origin.source == .pullRequest, origin.accountID != sourceAccountKey
-        {
-          continue
+        if let sourceAccountKey {
+          guard let origin = inventory.sourceOrigins[session.id],
+            origin.source == .pullRequest, origin.accountID == sourceAccountKey
+          else { continue }
         }
         insert(
           link(for: session, inventory: inventory),
@@ -220,6 +220,8 @@ enum GitHubReviewSessionLinker {
 
     var latestByProvider: [SessionProviderKind: GitHubReviewSessionLink] = [:]
     for candidate in candidates.values {
+      let inventory = inventories.first { $0.provider == candidate.provider }
+      guard inventory?.quarantinedSessionIDs.contains(candidate.session.id) != true else { continue }
       if let sourceAccountKey,
         let origin = inventories.first(where: { $0.provider == candidate.provider })?.sourceOrigins[
           candidate.session.id],

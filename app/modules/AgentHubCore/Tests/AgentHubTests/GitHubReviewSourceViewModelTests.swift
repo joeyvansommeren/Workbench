@@ -49,6 +49,61 @@ struct GitHubReviewSourceViewModelTests {
     #expect(model.pullRequests.allSatisfy { $0.url.contains("second.example.test/sam/") })
   }
 
+  @Test("Legacy review links remain quarantined across account switches")
+  func quarantinesLegacyLinks() async throws {
+    let service = ReviewSourceStub()
+    let store = SourceWorkspaceStore()
+    let request = service.request(owner: service.company)
+    let accountA = service.account.persistenceKey
+    let accountB = "code.example.test/U2"
+    for (id, accountKey) in [("legacy", String?.none), ("account-a", accountA), ("account-b", accountB)] {
+      try await store.saveGitHubReviewSessionAssociation(
+        GitHubReviewSessionAssociation(
+          pullRequestID: id, pullRequestURL: request.url, provider: .codex,
+          pendingID: nil, sessionID: id, projectPath: "/fixture/shared",
+          sourceAccountKey: accountKey))
+    }
+    let model = GitHubReviewsViewModel(service: service, sessionStore: store, userDefaults: defaults())
+    await model.load()
+    #expect(model.hasUnverifiedReviewSessions)
+    #expect(model.reviewSessionLaunches(for: request).map(\.sessionID) == ["account-a"])
+    #expect(model.quarantinedReviewSessionIDs(provider: .codex) == ["legacy", "account-b"])
+    service.account = GitHubReviewAccount(host: "code.example.test", nodeID: "U2", login: "sam")
+    await model.reloadProjects()
+    #expect(model.reviewSessionLaunches(for: request).map(\.sessionID) == ["account-b"])
+    #expect(model.quarantinedReviewSessionIDs(provider: .codex) == ["legacy", "account-a"])
+    let stored = try await store.githubReviewSessionAssociations()
+    #expect(stored.count == 3)
+    #expect(stored.first { $0.sessionID == "legacy" }?.sourceAccountKey == nil)
+    let sessions = stored.map { CLISession(id: $0.sessionID!, projectPath: $0.projectPath) }
+    let inventory = GitHubReviewSessionInventory(
+      provider: .codex, sessions: sessions, pendingSessions: [],
+      resolvedPendingSessionIDs: [:], customNames: [:], statuses: [:])
+    let launches = stored.compactMap(GitHubReviewSessionLaunch.init)
+    for (accountKey, expected) in [(accountA, "account-a"), (accountB, "account-b")] {
+      let links = GitHubReviewSessionLinker.links(
+        for: request, launches: launches, inventories: [inventory], sourceAccountKey: accountKey)
+      #expect(links.map { $0.session.id } == [expected])
+    }
+    var ticketInventory = inventory
+    ticketInventory.ticketKeysBySessionID = ["legacy": ["DEMO-12"]]
+    ticketInventory.repositoryIdentities = ["/fixture/shared": [
+      GitHubRepositoryIdentity(owner: "acme", repository: "shared", host: service.account.host)
+    ]]
+    ticketInventory.quarantinedSessionIDs = model.quarantinedReviewSessionIDs(provider: .codex)
+    // Use a fresh lookup because the inventory's matching inputs changed.
+    let freshInventory = GitHubReviewSessionInventory(
+      provider: .codex, sessions: sessions, pendingSessions: [],
+      resolvedPendingSessionIDs: [:], customNames: [:], statuses: [:],
+      ticketKeysBySessionID: ticketInventory.ticketKeysBySessionID,
+      repositoryIdentities: ticketInventory.repositoryIdentities,
+      quarantinedSessionIDs: ticketInventory.quarantinedSessionIDs)
+    let inferred = GitHubReviewSessionLinker.links(
+      for: service.request(owner: service.company, title: "DEMO-12 Review"),
+      launches: [], inventories: [freshInventory], sourceAccountKey: accountB)
+    #expect(inferred.isEmpty)
+  }
+
   @Test("A late response from the old source cannot replace the new source")
   func staleResponse() async {
     let service = ReviewSourceStub()
@@ -413,15 +468,15 @@ struct GitHubReviewSourceViewModelTests {
       id: "review-session", projectPath: "/fixture/shared", branchName: "main",
       lastActivityAt: Date(timeIntervalSince1970: 10),
       firstMessage: "Review this pull request independently: \(request.url)")
-    for accountKey in [service.account.persistenceKey, "code.example.test/U2"] {
+    for accountKey in [service.account.persistenceKey, "code.example.test/U2", String?.none] {
       let inventory = GitHubReviewSessionInventory(
         provider: .codex, sessions: [session], pendingSessions: [],
         resolvedPendingSessionIDs: [:], customNames: [:], statuses: [:],
-        sourceOrigins: [
+        sourceOrigins: accountKey.map { [
           session.id: SessionLaunchOrigin(
-            source: .pullRequest, accountID: accountKey, sourceID: request.reviewIdentity,
+            source: .pullRequest, accountID: $0, sourceID: request.reviewIdentity,
             key: "#1", title: request.title)
-        ])
+        ] } ?? [:])
       let links = GitHubReviewSessionLinker.links(
         for: request, launches: [], inventories: [inventory],
         sourceAccountKey: service.account.persistenceKey)
@@ -492,13 +547,14 @@ private final class ReviewSourceStub: GitHubProjectReviewServiceProtocol, @unche
 }
 
 private actor SourceWorkspaceStore: GitHubReviewSessionStoreProtocol {
+  var associations: [GitHubReviewSessionAssociation] = []
   var workspaces: [String: GitHubReviewWorkspace] = [:]
   var saveCount = 0
   var saveWaiter: CheckedContinuation<GitHubReviewWorkspace, Never>?
   func saveGitHubReviewSessionAssociation(_ association: GitHubReviewSessionAssociation)
     async throws
-  {}
-  func githubReviewSessionAssociations() async throws -> [GitHubReviewSessionAssociation] { [] }
+  { associations.append(association) }
+  func githubReviewSessionAssociations() async throws -> [GitHubReviewSessionAssociation] { associations }
   func reviewWorkspace(account: GitHubReviewAccount) async throws -> GitHubReviewWorkspace? {
     workspaces[account.persistenceKey]
   }
