@@ -152,6 +152,40 @@ struct SessionDetailStateModelTests {
     #expect(!model.showsResult(for: "codex-a"))
   }
 
+  @Test("Toggling Result on and off is symmetric")
+  func toggleResult() {
+    let model = SessionDetailStateModel()
+    #expect(!model.showsResult(for: "claude-a"))
+    model.setShowsResult(true, for: "claude-a")
+    #expect(model.showsResult(for: "claude-a"))
+    model.setShowsResult(false, for: "claude-a")
+    #expect(!model.showsResult(for: "claude-a"))
+  }
+
+  @Test("An approval request dismisses Result and routes to Terminal")
+  func approvalDismissesResult() {
+    let model = SessionDetailStateModel()
+    model.setShowsResult(true, for: "claude-a")
+    let routed = model.routePendingRequest(
+      for: "claude-a", projectPath: "/p",
+      status: .awaitingApproval(tool: "Edit"), hasPermissionRequest: false)
+    #expect(routed)
+    #expect(!model.showsResult(for: "claude-a"))
+    #expect(model.contentMode(for: "claude-a") == .terminal)
+  }
+
+  @Test("revealTerminal dismisses Result and sets Terminal mode")
+  func revealTerminalDismissesResult() {
+    let model = SessionDetailStateModel()
+    model.setShowsResult(true, for: "claude-a")
+    model.setContentMode(.diffs, for: "claude-a", defaultProjectPath: "/p")
+    model.setShowsResult(true, for: "claude-a")
+    model.revealTerminal(for: GlobalSessionSelectionRequest(
+      providerKind: .claude, sessionId: "a", projectPath: "/p"))
+    #expect(!model.showsResult(for: "claude-a"))
+    #expect(model.contentMode(for: "claude-a") == .terminal)
+  }
+
   // MARK: - Pending → resolved
 
   @Test("A resolved launch keeps the pending session's state")

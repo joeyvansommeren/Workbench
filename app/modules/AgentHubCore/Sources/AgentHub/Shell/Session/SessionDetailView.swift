@@ -419,30 +419,27 @@ private struct SessionDetailContent: View {
         contextFraction: state?.contextWindowUsagePercentage,
         availableContentModes: availableContentModes,
         contentMode: contentModeBinding,
+        showsResult: item.isPending ? nil : stateModel.showsResult(for: item.id),
+        onToggleResult: {
+          stateModel.setShowsResult(!stateModel.showsResult(for: item.id), for: item.id)
+        },
         isSidePanelVisible: shellModel.sidePanelVisible,
-        onToggleSidePanel: shellModel.toggleSidePanel
-      ) { dismiss in
-        SessionActionsMenu(
-          session: session,
-          providerKind: providerKind,
-          isPending: item.isPending,
-          viewModel: viewModel,
-          quickAccessViewModel: quickAccessViewModel,
-          onDismiss: dismiss,
-          onViewTranscript: openTranscript,
-          onRename: { showingNameSheet = true },
-          onAddFiles: { showingFilePicker = true },
-          onFork: { onFork(session, providerKind) },
-          onCreatePullRequest: createPullRequest
-        )
-      }
-      if !item.isPending {
-        HStack {
-          Button("Result") { stateModel.setShowsResult(true, for: item.id) }
-            .buttonStyle(.bordered)
-          Spacer()
-        }.padding(.horizontal, 12).padding(.vertical, 4)
-      }
+        onToggleSidePanel: shellModel.toggleSidePanel,
+        actionsMenu: { dismiss in
+          SessionActionsMenu(
+            session: session,
+            providerKind: providerKind,
+            isPending: item.isPending,
+            viewModel: viewModel,
+            quickAccessViewModel: quickAccessViewModel,
+            onDismiss: dismiss,
+            onViewTranscript: openTranscript,
+            onRename: { showingNameSheet = true },
+            onAddFiles: { showingFilePicker = true },
+            onFork: { onFork(session, providerKind) },
+            onCreatePullRequest: createPullRequest
+          )
+        })
       if showsClaudeThemeHint {
         ClaudeThemeHintBanner()
       }
@@ -457,13 +454,16 @@ private struct SessionDetailContent: View {
         // Stays mounted while the side panel is expanded (hidden, zero width),
         // so the terminal view is not torn down.
         let hidesContent = shellModel.sidePanelVisible && isSidePanelExpanded
+        // Only conceal the content when the Result view will actually render.
+        // If hubProvider is nil the overlay cannot appear, so the terminal stays visible.
+        let showingResult = stateModel.showsResult(for: item.id) && hubProvider != nil
         ZStack {
           contentArea
-            .environment(\.isTerminalConcealed, stateModel.showsResult(for: item.id) || hidesContent)
-            .opacity(stateModel.showsResult(for: item.id) ? 0 : 1)
-            .allowsHitTesting(!stateModel.showsResult(for: item.id))
-            .accessibilityHidden(stateModel.showsResult(for: item.id))
-          if stateModel.showsResult(for: item.id), let hubProvider {
+            .environment(\.isTerminalConcealed, showingResult || hidesContent)
+            .opacity(showingResult ? 0 : 1)
+            .allowsHitTesting(!showingResult)
+            .accessibilityHidden(showingResult)
+          if showingResult, let hubProvider {
             SessionResultView(session: session, provider: providerKind, agentHub: hubProvider,
               onTerminal: { contentModeBinding.wrappedValue = .terminal },
               onFiles: { contentModeBinding.wrappedValue = .editor },

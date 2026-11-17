@@ -15,6 +15,9 @@ struct SessionHeaderView<ActionsMenu: View>: View {
   let contextFraction: Double?
   let availableContentModes: [MonitoringCardContentMode]
   @Binding var contentMode: MonitoringCardContentMode
+  /// Whether the Result overlay is visible. Nil hides the button (pending sessions).
+  let showsResult: Bool?
+  let onToggleResult: () -> Void
   let isSidePanelVisible: Bool
   let onToggleSidePanel: () -> Void
   @ViewBuilder let actionsMenu: (_ dismiss: @escaping () -> Void) -> ActionsMenu
@@ -81,6 +84,17 @@ struct SessionHeaderView<ActionsMenu: View>: View {
   private var trailing: some View {
     HStack(spacing: DesignTokens.Spacing.xs) {
       modesAndContext
+      if let showsResult {
+        ToolbarDivider()
+        IconButton(
+          systemImage: showsResult ? "xmark.circle" : "doc.text.magnifyingglass",
+          isToggled: showsResult,
+          accessibilityLabel: showsResult ? "Hide result" : "Show result",
+          accessibilityIdentifier: "session.toggleResult",
+          action: onToggleResult
+        )
+        .help(showsResult ? "Hide result" : "Show result")
+      }
       ToolbarDivider()
       IconButton(
         systemImage: "ellipsis",
