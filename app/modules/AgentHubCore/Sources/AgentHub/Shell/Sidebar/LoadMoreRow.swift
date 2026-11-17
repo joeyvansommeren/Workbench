@@ -27,7 +27,8 @@ struct LoadMoreRow: View, Equatable {
           .foregroundStyle(isHovered ? Color.wbTextPrimary : Color.wbTextSecondary)
         Spacer(minLength: 0)
       }
-      .padding(.horizontal, DesignTokens.Spacing.smPlus)
+      .padding(.leading, SidebarTreeInset.session)
+      .padding(.trailing, DesignTokens.Spacing.smPlus)
       .frame(height: DesignTokens.Size.row)
       .contentShape(Rectangle())
     }

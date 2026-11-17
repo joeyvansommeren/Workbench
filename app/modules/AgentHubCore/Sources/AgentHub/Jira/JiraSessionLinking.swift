@@ -83,7 +83,9 @@ final class JiraSessionLinker {
 
   func links(
     from viewModels: [CLISessionsViewModel],
-    knownProjectKeys: Set<String>
+    knownProjectKeys: Set<String>,
+    sourceAccountID: String? = nil,
+    sourceIssueKeys: [String: String] = [:]
   ) -> [String: [JiraLinkedSession]] {
     var result: [String: [JiraLinkedSession]] = [:]
     var seen: Set<String> = []
@@ -100,18 +102,23 @@ final class JiraSessionLinker {
         let itemID = SidebarSessionItemID.monitored(provider: provider, sessionId: session.id)
         guard seen.insert(itemID).inserted else { continue }
         let customName = viewModel.sessionCustomNames[session.id]
-        let keys = cachedKeys(
-          id: itemID,
-          branchName: session.branchName,
-          customName: customName,
-          prompt: session.firstMessage,
-          knownProjectKeys: knownProjectKeys
-        )
+        let keys =
+          viewModel.sessionOrigins[session.id].map { origin in
+            origin.source == .jira && origin.accountID == sourceAccountID
+              ? sourceIssueKeys[origin.sourceID].map { [$0] } ?? [] : []
+          }
+          ?? cachedKeys(
+            id: itemID,
+            branchName: session.branchName,
+            customName: customName,
+            prompt: session.firstMessage,
+            knownProjectKeys: knownProjectKeys
+          )
         guard !keys.isEmpty else { continue }
         let link = JiraLinkedSession(
           provider: provider,
           itemID: itemID,
-          title: customName ?? session.slug ?? session.firstMessage ?? session.shortId,
+          title: viewModel.displayName(for: session),
           branchName: session.branchName,
           lastActivityAt: session.lastActivityAt,
           isPending: false,
@@ -123,19 +130,24 @@ final class JiraSessionLinker {
 
       for pending in viewModel.pendingHubSessions {
         let itemID = SidebarSessionItemID.pending(provider: provider, pendingId: pending.id)
-        let keys = cachedKeys(
-          id: itemID,
-          branchName: nil,
-          customName: nil,
-          prompt: pending.initialPrompt,
-          knownProjectKeys: knownProjectKeys
-        )
+        let keys =
+          pending.origin.map { origin in
+            origin.source == .jira && origin.accountID == sourceAccountID
+              ? sourceIssueKeys[origin.sourceID].map { [$0] } ?? [] : []
+          }
+          ?? cachedKeys(
+            id: itemID,
+            branchName: nil,
+            customName: nil,
+            prompt: pending.initialPrompt,
+            knownProjectKeys: knownProjectKeys
+          )
         for key in keys {
           result[key, default: []].append(
             JiraLinkedSession(
               provider: provider,
               itemID: itemID,
-              title: "Starting \(provider.rawValue)…",
+              title: viewModel.displayName(for: pending.placeholderSession),
               branchName: nil,
               lastActivityAt: pending.startedAt,
               isPending: true,

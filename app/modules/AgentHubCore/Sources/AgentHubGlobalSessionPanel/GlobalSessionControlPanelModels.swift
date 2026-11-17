@@ -91,7 +91,7 @@ public struct GlobalSessionControlPanelItem: Identifiable, Equatable, Sendable {
   }
 
   public var displayName: String {
-    customName ?? session.displayName
+    customName ?? session.slug ?? "Untitled session · \(session.shortId)"
   }
 
   public var attention: GlobalSessionControlPanelAttention {
@@ -131,19 +131,23 @@ public enum GlobalSessionControlPanelSnapshotBuilder {
     var items: [GlobalSessionControlPanelItem] = []
 
     for pending in claudePending {
-      items.append(pendingItem(
-        pending,
-        providerKind: .claude,
-        gitHubStates: gitHubStates
-      ))
+      items.append(
+        pendingItem(
+          pending,
+          providerKind: .claude,
+          displayName: claudeCustomNames[pending.placeholderSession.id],
+          gitHubStates: gitHubStates
+        ))
     }
 
     for pending in codexPending {
-      items.append(pendingItem(
-        pending,
-        providerKind: .codex,
-        gitHubStates: gitHubStates
-      ))
+      items.append(
+        pendingItem(
+          pending,
+          providerKind: .codex,
+          displayName: codexCustomNames[pending.placeholderSession.id],
+          gitHubStates: gitHubStates
+        ))
     }
 
     for item in claudeMonitored {
@@ -195,6 +199,7 @@ public enum GlobalSessionControlPanelSnapshotBuilder {
   private static func pendingItem(
     _ pending: PendingHubSession,
     providerKind: SessionProviderKind,
+    displayName: String?,
     gitHubStates: [String: GlobalSessionControlPanelGitHubState]
   ) -> GlobalSessionControlPanelItem {
     let session = pending.placeholderSession
@@ -207,7 +212,7 @@ public enum GlobalSessionControlPanelSnapshotBuilder {
       isPending: true,
       status: nil,
       linkedPullRequests: [],
-      customName: nil,
+      customName: displayName,
       gitHubState: gitHubStates[id]
     )
   }

@@ -107,7 +107,7 @@ struct ChatTranscriptLoaderTests {
     defer { firstContinuation.finish() }
     window.onAcceptedTextFocus = { firstContinuation.yield(()) }
     window.contentView = host
-    window.makeKeyAndOrderFront(nil)
+    window.presentForTesting()
     defer { window.close() }
     var firstIterator = firstFocus.makeAsyncIterator()
     try #require(await firstIterator.next() != nil)
@@ -176,7 +176,7 @@ struct ChatTranscriptLoaderTests {
 
 // Acknowledge only a text responder accepted by this test's window.
 @MainActor
-private final class ChatFocusAcknowledgingWindow: NSWindow {
+private final class ChatFocusAcknowledgingWindow: BackgroundTestWindow {
   var onAcceptedTextFocus: (() -> Void)?
 
   override func makeFirstResponder(_ responder: NSResponder?) -> Bool {

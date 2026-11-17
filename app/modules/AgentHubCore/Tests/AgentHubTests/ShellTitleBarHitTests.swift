@@ -254,10 +254,11 @@ struct ShellTitleBarHitTests {
 /// A window configured like the app's main window, ordered in offscreen.
 @MainActor
 private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
-  let window: NSWindow
+  let window: BackgroundTestWindow
   let shellModel = WorkbenchShellModel()
   let overlays = ShellOverlayModel()
   private(set) var zoomRequests = 0
+  private var isSendingSyntheticClick = false
 
   init(width: Double) async throws {
     let content = ShellFrame(
@@ -271,11 +272,14 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     .environment(shellModel)
     .environment(overlays)
     let controller = NSHostingController(rootView: AnyView(content))
+    // The fixture supplies the test dimensions; content must not resize the
+    // window between samples in a native event sweep.
+    controller.sizingOptions = []
     // What a scene does for its hosting controller: SwiftUI toolbars, if
     // any, become the window's `NSToolbar`.
     controller.sceneBridgingOptions = [.toolbars, .title]
     // `.windowStyle(.hiddenTitleBar)`.
-    window = NSWindow(
+    window = BackgroundTestWindow(
       contentRect: CGRect(x: 0, y: 0, width: width, height: 800),
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
       backing: .buffered,
@@ -285,13 +289,22 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     window.titleVisibility = .hidden
     window.isReleasedWhenClosed = false
     window.contentViewController = controller
+    window.contentMinSize = NSSize(width: ShellLayout.windowMinWidth, height: ShellLayout.windowMinHeight)
     super.init()
     window.delegate = self
     window.setContentSize(CGSize(width: width, height: 800))
     // Offscreen, so the run never shows a window on the user's display.
-    window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-    window.orderFrontRegardless()
+    window.presentForTesting()
     await settle()
+    #expect(window.frame.size == NSSize(width: width, height: 800))
+  }
+
+  func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+    // Samples near the native top edge can start AppKit's live resize loop.
+    // With a synthetic cursor, an offscreen window can grow toward screen y=0
+    // while its controls are being measured. Keep those samples in one frame.
+    // Explicit setContentSize calls (the resize regression) remain unchanged.
+    isSendingSyntheticClick ? sender.frame.size : frameSize
   }
 
   func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
@@ -344,6 +357,8 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
   /// points below the top edge. `reset` runs before every click.
   func verticalCentre(atX x: CGFloat, reset: () -> Void, hit: () -> Bool) async -> CGFloat? {
     var ys: [CGFloat] = []
+    let initialMetrics = shellModel.titleBar
+    let initialFrame = window.frame
     for fromTop in stride(from: 1, through: shellModel.titleBar.bandHeight + 20, by: 1) {
       reset()
       await settle(turns: 1)
@@ -352,6 +367,8 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
     }
     reset()
     await settle()
+    #expect(window.frame == initialFrame, "A hit sweep must keep one window coordinate frame")
+    #expect(shellModel.titleBar == initialMetrics, "Title-bar metrics must stay stable while sampling")
     return Self.centreOfLongestRun(ys, step: 1)
   }
 
@@ -456,6 +473,8 @@ private final class ShellTitleBarTestWindow: NSObject, NSWindowDelegate {
   }
 
   private func send(at point: CGPoint, clickCount: Int) {
+    isSendingSyntheticClick = true
+    defer { isSendingSyntheticClick = false }
     let down = mouseEvent(.leftMouseDown, at: point, clickCount: clickCount)
     let up = mouseEvent(.leftMouseUp, at: point, clickCount: clickCount)
     // Queue the mouse-up first: if the mouse-down starts a tracking loop (a

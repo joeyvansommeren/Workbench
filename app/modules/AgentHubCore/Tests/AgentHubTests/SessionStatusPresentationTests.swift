@@ -1,4 +1,5 @@
 import Testing
+
 @testable import AgentHubCore
 
 @Suite("SessionStatusPresentation")
@@ -47,13 +48,13 @@ struct SessionStatusPresentationTests {
       let presentation = SessionStatusPresentation(status: .awaitingApproval(tool: tool))
       #expect(presentation.activity == .waiting)
       #expect(presentation.outcome == .needsInput)
-      #expect(presentation.word == "Needs input")
+      #expect(presentation.word == "Waiting · Needs input")
       #expect(presentation.shape == .filledBang)
       #expect(presentation.category == .attention)
     }
     let permission = SessionStatusPresentation(status: .awaitingApproval(tool: "Bash"))
     #expect(permission.outcome == .needsApproval)
-    #expect(permission.word == "Needs approval")
+    #expect(permission.word == "Waiting · Needs approval")
   }
 
   @Test("Only an explicit successful outcome has a success glyph")
@@ -64,16 +65,17 @@ struct SessionStatusPresentationTests {
       #expect(presentation.outcome == outcome)
       #expect(presentation.shape == .filledCheck)
       #expect(presentation.category == .ready)
-      #expect(presentation.accessibilityLabel == outcome.displayName)
+      #expect(presentation.word == "Inactive · \(outcome.displayName)")
+      #expect(presentation.accessibilityLabel == "Inactive, \(outcome.displayName.lowercased())")
     }
     let ready = SessionStatusPresentation(status: .waitingForUser, outcome: .readyToInspect)
     #expect(ready.activity == .waiting)
     #expect(ready.outcome == .readyToInspect)
-    #expect(ready.word == "Ready to inspect")
+    #expect(ready.word == "Waiting · Ready to inspect")
     #expect(ready.shape != .filledCheck)
     #expect(ready.category != .ready)
     let changes = SessionStatusPresentation(status: .idle, outcome: .changesRequested)
-    #expect(changes.word == "Changes requested")
+    #expect(changes.word == "Inactive · Changes requested")
     #expect(changes.category == .attention)
   }
 
@@ -87,7 +89,56 @@ struct SessionStatusPresentationTests {
     let request = SessionStatusPresentation(
       status: .awaitingApproval(tool: "Bash"), outcome: .finished)
     #expect(request.outcome == .needsApproval)
-    #expect(request.word == "Needs approval")
+    #expect(request.word == "Waiting · Needs approval")
+  }
+
+  @Test("Seeded activity and outcome pairs never hide unknown or quiet activity")
+  func seededStateMatrix() {
+    let statuses: [SessionStatus?] = [
+      nil, .idle, .thinking, .executingTool(name: "Bash"), .waitingForUser,
+      .awaitingApproval(tool: "Bash"), .awaitingApproval(tool: "request_user_input"),
+    ]
+    for status in statuses {
+      for outcome in SessionOutcome.allCases {
+        for isPending in [false, true] {
+          let presentation = SessionStatusPresentation(
+            status: status, isPending: isPending, outcome: outcome)
+          #expect(!presentation.word.isEmpty)
+          #expect(!presentation.accessibilityLabel.isEmpty)
+          #expect(!["Idle", "Done", "Your turn"].contains(presentation.word))
+          if presentation.category == .ready || presentation.shape == .filledCheck {
+            #expect(presentation.activity == .inactive || presentation.activity == .waiting)
+            #expect(presentation.outcome == .accepted || presentation.outcome == .finished)
+          }
+          if presentation.activity == .unknown {
+            #expect(presentation.shape == .questionMark)
+            #expect(presentation.category == .idle)
+            #expect(presentation.word.hasPrefix("Status unknown"))
+            #expect(presentation.accessibilityLabel.hasPrefix("Status unknown,"))
+            #expect(presentation.outcome == outcome)
+          }
+          if presentation.outcome == .unknown {
+            #expect(presentation.shape != .filledCheck)
+            #expect(presentation.category != .ready)
+          } else {
+            #expect(presentation.word.contains(presentation.outcome.displayName))
+            #expect(
+              presentation.accessibilityLabel.contains(
+                presentation.outcome.displayName.lowercased()))
+          }
+        }
+      }
+    }
+  }
+
+  @Test("Unknown activity and inactivity have different symbols without colour")
+  func missingActivityHasDistinctGlyph() {
+    let unknown = SessionStatusPresentation(status: nil)
+    let inactive = SessionStatusPresentation(status: .idle)
+    #expect(unknown.shape == .questionMark)
+    #expect(unknown.shape != inactive.shape)
+    #expect(unknown.word != inactive.word)
+    #expect(unknown.accessibilityLabel != inactive.accessibilityLabel)
   }
 
   @Test("Unknown is a separate sidebar group and waiting never says Ready")

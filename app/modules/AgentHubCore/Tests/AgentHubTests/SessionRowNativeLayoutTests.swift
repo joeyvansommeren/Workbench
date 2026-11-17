@@ -170,12 +170,12 @@ private struct SessionRowNativeFrames: PreferenceKey {
 @MainActor
 private final class SessionRowNativeCapture {
   let host: NSHostingView<AnyView>
-  let window: NSWindow
+  let window: BackgroundTestWindow
   let geometry: SessionRowNativeGeometry
 
   init(view: AnyView, width: CGFloat, scheme: ColorScheme, geometry: SessionRowNativeGeometry) {
     self.geometry = geometry
-    window = NSWindow(
+    window = BackgroundTestWindow(
       contentRect: CGRect(x: 0, y: 0, width: width, height: 360),
       styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
@@ -183,8 +183,7 @@ private final class SessionRowNativeCapture {
     host = NSHostingView(rootView: view)
     window.contentView = host
     host.frame = CGRect(x: 0, y: 0, width: width, height: 360)
-    window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-    window.orderBack(nil)
+    window.presentForTesting()
   }
 
   func waitForRows(_ count: Int) async throws {

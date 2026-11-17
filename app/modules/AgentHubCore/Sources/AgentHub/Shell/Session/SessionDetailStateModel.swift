@@ -49,7 +49,7 @@ final class SessionDetailStateModel {
 
   private var resultVisibility: [String: Bool] = [:]
 
-  func showsResult(for id: String) -> Bool { resultVisibility[id] ?? !Self.isPending(id) }
+  func showsResult(for id: String) -> Bool { resultVisibility[id] ?? false }
   func setShowsResult(_ shows: Bool, for id: String) { resultVisibility[id] = shows }
 
   /// A request must open its actual controls, even before this task has a result record.
@@ -81,6 +81,7 @@ final class SessionDetailStateModel {
   }
 
   func setContentMode(_ mode: MonitoringCardContentMode, for id: String, defaultProjectPath: String) {
+    setShowsResult(false, for: id)
     guard editorStates[id]?.contentMode != mode else { return }
     editorStates = MonitoringEditorStateStore.setContentMode(
       mode, for: id, defaultProjectPath: defaultProjectPath, in: editorStates)
@@ -94,6 +95,7 @@ final class SessionDetailStateModel {
 
   /// Cmd+click on a file path in a terminal: show it in that session's Files view.
   func openFile(_ filePath: String, lineNumber: Int?, projectPath: String, for id: String) {
+    setShowsResult(false, for: id)
     editorStates = MonitoringEditorStateStore.openFile(
       filePath, lineNumber: lineNumber, projectPath: projectPath, for: id, in: editorStates)
     MainThreadStallMonitor.breadcrumb("content mode: \(MonitoringCardContentMode.editor.rawValue)")
@@ -142,6 +144,24 @@ final class SessionDetailStateModel {
   }
 
   // MARK: - Shown session
+
+  /// Return to Terminal on the next ordinary entry. Resolution is the same
+  /// session, so it keeps the view the user is currently using.
+  func leaveSession(
+    _ id: String,
+    transitioningTo nextID: String? = nil,
+    resolvedHistories: [(SessionProviderKind, [UUID: String])] = []
+  ) {
+    let resolvedID = Self.resolvedID(forPending: id, in: resolvedHistories)
+    if let resolvedID, resolvedID == nextID { return }
+    for key in [id, resolvedID].compactMap({ $0 }) {
+      resultVisibility[key] = nil
+      if var state = editorStates[key] {
+        state.contentMode = .terminal
+        editorStates[key] = state
+      }
+    }
+  }
 
   /// Follows the window's shown session and reports it for saving.
   func show(_ id: String?) {

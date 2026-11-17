@@ -310,6 +310,8 @@ struct SessionTreeList: View {
   /// rests (`keyOpenDelay`): each open rebuilds the detail and its terminal,
   /// so holding ↓ must not open every session it passes.
   @State private var keyboardTargetID: String?
+  @State private var accessibilityOutline = SidebarTreeAccessibilityOutline()
+  @State private var accessibilityRegistry = SidebarTreeAccessibilityRegistry()
 
   static let keyOpenDelay: Duration = .milliseconds(150)
 
@@ -321,12 +323,25 @@ struct SessionTreeList: View {
         LazyVStack(alignment: .leading, spacing: 0) {
           ForEach(snapshot.rows) { row in
             rowView(row)
+              .background(SidebarTreeAccessibilityAnchor(id: row.id, outline: accessibilityOutline))
               .id(row.id)
           }
         }
         .padding(.horizontal, DesignTokens.Inset.sidebar)
         .padding(.bottom, DesignTokens.Spacing.sm)
+        // The native outline exposes each row and its commands once.
+        .accessibilityHidden(true)
       }
+      .overlay {
+        SidebarTreeAccessibilityView(
+          outline: accessibilityOutline, snapshot: snapshot, selectedID: highlightedID,
+          registry: accessibilityRegistry, actions: actions, onLoadMore: onLoadMore,
+          onFocus: { id in
+            proxy.scrollTo(id)
+            isFocused = true
+          })
+      }
+      .environment(\.sidebarTreeAccessibilityRegistry, accessibilityRegistry)
       .scrollIndicators(.automatic)
       .focusable()
       .focused($isFocused)

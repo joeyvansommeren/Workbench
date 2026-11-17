@@ -64,7 +64,7 @@ private final class Fixture {
   let model: SidePanelDiffModel
   let paths: [String]
   let host: NSHostingView<AnyView>
-  let window: NSWindow
+  let window: BackgroundTestWindow
 
   init(height: CGFloat, initialSelectedIndex: Int = 8) async throws {
     let paths = (0..<300).map { "Sources/Example/File\(String(format: "%03d", $0)).swift" }
@@ -92,14 +92,13 @@ private final class Fixture {
         .frame(width: 400, height: height)
       )
     )
-    window = NSWindow(
+    window = BackgroundTestWindow(
       contentRect: CGRect(x: 0, y: 0, width: 400, height: height),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false
     )
     window.isReleasedWhenClosed = false
     window.contentView = host
-    window.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
-    window.orderFrontRegardless()
+    window.presentForTesting()
     guard waitUntil({ !verticalScrolls().isEmpty }) else {
       throw FixtureError.scrollDidNotRender
     }

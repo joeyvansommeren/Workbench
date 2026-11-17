@@ -23,6 +23,7 @@ public struct CLIWorktreeBranchRow: View {
   let isSessionMonitored: (String) -> Bool
   let onToggleMonitoring: (CLISession) -> Void
   let getCustomName: ((String) -> String?)?
+  let getDisplayName: ((CLISession) -> String)?
   let onStartInHub: () -> Void
   let onStartInHubDangerous: () -> Void
   var isCLIAvailable: Bool = true
@@ -84,6 +85,7 @@ public struct CLIWorktreeBranchRow: View {
     isSessionMonitored: @escaping (String) -> Bool,
     onToggleMonitoring: @escaping (CLISession) -> Void,
     getCustomName: ((String) -> String?)? = nil,
+    getDisplayName: ((CLISession) -> String)? = nil,
     onStartInHub: @escaping () -> Void = {},
     onStartInHubDangerous: @escaping () -> Void = {},
     isCLIAvailable: Bool = true,
@@ -102,6 +104,7 @@ public struct CLIWorktreeBranchRow: View {
     self.isSessionMonitored = isSessionMonitored
     self.onToggleMonitoring = onToggleMonitoring
     self.getCustomName = getCustomName
+    self.getDisplayName = getDisplayName
     self.onStartInHub = onStartInHub
     self.onStartInHubDangerous = onStartInHubDangerous
     self.isCLIAvailable = isCLIAvailable
@@ -251,6 +254,7 @@ public struct CLIWorktreeBranchRow: View {
                 CLISessionRow(
                   session: session,
                   customName: getCustomName?(session.id),
+                  displayTitle: getDisplayName?(session),
                   providerKind: providerKind,
                   isMonitoring: isSessionMonitored(session.id),
                   onConnect: { onConnectSession(session) },

@@ -246,9 +246,21 @@ public enum EmbeddedTerminalLaunchBuilder {
     providerKind: SessionProviderKind? = nil,
     projectPath: String? = nil,
     sessionId: String? = nil,
-    defaults: UserDefaults = .standard
+    defaults: UserDefaults = .standard,
+    inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment
   ) -> [String: String] {
-    var environment = ProcessInfo.processInfo.environment
+    var environment = inheritedEnvironment
+    // Codex's automation host exports CODEX_CI=1 with its non-interactive
+    // colour policy. Do not carry that policy into a new interactive PTY.
+    // A dumb GUI host alone proves no automation: preserve its NO_COLOR.
+    // Explicit Workbench overrides below remain authoritative in every case.
+    let inheritedTerm = inheritedEnvironment["TERM"] ?? ""
+    let inheritedColorTerm = inheritedEnvironment["COLORTERM"] ?? ""
+    if inheritedEnvironment["CODEX_CI"] == "1",
+      (inheritedTerm.isEmpty || inheritedTerm == "dumb"),
+      inheritedColorTerm.isEmpty {
+      environment.removeValue(forKey: "NO_COLOR")
+    }
     environment["TERM"] = "xterm-256color"
     environment["COLORTERM"] = "truecolor"
     environment["LANG"] = "en_US.UTF-8"

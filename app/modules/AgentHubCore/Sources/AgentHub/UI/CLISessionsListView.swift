@@ -560,6 +560,7 @@ public struct CLISessionsListView: View {
             getCustomName: { sessionId in
               viewModel.sessionCustomNames[sessionId]
             },
+            getDisplayName: { viewModel.displayName(for: $0) },
             onCreateWorktree: { repository in
               createWorktreeRepository = repository
             },

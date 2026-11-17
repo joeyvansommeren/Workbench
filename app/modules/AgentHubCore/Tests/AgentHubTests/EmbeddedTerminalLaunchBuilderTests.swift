@@ -79,6 +79,129 @@ struct EmbeddedTerminalLaunchBuilderAgentHubCLITests {
     }
   }
 
+  @Test("A known automation host does not disable colour in a new terminal")
+  func knownAutomationHostDoesNotDisableTerminalColour() {
+    let suite = EphemeralDefaultsSuite(prefix: "AgentHubTests.TerminalColour")
+    defer { suite.cleanUp() }
+    let hostContexts: [[String: String]] = [
+      [:],
+      ["TERM": "", "COLORTERM": ""],
+      ["TERM": "dumb"],
+      ["TERM": "dumb", "COLORTERM": ""]
+    ]
+    for context in hostContexts {
+      var inherited = context
+      inherited["NO_COLOR"] = "1"
+      inherited["CODEX_CI"] = "1"
+      inherited["FORCE_COLOR"] = "0"
+      inherited["CLICOLOR"] = "0"
+      inherited["AGENTHUB_TEST_KEEP"] = "preserved"
+      let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
+        additionalPaths: [],
+        agentHubCLIPath: nil,
+        defaults: suite.defaults,
+        inheritedEnvironment: inherited
+      )
+      #expect(environment["NO_COLOR"] == nil)
+      #expect(environment["TERM"] == "xterm-256color")
+      #expect(environment["COLORTERM"] == "truecolor")
+      #expect(environment["FORCE_COLOR"] == "0")
+      #expect(environment["CLICOLOR"] == "0")
+      #expect(environment["AGENTHUB_TEST_KEEP"] == "preserved")
+    }
+  }
+
+  @Test("A non-colour host without a colour-disable value keeps normal defaults")
+  func absentOrEmptyHostColourDisableKeepsNormalDefaults() {
+    let suite = EphemeralDefaultsSuite(prefix: "AgentHubTests.TerminalColour")
+    defer { suite.cleanUp() }
+    let hostContexts = [
+      ["TERM": "dumb"],
+      ["TERM": "dumb", "NO_COLOR": ""]
+    ]
+    for context in hostContexts {
+      var inherited = context
+      inherited["CODEX_CI"] = "1"
+      let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
+        additionalPaths: [],
+        agentHubCLIPath: nil,
+        defaults: suite.defaults,
+        inheritedEnvironment: inherited
+      )
+      #expect(environment["NO_COLOR"] == nil)
+      #expect(environment["TERM"] == "xterm-256color")
+      #expect(environment["COLORTERM"] == "truecolor")
+    }
+  }
+
+  @Test("A GUI host colour preference survives without the known automation marker")
+  func guiHostColourPreferenceSurvivesWithoutKnownAutomationMarker() {
+    let suite = EphemeralDefaultsSuite(prefix: "AgentHubTests.TerminalColour")
+    defer { suite.cleanUp() }
+    let hostContexts: [[String: String]] = [
+      [:],
+      ["TERM": "dumb"],
+      ["TERM": "dumb", "COLORTERM": "", "CODEX_CI": "0"],
+      ["TERM": "dumb", "CODEX_CI": "true"],
+      ["TERM": "dumb", "CI": "1"]
+    ]
+    for context in hostContexts {
+      var inherited = context
+      inherited["NO_COLOR"] = "1"
+      let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
+        additionalPaths: [],
+        agentHubCLIPath: nil,
+        defaults: suite.defaults,
+        inheritedEnvironment: inherited
+      )
+      #expect(environment["NO_COLOR"] == "1")
+    }
+  }
+
+  @Test("An intentional terminal colour preference survives inheritance")
+  func intentionalTerminalColourPreferenceSurvivesInheritance() {
+    let suite = EphemeralDefaultsSuite(prefix: "AgentHubTests.TerminalColour")
+    defer { suite.cleanUp() }
+    let hostContexts = [
+      ["TERM": "xterm-256color"],
+      ["TERM": "vt100"],
+      ["TERM": "dumb", "COLORTERM": "truecolor"],
+      ["COLORTERM": "truecolor"]
+    ]
+    for context in hostContexts {
+      var inherited = context
+      inherited["NO_COLOR"] = "1"
+      inherited["CODEX_CI"] = "1"
+      let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
+        additionalPaths: [],
+        agentHubCLIPath: nil,
+        defaults: suite.defaults,
+        inheritedEnvironment: inherited
+      )
+      #expect(environment["NO_COLOR"] == "1")
+    }
+  }
+
+  @Test("Explicit colour settings override the interactive terminal defaults")
+  func explicitColourSettingsOverrideInteractiveDefaults() {
+    let suite = EphemeralDefaultsSuite(prefix: "AgentHubTests.TerminalColour")
+    defer { suite.cleanUp() }
+    CLIEnvironmentOverrides.save([
+      CLIEnvironmentVariable(name: "NO_COLOR", value: "1"),
+      CLIEnvironmentVariable(name: "TERM", value: "vt100"),
+      CLIEnvironmentVariable(name: "COLORTERM", value: "")
+    ], defaults: suite.defaults)
+    let environment = EmbeddedTerminalLaunchBuilder.makeProcessEnvironment(
+      additionalPaths: [],
+      agentHubCLIPath: nil,
+      defaults: suite.defaults,
+      inheritedEnvironment: ["TERM": "dumb", "NO_COLOR": "1", "CODEX_CI": "1"]
+    )
+    #expect(environment["NO_COLOR"] == "1")
+    #expect(environment["TERM"] == "vt100")
+    #expect(environment["COLORTERM"] == "")
+  }
+
   @Test("Terminal launcher exports CLI variables with deterministic shell escaping")
   func terminalLauncherExportsCLIVariablesWithDeterministicShellEscaping() {
     let exports = TerminalLauncher.cliEnvironmentExports(environment: [

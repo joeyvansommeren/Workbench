@@ -35,7 +35,7 @@ struct BranchRow: View, Equatable {
       Spacer(minLength: 0)
       trailing
     }
-    .padding(.leading, DesignTokens.Spacing.smPlus)
+    .padding(.leading, SidebarTreeInset.branch)
     .padding(.trailing, DesignTokens.Spacing.xs)
     .frame(height: DesignTokens.Size.row)
     // No hover fill: the row itself does nothing on click. Hover brightens
@@ -80,7 +80,7 @@ struct BranchPullRequestBadge: View {
     }
     .fixedSize()
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Pull request \(pullRequest.number), \(ciWord)")
+    .accessibilityLabel(accessibilityDescription)
   }
 
   private var ciColor: Color {
@@ -91,6 +91,8 @@ struct BranchPullRequestBadge: View {
     case .none: return .wbTextSecondary
     }
   }
+
+  var accessibilityDescription: String { "Pull request \(pullRequest.number), \(ciWord)" }
 
   private var ciWord: String {
     switch pullRequest.ciStatus ?? CIStatus.none {
@@ -136,54 +138,7 @@ private struct BranchRowMenu: View {
   let actions: SidebarTreeActions
 
   var body: some View {
-    Button("New Session on This Branch", systemImage: "plus") {
-      actions.startSession(onBranch: model)
-    }
-    if let decoration = model.decoration {
-      workflowItems(decoration)
-    }
-    Divider()
-    if let worktreePath = model.worktreePath {
-      Button("Open in Finder", systemImage: "folder") { actions.openInFinder(path: worktreePath) }
-    }
-    if !sessions.isEmpty {
-      Button("Archive Sessions", systemImage: "archivebox") {
-        actions.archiveSessions(sessions, groupName: model.name)
-      }
-    }
-    if model.isWorktree {
-      Button("Remove from Workbench…", systemImage: "xmark") {
-        actions.requestRemoveWorktree(model, sessions: sessions)
-      }
-      Button("Delete Worktree…", systemImage: "trash", role: .destructive) {
-        actions.requestDeleteWorktree(model, sessions: sessions)
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func workflowItems(_ decoration: BranchWorkflowDecoration) -> some View {
-    Divider()
-    if let provider = decoration.reviewProvider {
-      Button("Start Review with \(provider.rawValue)", systemImage: "checkmark.bubble") {
-        actions.startReview(decoration)
-      }
-    }
-    if decoration.canCompare {
-      Button("Compare Implementation and Review", systemImage: "rectangle.split.2x1") {
-        actions.compare(decoration)
-      }
-    }
-    if decoration.pullRequest != nil {
-      Button("Open Pull Request", systemImage: "arrow.up.right.square") {
-        actions.openPullRequest(decoration)
-      }
-    }
-    if decoration.ticketKey != nil {
-      Button("Open Ticket", systemImage: "ticket") { actions.openTicket(decoration) }
-    }
-    if decoration.archivableWorkflowID != nil {
-      Button("Archive Workflow", systemImage: "archivebox") { actions.archiveWorkflow(decoration) }
-    }
+    SidebarMenuCommands(
+      entries: branchMenuEntries(model: model, sessions: sessions, actions: actions))
   }
 }

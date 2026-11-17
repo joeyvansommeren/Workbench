@@ -14,6 +14,8 @@ struct GitHubReviewSessionLaunch: Equatable, Sendable {
   let sessionID: String?
   let projectPath: String
   let launchedAt: Date
+  let sourceAccountKey: String?
+  let branchName: String?
 
   init(
     pullRequestID: String,
@@ -22,7 +24,9 @@ struct GitHubReviewSessionLaunch: Equatable, Sendable {
     pendingID: UUID?,
     sessionID: String? = nil,
     projectPath: String,
-    launchedAt: Date
+    launchedAt: Date,
+    sourceAccountKey: String? = nil,
+    branchName: String? = nil
   ) {
     self.pullRequestID = pullRequestID
     self.pullRequestURL = pullRequestURL
@@ -31,6 +35,8 @@ struct GitHubReviewSessionLaunch: Equatable, Sendable {
     self.sessionID = sessionID
     self.projectPath = projectPath
     self.launchedAt = launchedAt
+    self.sourceAccountKey = sourceAccountKey
+    self.branchName = branchName
   }
 
   init?(_ association: GitHubReviewSessionAssociation) {
@@ -42,7 +48,8 @@ struct GitHubReviewSessionLaunch: Equatable, Sendable {
       pendingID: association.pendingUUID,
       sessionID: association.sessionID,
       projectPath: association.projectPath,
-      launchedAt: association.createdAt
+      launchedAt: association.createdAt,
+      sourceAccountKey: association.sourceAccountKey, branchName: association.branchName
     )
   }
 
@@ -54,7 +61,7 @@ struct GitHubReviewSessionLaunch: Equatable, Sendable {
       pendingID: pendingID,
       sessionID: sessionID,
       projectPath: projectPath,
-      createdAt: launchedAt
+      createdAt: launchedAt, sourceAccountKey: sourceAccountKey, branchName: branchName
     )
   }
 
@@ -66,7 +73,7 @@ struct GitHubReviewSessionLaunch: Equatable, Sendable {
       pendingID: pendingID,
       sessionID: sessionID,
       projectPath: projectPath,
-      launchedAt: launchedAt
+      launchedAt: launchedAt, sourceAccountKey: sourceAccountKey, branchName: branchName
     )
   }
 }
@@ -81,6 +88,9 @@ struct GitHubReviewSessionInventory {
   /// Jira ticket keys each session works on (branch, name, prompt), so a PR titled
   /// "XFA-123: …" links to the session that implements XFA-123.
   var ticketKeysBySessionID: [String: [String]] = [:]
+  var sourceOrigins: [String: SessionLaunchOrigin] = [:]
+  var repositoryIdentities: [String: Set<GitHubRepositoryIdentity>] = [:]
+  var quarantinedSessionIDs: Set<String> = []
   /// Built on first use and shared by every PR row: linking used to scan all
   /// sessions' messages once per PR, per render.
   let lookup = GitHubReviewSessionLookup()
@@ -129,7 +139,8 @@ enum GitHubReviewSessionLinker {
   static func links(
     for pullRequest: GitHubProjectPullRequest,
     launches: [GitHubReviewSessionLaunch],
-    inventories: [GitHubReviewSessionInventory]
+    inventories: [GitHubReviewSessionInventory],
+    sourceAccountKey: String? = nil
   ) -> [GitHubReviewSessionLink] {
     var candidates: [String: GitHubReviewSessionLink] = [:]
 
@@ -137,7 +148,9 @@ enum GitHubReviewSessionLinker {
       let lookup = inventory.lookup
       lookup.prepare(inventory)
       let providerLaunches = launches.filter {
-        $0.pullRequestID == pullRequest.id && $0.provider == inventory.provider
+        $0.pullRequestURL.caseInsensitiveCompare(pullRequest.url) == .orderedSame
+          && $0.provider == inventory.provider
+          && $0.sourceAccountKey == sourceAccountKey
       }
       for launch in providerLaunches {
         if let sessionID = launch.sessionID,
@@ -183,13 +196,21 @@ enum GitHubReviewSessionLinker {
         // Same ticket is not enough: one ticket often spans several repositories,
         // and a session on the Organization Service must not claim the Web Flow PR.
         for session in pullRequestKeys.flatMap({ lookup.sessionsByTicketKey[$0] ?? [] })
-        where sessionPath(session.projectPath, belongsTo: pullRequest.repositoryName)
+        where sourceAccountKey == nil
+          ? sessionPath(session.projectPath, belongsTo: pullRequest.repositoryName)
+          : matchesRepository(
+            inventory.repositoryIdentities[session.projectPath], request: pullRequest)
         {
           insert(link(for: session, inventory: inventory), into: &candidates)
         }
       }
 
       for session in lookup.reviewSessionsByURL[pullRequest.url] ?? [] {
+        if let sourceAccountKey {
+          guard let origin = inventory.sourceOrigins[session.id],
+            origin.source == .pullRequest, origin.accountID == sourceAccountKey
+          else { continue }
+        }
         insert(
           link(for: session, inventory: inventory),
           into: &candidates
@@ -199,6 +220,15 @@ enum GitHubReviewSessionLinker {
 
     var latestByProvider: [SessionProviderKind: GitHubReviewSessionLink] = [:]
     for candidate in candidates.values {
+      let inventory = inventories.first { $0.provider == candidate.provider }
+      guard inventory?.quarantinedSessionIDs.contains(candidate.session.id) != true else { continue }
+      if let sourceAccountKey,
+        let origin = inventories.first(where: { $0.provider == candidate.provider })?.sourceOrigins[
+          candidate.session.id],
+        origin.source == .pullRequest, origin.accountID != sourceAccountKey
+      {
+        continue
+      }
       if let current = latestByProvider[candidate.provider],
         current.session.lastActivityAt >= candidate.session.lastActivityAt
       {
@@ -212,6 +242,17 @@ enum GitHubReviewSessionLinker {
         return $0.provider.rawValue < $1.provider.rawValue
       }
       return $0.session.lastActivityAt > $1.session.lastActivityAt
+    }
+  }
+
+  private static func matchesRepository(
+    _ identities: Set<GitHubRepositoryIdentity>?, request: GitHubProjectPullRequest
+  ) -> Bool {
+    guard let identities else { return false }
+    return identities.contains { identity in
+      identity.host == URL(string: request.url)?.host?.lowercased()
+        && "\(identity.owner)/\(identity.repository)".caseInsensitiveCompare(
+          request.repositoryNameWithOwner) == .orderedSame
     }
   }
 

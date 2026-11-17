@@ -34,6 +34,25 @@ private final class GitHubProjectReviewServiceStub:
 
   func rateLimitResetDate() async -> Date? { rateLimitReset }
 
+  func reviewSourceContext() async throws -> GitHubReviewSourceContext {
+    if let projectsDelay { try await Task.sleep(for: projectsDelay) }
+    if let projectsError { throw projectsError }
+    let account = GitHubReviewAccount(
+      host: "github.com", nodeID: "viewer", login: login ?? "test-viewer")
+    return GitHubReviewSourceContext(
+      account: account,
+      owners: [
+        GitHubReviewOwner(
+          account: account, nodeID: "viewer", login: account.login, isPersonal: true)
+      ])
+  }
+
+  func listPullRequests(query: GitHubReviewQuery, limit: Int) async throws -> GitHubReviewQueue {
+    if let pullRequestsError { throw pullRequestsError }
+    if let view = query.view { requestedViewIDs.append(view.id) }
+    return GitHubReviewQueue(pullRequests: pullRequests)
+  }
+
   func listProjects() async throws -> [GitHubReviewProject] {
     if let projectsDelay {
       try await Task.sleep(for: projectsDelay)
@@ -98,7 +117,9 @@ struct GitHubReviewsViewModelTests {
   func detailSelectionIsolation() async {
     let service = GitHubProjectReviewServiceStub()
     service.projects = [makeProject()]
-    service.pullRequests = [makePullRequest(id: "a", isDraft: false), makePullRequest(id: "b", isDraft: false)]
+    service.pullRequests = [
+      makePullRequest(id: "a", isDraft: false), makePullRequest(id: "b", isDraft: false),
+    ]
     service.detailDelay = .milliseconds(80)
     let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
     await model.load()
@@ -117,7 +138,7 @@ struct GitHubReviewsViewModelTests {
     #expect(model.detailError == nil)
   }
 
-  @Test("Selects the Code review view and removes draft results")
+  @Test("Loads owner sources without a Project and includes draft results")
   func loadsPreferredReviewView() async {
     let service = GitHubProjectReviewServiceStub()
     let project = makeProject()
@@ -131,10 +152,10 @@ struct GitHubReviewsViewModelTests {
 
     await viewModel.load()
 
-    #expect(viewModel.selectedProjectID == project.id)
-    #expect(viewModel.selectedView?.name == "Code review")
-    #expect(service.requestedViewIDs == ["code-review"])
-    #expect(viewModel.pullRequests.map(\.id) == ["ready"])
+    #expect(viewModel.selectedProjectID == nil)
+    #expect(viewModel.selectedView == nil)
+    #expect(service.requestedViewIDs.isEmpty)
+    #expect(viewModel.pullRequests.map(\.id) == ["ready", "draft"])
   }
 
   @Test("Queue checks load in one batched request after the queue, for every row")
@@ -154,7 +175,7 @@ struct GitHubReviewsViewModelTests {
     await model.load()
     await model.checksTask?.value
 
-    #expect(service.checkRollupRequests == [["a", "b", "c"]])
+    #expect(service.checkRollupRequests == [["a", "b", "c", "draft"]])
     #expect(model.checksByPullRequestID == ["a": .success, "b": .failure, "c": .pending])
   }
 
@@ -162,7 +183,9 @@ struct GitHubReviewsViewModelTests {
   func queueChecksMergeWithDetails() async throws {
     let service = GitHubProjectReviewServiceStub()
     service.projects = [makeProject()]
-    service.pullRequests = [makePullRequest(id: "a", isDraft: false), makePullRequest(id: "b", isDraft: false)]
+    service.pullRequests = [
+      makePullRequest(id: "a", isDraft: false), makePullRequest(id: "b", isDraft: false),
+    ]
     service.checkRollups = ["a": .pending]
     let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
     model.wantsQueueChecks = true
@@ -331,7 +354,10 @@ struct GitHubReviewsViewModelTests {
     #expect(viewModel.bulkReviewCandidates([mine, theirs]).isEmpty)
 
     await viewModel.load()
-    #expect(viewModel.bulkReviewCandidates([mine, theirs, unknownAuthor]).map(\.id) == ["theirs", "ghost"])
+    #expect(
+      viewModel.bulkReviewCandidates([mine, theirs, unknownAuthor]).map(\.id) == [
+        "theirs", "ghost",
+      ])
   }
 
   @Test("Follow-ups: re-review targets others' PRs, resolve targets yours, both need a ready session")
@@ -491,7 +517,7 @@ struct GitHubReviewsViewModelTests {
     await viewModel.reloadProjects()
 
     #expect(viewModel.recoveryIssue == nil)
-    #expect(viewModel.selectedProjectID == project.id)
+    #expect(viewModel.selectedProjectID == nil)
     #expect(viewModel.pullRequests.map(\.id) == ["ready"])
   }
 
@@ -517,7 +543,7 @@ struct GitHubReviewsViewModelTests {
     #expect(viewModel.recoveryIssue == nil)
   }
 
-  @Test("Cached review queue is available before GitHub refresh finishes")
+  @Test("Legacy account-unscoped cache is never exposed before authentication")
   func restoresCachedReviewQueueImmediately() async {
     let defaults = isolatedDefaults()
     let project = makeProject()
@@ -534,13 +560,13 @@ struct GitHubReviewsViewModelTests {
     slowService.projectsDelay = .seconds(30)
     let restored = GitHubReviewsViewModel(service: slowService, userDefaults: defaults)
 
-    #expect(restored.projects == [project])
-    #expect(restored.pullRequests.map(\.id) == ["cached"])
-    #expect(restored.isShowingCachedPullRequests)
-    #expect(restored.cachedPullRequestsUpdatedAt != nil)
+    #expect(restored.projects.isEmpty)
+    #expect(restored.pullRequests.isEmpty)
+    #expect(!restored.isShowingCachedPullRequests)
+    #expect(restored.cachedPullRequestsUpdatedAt == nil)
   }
 
-  @Test("A failed GitHub refresh keeps the searchable cached queue")
+  @Test("Authentication failure does not expose saved rows from an unverified account")
   func failedRefreshKeepsCachedReviewQueue() async {
     let defaults = isolatedDefaults()
     let project = makeProject()
@@ -556,15 +582,16 @@ struct GitHubReviewsViewModelTests {
     let restored = GitHubReviewsViewModel(service: failingService, userDefaults: defaults)
     await restored.load()
 
-    #expect(restored.pullRequests.map(\.id) == ["cached"])
-    #expect(restored.isShowingCachedPullRequests)
+    #expect(restored.pullRequests.isEmpty)
+    #expect(!restored.isShowingCachedPullRequests)
     #expect(restored.recoveryIssue?.kind == .authenticationRequired)
     #expect(restored.recoveryIssue?.primaryAction == .signIn)
     restored.searchText = cachedPullRequest.title
-    #expect(restored.visiblePullRequests.map(\.id) == ["cached"])
+    #expect(restored.visiblePullRequests.isEmpty)
   }
 
-  @Test("A failed pull request refresh preserves the selected searchable queue and named recovery")
+  @Test(
+    "A failed pull request refresh preserves the selected searchable queue with a rate-limit label")
   func failedPullRequestRefreshPreservesQueue() async {
     let service = GitHubProjectReviewServiceStub()
     service.projects = [makeProject()]
@@ -574,7 +601,7 @@ struct GitHubReviewsViewModelTests {
     await model.load()
     model.selectedPullRequestID = cached.id
     model.searchText = cached.title
-    service.pullRequestsError = .notAuthenticated
+    service.pullRequestsError = .commandFailed("API rate limit exceeded")
 
     await model.refreshPullRequests()
 
@@ -582,8 +609,7 @@ struct GitHubReviewsViewModelTests {
     #expect(model.visiblePullRequests.map(\.id) == [cached.id])
     #expect(model.selectedPullRequestID == cached.id)
     #expect(model.isShowingCachedPullRequests)
-    #expect(model.recoveryIssue?.primaryAction == .signIn)
-    #expect(model.recoveryIssue?.secondaryAction == .retry)
+    #expect(model.recoveryIssue?.primaryAction == .retry)
   }
 
   @Test("Review prompt carries Project context and stays read-only")
@@ -963,7 +989,7 @@ struct GitHubReviewsViewModelTests {
     )
   }
 
-  @Test("Recovers generated review prompts once and persists their real session id")
+  @Test("URL-only legacy review prompts are not adopted by the current account")
   func recoversGeneratedReviewPrompt() async throws {
     let service = GitHubProjectReviewServiceStub()
     let project = makeProject()
@@ -997,9 +1023,9 @@ struct GitHubReviewsViewModelTests {
 
     await viewModel.recoverReviewSessions(provider: .claude, searchResults: [result])
 
-    #expect(viewModel.reviewSessionLaunches(for: pullRequest).first?.sessionID == result.id)
+    #expect(viewModel.reviewSessionLaunches(for: pullRequest).isEmpty)
     let stored = try await store.githubReviewSessionAssociations()
-    #expect(stored.first?.sessionID == result.id)
+    #expect(stored.isEmpty)
   }
 
   private func makeProject() -> GitHubReviewProject {

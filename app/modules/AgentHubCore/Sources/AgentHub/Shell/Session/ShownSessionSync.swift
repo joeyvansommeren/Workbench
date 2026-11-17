@@ -37,7 +37,15 @@ struct ShownSessionSync: ViewModifier {
         restoreSavedSessions()
         stateModel.show(navigationModel.primarySessionId)
       }
-      .onChange(of: navigationModel.primarySessionId) { _, newValue in
+      .onChange(of: navigationModel.primarySessionId) { oldValue, newValue in
+        if let oldValue, oldValue != newValue {
+          stateModel.leaveSession(
+            oldValue, transitioningTo: newValue,
+            resolvedHistories: [
+              (.claude, claude.resolvedPendingSessionHistory),
+              (.codex, codex.resolvedPendingSessionHistory),
+            ])
+        }
         stateModel.show(newValue)
       }
       .onChange(of: claude.resolvedPendingSessionHistory) { _, history in

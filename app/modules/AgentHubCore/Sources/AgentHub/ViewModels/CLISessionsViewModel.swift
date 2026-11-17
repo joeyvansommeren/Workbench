@@ -33,9 +33,16 @@ public final class CLISessionsViewModel {
   public let cliConfiguration: CLICommandConfiguration
   public let providerKind: SessionProviderKind
   private let codexDataPath: String
+  private let claudeDataPath: String
   private let worktreeService = GitWorktreeService()
   private let worktreeRemovalService: any GitWorktreeRemovalServiceProtocol
   private let metadataStore: SessionMetadataStore?
+  private let launchOriginStore: (any SessionLaunchOriginStoring)?
+  private let pendingSessionFileOwnership: any PendingSessionFileOwning
+  private var pendingLaunchProcesses: [UUID: PendingSessionProcessIdentity] = [:]
+  public private(set) var sessionOrigins: [String: SessionLaunchOrigin] = [:]
+  private var recoveredPendingIDs: Set<UUID> = []
+  public private(set) var launchError: String?
   private let terminalWorkspaceStore: (any TerminalWorkspaceStoreProtocol)?
   private let sessionRelationshipStore: (any SessionRelationshipStoreProtocol)?
   private let fileWatcher: any SessionFileWatcherProtocol
@@ -1253,7 +1260,17 @@ public final class CLISessionsViewModel {
   ) -> any EmbeddedTerminalSurface {
     let terminal = terminalSurfaceFactory.makeSurface(for: terminalBackend)
     terminal.updateContext(terminalSessionKey: key, sessionViewModel: self)
-    descriptor.configure(terminal, metadataStore: metadataStore)
+    if key.hasPrefix("pending-"), let pendingID = UUID(uuidString: String(key.dropFirst(8))) {
+      terminal.onCLILaunchFailed = { [weak self] in self?.markPendingSessionFailed(pendingID) }
+    }
+    let isRecoveredPending = recoveredPendingIDs.contains { key == "pending-\($0.uuidString)" }
+    // SwiftUI can request a new surface for a retained cancellation error row.
+    let hasPendingRemovalError = pendingHubSessions.contains {
+      key == "pending-\($0.id.uuidString)" && $0.removalError != nil
+    }
+    if !isRecoveredPending && !hasPendingRemovalError {
+      descriptor.configure(terminal, metadataStore: metadataStore)
+    }
     return terminal
   }
 
@@ -1684,6 +1701,27 @@ public final class CLISessionsViewModel {
     return trimmed?.isEmpty == false ? trimmed : nil
   }
 
+  /// Called by the primary terminal at process launch, before file inspection.
+  public func recordPendingLaunchProcess(forKey key: String?, processID: Int32?) {
+    guard let key, key.hasPrefix("pending-"),
+      let pendingID = UUID(uuidString: String(key.dropFirst(8))),
+      shouldWatchPendingSession(pendingID), pendingLaunchProcesses[pendingID] == nil,
+      let processID,
+      let identity = PendingSessionProcessIdentity.capture(
+        processID: processID, parentProcessID: ProcessInfo.processInfo.processIdentifier)
+    else { return }
+    // Ghostty exposes the foreground PID. A tool child becoming foreground
+    // must not replace the terminal's direct launch process as our evidence.
+    pendingLaunchProcesses[pendingID] = identity
+  }
+
+  func shouldWatchPendingSession(_ pendingID: UUID) -> Bool {
+    !Task.isCancelled
+      && pendingHubSessions.contains {
+        $0.id == pendingID && !$0.isFailed && !$0.needsIdentification
+      }
+  }
+
   /// Gets an existing terminal or creates a new one for the given key.
   /// Key should be session ID for real sessions, or "pending-{pendingId}" for pending sessions.
   /// This preserves the terminal PTY across pending → real session transitions.
@@ -1700,7 +1738,10 @@ public final class CLISessionsViewModel {
     permissionModePlan: Bool = false,
     worktreeName: String? = nil
   ) -> any EmbeddedTerminalSurface {
-    let config = cliConfiguration ?? self.currentCLIConfiguration
+    var config = cliConfiguration ?? self.currentCLIConfiguration
+    if let pending = pendingHubSessions.first(where: { key == "pending-\($0.id.uuidString)" }) {
+      config.newSessionID = pending.expectedSessionID
+    }
     let queuedInputText = consumePendingTerminalInputText(for: key)
     let isNewSession =
       (sessionId == nil
@@ -1778,19 +1819,6 @@ public final class CLISessionsViewModel {
         parentTerminalKey: key,
         parentSessionId: persistableWorkspaceSessionId(key: key, sessionId: sessionId)
       )
-    }
-    // Wire launch failure callback for pending sessions so the row can
-    // show Retry / Remove instead of spinning indefinitely.
-    if key.hasPrefix("pending-") {
-      let pendingKey = key
-      terminal.onCLILaunchFailed = { [weak self] in
-        guard let self else { return }
-        // Extract pending UUID from key "pending-<UUID>"
-        let uuidString = String(pendingKey.dropFirst("pending-".count))
-        if let pendingId = UUID(uuidString: uuidString) {
-          self.markPendingSessionFailed(pendingId)
-        }
-      }
     }
     activeTerminals[key] = terminal
     return terminal
@@ -2243,16 +2271,20 @@ public final class CLISessionsViewModel {
     hookInstaller: (any ClaudeHookInstallerProtocol)? = nil,
     cliAvailabilityService: (any CLIAvailabilityChecking)? = nil,
     codexDataPath: String? = nil,
+    claudeDataPath: String? = nil,
     worktreeRemovalService: any GitWorktreeRemovalServiceProtocol = GitWorktreeService(),
     terminalSurfaceFactory: any EmbeddedTerminalSurfaceFactory =
       DefaultEmbeddedTerminalSurfaceFactory(),
     terminalBackend: EmbeddedTerminalBackend = .storedPreference,
-    terminalWorkspaceStore: (any TerminalWorkspaceStoreProtocol)? = nil
+    terminalWorkspaceStore: (any TerminalWorkspaceStoreProtocol)? = nil,
+    pendingSessionFileOwnership: any PendingSessionFileOwning = PendingSessionFileOwnership()
   ) {
     // [CLISessionsVM] init called")
     self.monitorService = monitorService
     self.searchService = searchService
     self.metadataStore = metadataStore
+    self.launchOriginStore = metadataStore
+    self.pendingSessionFileOwnership = pendingSessionFileOwnership
     self.terminalWorkspaceStore = terminalWorkspaceStore ?? metadataStore
     self.sessionRelationshipStore = sessionRelationshipStore ?? metadataStore
     self.fileWatcher = fileWatcher
@@ -2275,6 +2307,9 @@ public final class CLISessionsViewModel {
     self.cliConfiguration = cliConfiguration
     self.providerKind = providerKind
     self.codexDataPath = NSString(string: codexDataPath ?? "~/.codex").expandingTildeInPath
+    self.claudeDataPath =
+      claudeDataPath
+      ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path
     self.showLastMessage = UserDefaults.standard.bool(forKey: "CLISessionsShowLastMessage")
 
     // Load approval timeout with default of 5 seconds
@@ -2296,6 +2331,7 @@ public final class CLISessionsViewModel {
       pinnedSessionIds = store.getPinnedSessionIdsSync()
     }
 
+    restoreLaunchOrigins()
     setupSubscriptions()
     restorePersistedRepositories()
     requestNotificationPermissions()
@@ -2316,9 +2352,135 @@ public final class CLISessionsViewModel {
 
   // MARK: - Session Naming
 
+  public var sessionDisplayNames: [String: String] {
+    sessionOrigins.mapValues(\.displayName).merging(sessionCustomNames) { _, manual in manual }
+  }
+
   /// Returns the display name for a session (custom name if set, otherwise default)
   public func displayName(for session: CLISession) -> String {
-    sessionCustomNames[session.id] ?? session.displayName
+    sessionCustomNames[session.id] ?? sessionOrigins[session.id]?.displayName
+      ?? session.slug ?? "Untitled session · \(session.shortId)"
+  }
+
+  /// Restores provenance without relaunching a process or replaying a ticket prompt.
+  private func restoreLaunchOrigins() {
+    do {
+      for record in try launchOriginStore?.launchOrigins(provider: providerKind) ?? [] {
+        let launch = try record.launch()
+        guard let pendingID = UUID(uuidString: record.pendingID) else { continue }
+        if let sessionID = record.sessionID {
+          sessionOrigins[sessionID] = launch.origin
+          resolvedPendingSessionHistory[pendingID] = sessionID
+          pendingSessionClaims[sessionID] = pendingID
+        } else {
+          var pending = PendingHubSession(
+            worktree: launch.worktree, id: pendingID, startedAt: launch.startedAt,
+            origin: launch.origin, expectedSessionID: launch.expectedSessionID,
+            needsIdentification: launch.needsIdentification || providerKind == .codex,
+            launchPath: launch.launchPath,
+            existingSessionIdentifiers: launch.existingSessionIdentifiers)
+          pending.isFailed = launch.failed
+          pendingHubSessions.append(pending)
+          recoveredPendingIDs.insert(pendingID)
+          sessionOrigins["pending-\(pendingID.uuidString)"] = launch.origin
+          if pending.needsIdentification {
+            try launchOriginStore?.updateLaunchOrigin(
+              pendingID: pendingID, failed: pending.isFailed, needsIdentification: true)
+          } else if !pending.isFailed {
+            Task { await watchForNewSession(pending: pending, worktree: pending.worktree) }
+          }
+        }
+      }
+      sessionCustomNames.merge(
+        try metadataStore?.customNames(for: Array(sessionOrigins.keys)) ?? [:]
+      ) { _, saved in saved }
+    } catch {
+      launchError = "Could not restore session identity. Restart Workbench to try again."
+    }
+  }
+
+  func restoredLaunchMessage(for sessionID: String) -> String? {
+    guard recoveredPendingIDs.contains(where: { sessionID == "pending-\($0.uuidString)" }) else {
+      return nil
+    }
+    return pendingLaunchRecoveryMessage(for: sessionID)
+  }
+
+  func pendingLaunchRecoveryMessage(for sessionID: String) -> String? {
+    guard
+      let pending = pendingHubSessions.first(where: { "pending-\($0.id.uuidString)" == sessionID })
+    else { return nil }
+    if let removalError = pending.removalError { return removalError }
+    if pending.needsIdentification {
+      return
+        "Workbench cannot identify this session automatically. Choose Link session to confirm the matching session. Your session name will be kept."
+    }
+    if recoveredPendingIDs.contains(pending.id) {
+      return "Waiting to identify the previous session. Workbench has not started another agent."
+    }
+    return nil
+  }
+
+  /// Candidates are offered for explicit confirmation only; opening a session never renames it.
+  func recoveryCandidates(for pending: PendingHubSession) -> [CLISession] {
+    guard pending.needsIdentification,
+      (recoveredPendingIDs.contains(pending.id) || providerKind == .codex),
+      !pending.isFailed, pending.removalError == nil
+    else { return [] }
+    var seen: Set<String> = []
+    return (allSessions + monitoredSessionList).filter { session in
+      guard seen.insert(session.id).inserted, sessionOrigins[session.id] == nil,
+        pendingSessionClaims[session.id] == nil, session.projectPath == pending.projectPath,
+        !session.id.hasPrefix("pending-"),
+        pending.expectedSessionID == nil || pending.expectedSessionID == session.id
+      else { return false }
+      if providerKind == .codex {
+        guard let path = session.sessionFilePath,
+          !pending.existingSessionIdentifiers.contains(path),
+          let meta = CodexSessionFileScanner.readSessionMeta(from: path),
+          meta.isInteractiveCLI, meta.sessionId == session.id,
+          meta.projectPath == pending.projectPath, let startedAt = meta.startedAt
+        else { return false }
+        return startedAt >= pending.startedAt
+      }
+      return !pending.existingSessionIdentifiers.contains(session.id)
+    }.sorted { $0.lastActivityAt > $1.lastActivityAt }
+  }
+
+  /// The caller presents an explicit confirmation naming both the ticket and session.
+  @discardableResult
+  func confirmRecoveredLaunch(_ pendingID: UUID, sessionID: String) -> Bool {
+    guard let pending = pendingHubSessions.first(where: { $0.id == pendingID }),
+      let session = recoveryCandidates(for: pending).first(where: { $0.id == sessionID })
+    else { return false }
+    do {
+      if pending.origin != nil {
+        guard let launchOriginStore else { return false }
+        try launchOriginStore.confirmLaunchOrigin(
+          pendingID: pendingID, provider: providerKind, sessionID: sessionID)
+      } else {
+        try metadataStore?.transferPendingName(pendingID: pendingID, sessionID: sessionID)
+      }
+      // Read committed manual names. A pre-existing resolved rename always wins.
+      let names = try metadataStore?.customNames(for: [sessionID]) ?? [:]
+      sessionCustomNames.merge(names) { _, saved in saved }
+    } catch {
+      launchError = "Could not save the session link. Try again."
+      return false
+    }
+    if let origin = pending.origin { sessionOrigins[sessionID] = origin }
+    transferTerminal(fromPendingId: pendingID, toSessionId: sessionID)
+    transferAuxiliaryShellTerminal(fromPendingId: pendingID, toSessionId: sessionID)
+    pendingLaunchProcesses.removeValue(forKey: pendingID)
+    pendingSessionClaims[sessionID] = pendingID
+    resolvedPendingSessions[pendingID] = sessionID
+    resolvedPendingSessionHistory[pendingID] = sessionID
+    pendingSessionWatchers.removeValue(forKey: pendingID)?.cancel()
+    pendingHubSessions.removeAll { $0.id == pendingID }
+    recoveredPendingIDs.remove(pendingID)
+    sessionOrigins.removeValue(forKey: "pending-\(pendingID.uuidString)")
+    startMonitoring(session: session)
+    return true
   }
 
   /// Sets a custom name for a session
@@ -2333,6 +2495,10 @@ public final class CLISessionsViewModel {
     Task {
       do {
         try await store.setCustomName(name, for: sessionId)
+        let canonicalID = try store.canonicalNameSessionID(sessionId)
+        if canonicalID != sessionId {
+          sessionCustomNames[canonicalID] = name?.isEmpty == false ? name : nil
+        }
 
         if let name = name, !name.isEmpty {
           sessionCustomNames[sessionId] = name
@@ -3547,7 +3713,6 @@ public final class CLISessionsViewModel {
 
     switch providerKind {
     case .claude:
-      let claudeDataPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.claude"
       let encodedPath = session.projectPath.claudeProjectPathEncoded
       let sessionFile = "\(claudeDataPath)/projects/\(encodedPath)/\(session.id).jsonl"
       return URL(fileURLWithPath: sessionFile)
@@ -4314,6 +4479,7 @@ public final class CLISessionsViewModel {
   ///     message. Nil keeps the launch identical to a launch without the
   ///     context feature.
   ///   - dangerouslySkipPermissions: If true, adds --dangerously-skip-permissions flag
+  @discardableResult
   public func startNewSessionInHub(
     _ worktree: WorktreeBranch,
     launchPath: String? = nil,
@@ -4322,14 +4488,17 @@ public final class CLISessionsViewModel {
     contextBlock: String? = nil,
     dangerouslySkipPermissions: Bool = false,
     permissionModePlan: Bool = false,
-    worktreeName: String? = nil
-  ) {
+    worktreeName: String? = nil,
+    origin: SessionLaunchOrigin? = nil
+  ) -> UUID? {
+    launchError = nil
     // Re-check CLI availability before creating any session row or terminal.
     refreshCLIAvailability()
     guard isCLIAvailable else {
       let label = providerKind == .claude ? "Claude Code" : "Codex"
       AppLogger.session.warning("[StartInHub] \(label) CLI not found — launch blocked")
-      return
+      launchError = "Install \(label) before starting a session."
+      return nil
     }
 
     let promptForTerminalSubmission = providerKind == .claude ? nonEmpty(initialPrompt) : nil
@@ -4344,8 +4513,12 @@ public final class CLISessionsViewModel {
     )
     let pending = PendingHubSession(
       worktree: worktree,
+      origin: origin,
+      expectedSessionID: origin != nil && providerKind == .claude
+        ? UUID().uuidString.lowercased() : nil,
       launchPath: launchPath,
       initialPrompt: promptForProcessLaunch,
+      retryPrompt: initialPrompt,
       initialInputText: initialInputText,
       launchContext: nonEmpty(contextBlock?.trimmingCharacters(in: .whitespacesAndNewlines)),
       dangerouslySkipPermissions: dangerouslySkipPermissions,
@@ -4353,6 +4526,23 @@ public final class CLISessionsViewModel {
       existingSessionIdentifiers: existingSessionIdentifiers,
       worktreeName: worktreeName
     )
+    if let origin {
+      guard let launchOriginStore,
+        !origin.accountID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        !origin.sourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      else {
+        launchError = "Could not save session identity. Restart Workbench and try again."
+        return nil
+      }
+      do {
+        try launchOriginStore.saveLaunchOrigin(
+          SessionLaunchOriginRecord(pending: pending, provider: providerKind))
+      } catch {
+        launchError = "Could not save session identity. No session was started. Try again."
+        return nil
+      }
+      sessionOrigins["pending-\(pending.id.uuidString)"] = origin
+    }
     pendingHubSessions.append(pending)
     lastCreatedPendingId = pending.id
     if let promptForTerminalSubmission {
@@ -4370,6 +4560,7 @@ public final class CLISessionsViewModel {
     Task { @MainActor in
       await watchForNewSession(pending: pending, worktree: worktree)
     }
+    return pending.id
   }
 
   /// Persists the curated context a pending session was launched with, keyed
@@ -4406,7 +4597,6 @@ public final class CLISessionsViewModel {
       } else {
         effectivePath = projectPath
       }
-      let claudeDataPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.claude"
       let projectDirectory =
         "\(claudeDataPath)/projects/\(effectivePath.claudeProjectPathEncoded)"
       let files = (try? FileManager.default.contentsOfDirectory(atPath: projectDirectory)) ?? []
@@ -4426,10 +4616,11 @@ public final class CLISessionsViewModel {
   @discardableResult
   public func startAutomatedSessionInHub(
     _ worktree: WorktreeBranch,
-    initialPrompt: String
+    initialPrompt: String,
+    origin: SessionLaunchOrigin? = nil
   ) -> UUID? {
-    startNewSessionInHub(worktree, initialPrompt: initialPrompt)
-    guard let pendingID = lastCreatedPendingId,
+    guard
+      let pendingID = startNewSessionInHub(worktree, initialPrompt: initialPrompt, origin: origin),
       let pending = pendingHubSessions.first(where: { $0.id == pendingID })
     else {
       return nil
@@ -4457,8 +4648,23 @@ public final class CLISessionsViewModel {
     removeTerminal(forKey: pendingKey)
     removeAuxiliaryShellTerminal(forKey: pendingKey)
     pendingSessionWatchers.removeValue(forKey: pending.id)?.cancel()
+    pendingLaunchProcesses.removeValue(forKey: pending.id)
+    do {
+      try launchOriginStore?.removeLaunchOrigin(pendingID: pending.id)
+    } catch {
+      // Retain a stopped row until deletion commits, so Remove can retry it.
+      markPendingSessionFailed(pending.id)
+      let message = "Could not remove saved session. Try Remove again."
+      if let index = pendingHubSessions.firstIndex(where: { $0.id == pending.id }) {
+        pendingHubSessions[index].removalError = message
+      }
+      launchError = message
+      return
+    }
     pendingHubSessions.removeAll { $0.id == pending.id }
     resolvedPendingSessions.removeValue(forKey: pending.id)
+    recoveredPendingIDs.remove(pending.id)
+    sessionOrigins.removeValue(forKey: pendingKey)
   }
 
   /// Re-checks whether the provider CLI is installed and updates `isCLIAvailable`.
@@ -4471,6 +4677,13 @@ public final class CLISessionsViewModel {
   public func markPendingSessionFailed(_ pendingId: UUID) {
     guard let index = pendingHubSessions.firstIndex(where: { $0.id == pendingId }) else { return }
     pendingHubSessions[index].isFailed = true
+    pendingLaunchProcesses.removeValue(forKey: pendingId)
+    pendingSessionWatchers.removeValue(forKey: pendingId)?.cancel()
+    do {
+      try launchOriginStore?.updateLaunchOrigin(
+        pendingID: pendingId, failed: true,
+        needsIdentification: pendingHubSessions[index].needsIdentification)
+    } catch { launchError = "Could not save the failed launch. Restart Workbench before retrying." }
   }
 
   /// Removes a failed pending session row without cancelling a watcher (already dead).
@@ -4480,22 +4693,33 @@ public final class CLISessionsViewModel {
 
   /// Retries a failed pending session: removes the old one and starts fresh.
   public func retryPendingSession(_ pending: PendingHubSession) {
+    guard let current = pendingHubSessions.first(where: { $0.id == pending.id }),
+      current.removalError == nil
+    else { return }
+    guard !recoveredPendingIDs.contains(pending.id) else {
+      launchError = "Open the ticket to start a new session. The previous prompt was not saved."
+      return
+    }
+    guard
+      startNewSessionInHub(
+        pending.worktree,
+        launchPath: pending.launchPath,
+        initialPrompt: pending.retryPrompt,
+        initialInputText: pending.initialInputText,
+        contextBlock: pending.launchContext,
+        dangerouslySkipPermissions: pending.dangerouslySkipPermissions,
+        permissionModePlan: pending.permissionModePlan,
+        worktreeName: pending.worktreeName,
+        origin: pending.origin
+      ) != nil
+    else { return }
     cancelPendingSession(pending)
-    startNewSessionInHub(
-      pending.worktree,
-      launchPath: pending.launchPath,
-      initialPrompt: pending.initialPrompt,
-      initialInputText: pending.initialInputText,
-      contextBlock: pending.launchContext,
-      dangerouslySkipPermissions: pending.dangerouslySkipPermissions,
-      permissionModePlan: pending.permissionModePlan,
-      worktreeName: pending.worktreeName
-    )
   }
 
   /// Watches for a new session file for the active provider.
   @MainActor
   private func watchForNewSession(pending: PendingHubSession, worktree: WorktreeBranch) async {
+    guard shouldWatchPendingSession(pending.id) else { return }
     switch providerKind {
     case .claude:
       await watchForNewClaudeSession(pending: pending, worktree: worktree)
@@ -4513,15 +4737,14 @@ public final class CLISessionsViewModel {
 
   /// Watches the Claude project directory for a new session file
   @MainActor
-  private func watchForNewClaudeSession(pending: PendingHubSession, worktree: WorktreeBranch) async
-  {
+  func watchForNewClaudeSession(pending: PendingHubSession, worktree: WorktreeBranch) async {
+    guard shouldWatchPendingSession(pending.id) else { return }
     // Auto-named --worktree: we don't know the path ahead of time, poll history.jsonl instead
     if let worktreeName = pending.worktreeName, worktreeName.isEmpty {
       await pollForWorktreeHistoryEntry(pending: pending, repoPath: pending.projectPath)
       return
     }
 
-    let claudeDataPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.claude"
     let watchPath = claudeProjectPath(for: pending)
     let encodedPath = watchPath.claudeProjectPathEncoded
     let projectDir = "\(claudeDataPath)/projects/\(encodedPath)"
@@ -4532,7 +4755,7 @@ public final class CLISessionsViewModel {
     #endif
 
     // Get existing session files BEFORE watching
-    let existingFiles = Set(
+    var existingFiles = Set(
       (try? FileManager.default.contentsOfDirectory(atPath: projectDir)) ?? [])
     #if DEBUG
       let existingJsonlCount = existingFiles.filter { $0.hasSuffix(".jsonl") }.count
@@ -4540,11 +4763,13 @@ public final class CLISessionsViewModel {
         "[WatchNewSession] pendingId=\(pending.id.uuidString, privacy: .public) existingFiles=\(existingFiles.count) existingJsonl=\(existingJsonlCount)"
       )
     #endif
-    if let existingSessionFile = findRecentClaudeSessionFile(
-      in: existingFiles,
-      projectDir: projectDir,
-      pending: pending
-    ) {
+    while shouldWatchPendingSession(pending.id),
+      let existingSessionFile = findRecentClaudeSessionFile(
+        in: existingFiles,
+        projectDir: projectDir,
+        pending: pending
+      )
+    {
       #if DEBUG
         AppLogger.watcher.debug(
           "[WatchNewSession] pendingId=\(pending.id.uuidString, privacy: .public) found existing session file \(existingSessionFile, privacy: .public)"
@@ -4554,7 +4779,14 @@ public final class CLISessionsViewModel {
       if handleNewSessionFound(sessionId: sessionId, pending: pending, worktree: worktree) {
         return
       }
+      // A matching file must remain eligible while its identity transaction retries.
+      // Waiting for another directory event would strand an already-created file.
+      try? await Task.sleep(for: .seconds(1))
+      guard shouldWatchPendingSession(pending.id) else { return }
+      existingFiles = Set(
+        (try? FileManager.default.contentsOfDirectory(atPath: projectDir)) ?? [])
     }
+    guard shouldWatchPendingSession(pending.id) else { return }
 
     // Watch the directory for a new session file. The watcher owns the
     // directory fd and releases it on every exit path; it waits indefinitely
@@ -4603,6 +4835,10 @@ public final class CLISessionsViewModel {
     projectDir: String,
     pending: PendingHubSession
   ) -> String? {
+    if let expected = pending.expectedSessionID {
+      let file = expected + ".jsonl"
+      return existingFiles.contains(file) ? file : nil
+    }
     let candidates = existingFiles.filter { file in
       guard file.hasSuffix(".jsonl") else { return false }
       let sessionID = String(file.dropLast(6))
@@ -4634,16 +4870,36 @@ public final class CLISessionsViewModel {
 
   /// Handles when a new session file is detected
   @discardableResult
-  private func handleNewSessionFound(
+  func handleNewSessionFound(
     sessionId: String,
     pending: PendingHubSession,
     worktree: WorktreeBranch,
-    sessionFilePath: String? = nil
+    sessionFilePath: String? = nil,
+    verifiedProcessFile: Bool = false
   ) -> Bool {
+    guard let currentPending = pendingHubSessions.first(where: { $0.id == pending.id }),
+      !currentPending.isFailed, !currentPending.needsIdentification,
+      pending.expectedSessionID == nil || pending.expectedSessionID == sessionId
+    else { return false }
+    if providerKind == .codex, !verifiedProcessFile { return false }
     let detectionIdentifier = providerKind == .codex ? sessionFilePath ?? sessionId : sessionId
     guard !pending.existingSessionIdentifiers.contains(detectionIdentifier) else { return false }
-    if let claimOwner = pendingSessionClaims[sessionId], claimOwner != pending.id {
-      return false
+    if let claimOwner = pendingSessionClaims[sessionId] {
+      return claimOwner == pending.id
+    }
+    if let origin = pending.origin {
+      do {
+        try launchOriginStore?.resolveLaunchOrigin(
+          pendingID: pending.id, provider: providerKind, sessionID: sessionId)
+      } catch {
+        launchError =
+          "Could not save the session link. The ticket title remains with the pending session."
+        return false
+      }
+      sessionOrigins[sessionId] = origin
+      if let name = sessionCustomNames["pending-\(pending.id.uuidString)"] {
+        sessionCustomNames[sessionId] = name
+      }
     }
     pendingSessionClaims[sessionId] = pending.id
 
@@ -4680,6 +4936,9 @@ public final class CLISessionsViewModel {
         // Wait for the publisher to propagate to selectedRepositories
         // The Combine subscription updates asynchronously on MainActor
         try? await Task.sleep(for: .milliseconds(200))
+        guard pendingHubSessions.contains(where: { $0.id == pending.id && !$0.isFailed }) else {
+          return
+        }
 
         // Find and monitor the new session (try path matching first)
         var found = false
@@ -4725,7 +4984,6 @@ public final class CLISessionsViewModel {
         // Third fallback: check session file directly
         // This handles new worktrees where history.jsonl hasn't been updated yet,
         // and ensures pending sessions always resolve even after retry exhaustion.
-        let claudeDataPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.claude"
         let effectivePath = claudeProjectPath(for: pending)
         let encodedPath = effectivePath.claudeProjectPathEncoded
         let fallbackSessionFilePath = "\(claudeDataPath)/projects/\(encodedPath)/\(sessionId).jsonl"
@@ -4843,10 +5101,9 @@ public final class CLISessionsViewModel {
 
   /// Fallback: polls for the project directory to be created, then watches it
   @MainActor
-  private func pollForNewClaudeSessionFallback(pending: PendingHubSession, worktree: WorktreeBranch)
+  func pollForNewClaudeSessionFallback(pending: PendingHubSession, worktree: WorktreeBranch)
     async
   {
-    let claudeDataPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.claude"
     let encodedPath = claudeProjectPath(for: pending).claudeProjectPathEncoded
     let projectDir = "\(claudeDataPath)/projects/\(encodedPath)"
     #if DEBUG
@@ -4857,11 +5114,11 @@ public final class CLISessionsViewModel {
 
     // Wait indefinitely for directory to be created, then watch it
     // User can close the pending session card to cancel
-    while true {
+    while shouldWatchPendingSession(pending.id) {
       try? await Task.sleep(for: .seconds(1))
 
       // Check if pending session was cancelled by user
-      if !pendingHubSessions.contains(where: { $0.id == pending.id }) {
+      if !shouldWatchPendingSession(pending.id) {
         #if DEBUG
           AppLogger.watcher.debug(
             "[PollNewSession] pendingId=\(pending.id.uuidString, privacy: .public) cancelled by user"
@@ -4888,7 +5145,6 @@ public final class CLISessionsViewModel {
   /// the exact worktree path isn't known until Claude CLI creates it.
   @MainActor
   private func pollForWorktreeHistoryEntry(pending: PendingHubSession, repoPath: String) async {
-    let claudeDataPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.claude"
     let historyPath = "\(claudeDataPath)/history.jsonl"
     let worktreePrefix = repoPath + "/.claude/worktrees/"
 
@@ -4898,10 +5154,10 @@ public final class CLISessionsViewModel {
       )
     #endif
 
-    while true {
+    while shouldWatchPendingSession(pending.id) {
       try? await Task.sleep(for: .seconds(1))
 
-      if !pendingHubSessions.contains(where: { $0.id == pending.id }) { return }
+      if !shouldWatchPendingSession(pending.id) { return }
 
       guard let contents = try? String(contentsOfFile: historyPath, encoding: .utf8) else {
         continue
@@ -4950,11 +5206,12 @@ public final class CLISessionsViewModel {
 
   /// Watches the Codex sessions directory for a new session file.
   @MainActor
-  private func watchForNewCodexSession(pending: PendingHubSession, worktree: WorktreeBranch) async {
-    var knownFiles = Set(CodexSessionFileScanner.listSessionFiles(codexDataPath: codexDataPath))
+  func watchForNewCodexSession(pending: PendingHubSession, worktree: WorktreeBranch) async {
+    guard shouldWatchPendingSession(pending.id) else { return }
+    let knownFiles = Set(CodexSessionFileScanner.listSessionFiles(codexDataPath: codexDataPath))
     let launchFiles = knownFiles.subtracting(pending.existingSessionIdentifiers)
 
-    if let meta = findRecentCodexSession(
+    if let meta = await findRecentCodexSession(
       in: launchFiles,
       pending: pending,
       worktree: worktree,
@@ -4964,7 +5221,8 @@ public final class CLISessionsViewModel {
         sessionId: meta.sessionId,
         pending: pending,
         worktree: worktree,
-        sessionFilePath: meta.sessionFilePath
+        sessionFilePath: meta.sessionFilePath,
+        verifiedProcessFile: true
       ) {
         return
       }
@@ -4973,8 +5231,7 @@ public final class CLISessionsViewModel {
     await pollForNewCodexSession(
       pending: pending,
       worktree: worktree,
-      codexPath: codexDataPath,
-      knownFiles: &knownFiles
+      codexPath: codexDataPath
     )
   }
 
@@ -4982,23 +5239,20 @@ public final class CLISessionsViewModel {
   private func pollForNewCodexSession(
     pending: PendingHubSession,
     worktree: WorktreeBranch,
-    codexPath: String,
-    knownFiles: inout Set<String>
+    codexPath: String
   ) async {
-    while true {
+    while shouldWatchPendingSession(pending.id) {
       try? await Task.sleep(for: .seconds(1))
 
       // Cancel if pending session is gone
-      if !pendingHubSessions.contains(where: { $0.id == pending.id }) {
+      if !shouldWatchPendingSession(pending.id) {
         return
       }
 
       let currentFiles = Set(CodexSessionFileScanner.listSessionFiles(codexDataPath: codexPath))
-      let newFiles = currentFiles.subtracting(knownFiles)
 
-      if let meta = findRecentCodexSession(
-        in: newFiles.isEmpty
-          ? currentFiles.subtracting(pending.existingSessionIdentifiers) : newFiles,
+      if let meta = await findRecentCodexSession(
+        in: currentFiles.subtracting(pending.existingSessionIdentifiers),
         pending: pending,
         worktree: worktree,
         pendingStartedAt: pending.startedAt
@@ -5007,44 +5261,67 @@ public final class CLISessionsViewModel {
           sessionId: meta.sessionId,
           pending: pending,
           worktree: worktree,
-          sessionFilePath: meta.sessionFilePath
+          sessionFilePath: meta.sessionFilePath,
+          verifiedProcessFile: true
         ) {
           return
         }
       }
 
-      knownFiles = currentFiles
     }
   }
 
-  private func findRecentCodexSession(
+  func findRecentCodexSession(
     in filePaths: Set<String>,
     pending: PendingHubSession,
     worktree: WorktreeBranch,
     pendingStartedAt: Date
-  ) -> CodexSessionMeta? {
+  ) async -> CodexSessionMeta? {
     guard !filePaths.isEmpty else { return nil }
 
-    let cutoff = pendingStartedAt.addingTimeInterval(-2)
-    var newest: (meta: CodexSessionMeta, modifiedAt: Date)?
+    guard let current = pendingHubSessions.first(where: { $0.id == pending.id }),
+      !current.needsIdentification, !current.isFailed
+    else { return nil }
+    let cutoff = pendingStartedAt
+    var candidates: [CodexSessionMeta] = []
 
     for path in filePaths {
       guard !pending.existingSessionIdentifiers.contains(path) else { continue }
       guard let modifiedAt = fileModificationDate(path), modifiedAt >= cutoff else { continue }
       guard let meta = CodexSessionFileScanner.readSessionMeta(from: path) else { continue }
       guard pendingSessionClaims[meta.sessionId] == nil else { continue }
+      guard meta.isInteractiveCLI else { continue }
       guard codexSessionMatchesPending(meta, pending: pending, worktree: worktree) else { continue }
 
-      if let current = newest {
-        if modifiedAt > current.modifiedAt {
-          newest = (meta, modifiedAt)
+      candidates.append(meta)
+    }
+    let owned: Set<String>
+    if let process = pendingLaunchProcesses[pending.id] {
+      owned = await pendingSessionFileOwnership.ownedFiles(
+        in: Set(candidates.map(\.sessionFilePath)), process: process)
+    } else {
+      owned = []
+    }
+    guard shouldWatchPendingSession(pending.id) else { return nil }
+    let verified = candidates.filter { owned.contains($0.sessionFilePath) }
+    if verified.count == 1 { return verified.first }
+    // Node-based launchers can keep the native writer in a child process. Do
+    // not trust arbitrary descendants: make uncertainty actionable while live.
+    if !candidates.isEmpty, Date().timeIntervalSince(pending.startedAt) >= 5 {
+      do {
+        if pending.origin != nil {
+          guard let launchOriginStore else { return nil }
+          try launchOriginStore.updateLaunchOrigin(
+            pendingID: pending.id, failed: false, needsIdentification: true)
         }
-      } else {
-        newest = (meta, modifiedAt)
+        if let index = pendingHubSessions.firstIndex(where: { $0.id == pending.id }) {
+          pendingHubSessions[index].needsIdentification = true
+        }
+      } catch {
+        launchError = "Could not save session recovery. Workbench will keep trying to identify it."
       }
     }
-
-    return newest?.meta
+    return nil
   }
 
   private func codexSessionMatchesPending(
@@ -5053,9 +5330,6 @@ public final class CLISessionsViewModel {
     worktree: WorktreeBranch
   ) -> Bool {
     meta.projectPath == pending.projectPath
-      || meta.projectPath.hasPrefix(pending.projectPath + "/")
-      || meta.projectPath == worktree.path
-      || meta.projectPath.hasPrefix(worktree.path + "/")
   }
 
   private func fileModificationDate(_ path: String) -> Date? {
@@ -5405,11 +5679,41 @@ public final class CLISessionsViewModel {
 
       await MainActor.run { [weak self] in
         guard let self = self else { return }
-        self.searchResults = results
+        self.searchResults = self.applyingSessionTitles(
+          to: results, query: query, filterPath: filterPath)
         self.isSearching = false
         self.hasPerformedSearch = true
       }
     }
+  }
+
+  func applyingSessionTitles(
+    to results: [SessionSearchResult], query: String, filterPath: String?
+  ) -> [SessionSearchResult] {
+    let titles = sessionDisplayNames
+    var combined = results.map { result in
+      SessionSearchResult(
+        id: result.id, slug: titles[result.id] ?? result.slug, projectPath: result.projectPath,
+        gitBranch: result.gitBranch, firstMessage: result.firstMessage, summaries: result.summaries,
+        lastActivityAt: result.lastActivityAt, matchedField: result.matchedField,
+        matchedText: result.matchedText, relevanceScore: result.relevanceScore)
+    }
+    var seen = Set(combined.map(\.id))
+    for session in allSessions + monitoredSessionList {
+      guard !seen.contains(session.id), let title = titles[session.id],
+        title.localizedCaseInsensitiveContains(query),
+        filterPath.map({ session.projectPath == $0 || session.projectPath.hasPrefix($0 + "/") })
+          ?? true
+      else { continue }
+      seen.insert(session.id)
+      combined.append(
+        SessionSearchResult(
+          id: session.id, slug: title, projectPath: session.projectPath,
+          gitBranch: session.branchName,
+          firstMessage: session.firstMessage, summaries: [], lastActivityAt: session.lastActivityAt,
+          matchedField: .slug, matchedText: title, relevanceScore: 100))
+    }
+    return combined
   }
 
   /// Clears the search query and results

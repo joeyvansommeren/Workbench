@@ -7,35 +7,43 @@
 //  bar). The project and view used to sit in the legacy Reviews sidebar.
 //
 
+import AgentHubGitHub
 import SwiftUI
 
 struct ReviewsFiltersPopover: View {
   @Bindable var viewModel: GitHubReviewsViewModel
   let onStop: () -> Void
+  @State private var repositoryInput = ""
+  @State private var displayLabelInput = ""
 
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-      field("Project") {
-        Picker("Project", selection: projectBinding) {
-          if viewModel.projects.isEmpty {
-            Text("No projects").tag(String?.none)
+      sourceFields
+      DisclosureGroup("GitHub Project (optional)") {
+        field("Project") {
+          Picker("Project", selection: projectBinding) {
+            Text("Any Project or no Project").tag(String?.none)
+            ForEach(viewModel.projects) { project in
+              Text(project.displayName).tag(Optional(project.id))
+            }
           }
-          ForEach(viewModel.projects) { project in
-            Text(project.displayName).tag(Optional(project.id))
-          }
+          .labelsHidden()
         }
-        .labelsHidden()
-      }
-      field("View") {
-        Picker("View", selection: viewBinding) {
-          if viewModel.availableViews.isEmpty {
-            Text("No views").tag(String?.none)
+        field("View") {
+          Picker("View", selection: viewBinding) {
+            if viewModel.availableViews.isEmpty {
+              Text("No views").tag(String?.none)
+            }
+            ForEach(viewModel.availableViews) { view in
+              Text(view.name).tag(Optional(view.id))
+            }
           }
-          ForEach(viewModel.availableViews) { view in
-            Text(view.name).tag(Optional(view.id))
-          }
+          .labelsHidden()
         }
-        .labelsHidden()
+        if let message = viewModel.projectErrorMessage {
+          Text(message).font(.caption).foregroundStyle(.secondary)
+        }
+        Button("Load Projects") { Task { await viewModel.loadOptionalProjects() } }
       }
       field("Search") {
         // Not focused on appear: focus-driven changes are a lead for the open
@@ -46,6 +54,75 @@ struct ReviewsFiltersPopover: View {
     }
     .padding(DesignTokens.Spacing.md)
     .frame(width: DesignTokens.Width.popover)
+    .onAppear {
+      repositoryInput = viewModel.repositoryName
+      displayLabelInput = selectedOwner.map { viewModel.ownerLabels[$0.id] ?? "" } ?? ""
+    }
+    .onChange(of: viewModel.selectedOwnerID) { _, _ in
+      repositoryInput = viewModel.repositoryName
+      displayLabelInput = selectedOwner.map { viewModel.ownerLabels[$0.id] ?? "" } ?? ""
+    }
+  }
+
+  private var selectedOwner: GitHubReviewOwner? {
+    viewModel.sourceOwners.first { $0.id == viewModel.selectedOwnerID }
+  }
+
+  @ViewBuilder
+  private var sourceFields: some View {
+    field("Repository source") { ReviewsSourcePicker(viewModel: viewModel) }
+    if let account = viewModel.sourceAccount {
+      Text("GitHub CLI: \(account.login) · \(account.host)")
+        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+    }
+    if viewModel.hasUnverifiedReviewSessions {
+      Text("Older session links have no verified GitHub account. They stay saved and cannot receive review commands.")
+        .font(.caption).foregroundStyle(.secondary)
+    }
+    if let owner = selectedOwner {
+      Text("Repositories owned by \(owner.login)")
+        .font(.caption).foregroundStyle(.secondary)
+      field("Repository (optional)") {
+        HStack {
+          TextField("All repositories", text: $repositoryInput)
+            .accessibilityLabel("Repository name")
+            .onSubmit { viewModel.selectRepository(repositoryInput) }
+          Button("Apply") { viewModel.selectRepository(repositoryInput) }
+        }
+      }
+      if !owner.isPersonal {
+        field("Display label (optional)") {
+          HStack {
+            TextField(owner.login, text: $displayLabelInput)
+              .accessibilityLabel("Organisation display label")
+            Button("Save") { viewModel.setOwnerLabel(displayLabelInput, for: owner.id) }
+          }
+        }
+      }
+    } else {
+      if viewModel.hasUnavailableSources {
+        Text("A saved source is unavailable. Remove it or choose another source.")
+          .font(.caption).foregroundStyle(.secondary)
+        Button("Remove unavailable sources") { viewModel.removeUnavailableSources() }
+      }
+      field("Included in All selected sources") {
+        ScrollView {
+          VStack(alignment: .leading) {
+            ForEach(viewModel.sourceOwners) { owner in
+              Toggle(
+                viewModel.displayLabel(for: owner),
+                isOn: Binding(
+                  get: { viewModel.enabledOwnerIDs.contains(owner.id) },
+                  set: { viewModel.setOwnerEnabled(owner.id, enabled: $0) }))
+            }
+          }
+        }
+        .frame(maxHeight: 160)
+      }
+    }
+    if viewModel.areOwnersTruncated {
+      Text("Showing the first 200 organisations.").font(.caption).foregroundStyle(.secondary)
+    }
   }
 
   private var footer: some View {
@@ -56,7 +133,7 @@ struct ReviewsFiltersPopover: View {
           .fixedSize()
       }
       if viewModel.isShowingCachedPullRequests {
-        Text("Saved locally")
+        Text("Saved list · not current")
           .wbText(.callout)
           .foregroundStyle(Color.wbTextSecondary)
       }
@@ -94,9 +171,7 @@ struct ReviewsFiltersPopover: View {
     Binding(
       get: { viewModel.selectedProjectID },
       set: { id in
-        guard let id else { return }
         viewModel.selectProject(id: id)
-        MainThreadStallMonitor.breadcrumb("reviews project: \(id)")
       }
     )
   }

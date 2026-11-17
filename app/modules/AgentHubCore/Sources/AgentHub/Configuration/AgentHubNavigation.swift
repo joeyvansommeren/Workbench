@@ -43,7 +43,12 @@ extension AgentHubProvider {
   func jiraLinkedSessions() -> [String: [JiraLinkedSession]] {
     jiraSprintViewModel.sessionLinker.links(
       from: [claudeSessionsViewModel, codexSessionsViewModel],
-      knownProjectKeys: jiraSprintViewModel.knownProjectKeys
+      knownProjectKeys: jiraSprintViewModel.knownProjectKeys,
+      sourceAccountID: jiraSprintViewModel.account.map { "\($0.site)/\($0.email)" },
+      sourceIssueKeys: Dictionary(
+        jiraSprintViewModel.sprintTickets.compactMap { ticket in
+          ticket.issueID.map { ($0, ticket.key) }
+        }, uniquingKeysWith: { first, _ in first })
     )
   }
 
@@ -77,7 +82,11 @@ extension AgentHubProvider {
     linearViewModel.sessionLinker.links(
       from: [claudeSessionsViewModel, codexSessionsViewModel],
       knownLinearTeamKeys: linearViewModel.knownTeamKeys,
-      knownJiraProjectKeys: jiraSprintViewModel.knownProjectKeys
+      knownJiraProjectKeys: jiraSprintViewModel.knownProjectKeys,
+      sourceAccountID: linearViewModel.viewer?.id,
+      sourceIssueKeys: Dictionary(
+        linearViewModel.issues.map { ($0.id, $0.identifier) },
+        uniquingKeysWith: { first, _ in first })
     )
   }
 }

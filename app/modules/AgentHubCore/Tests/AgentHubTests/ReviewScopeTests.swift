@@ -6,7 +6,7 @@ import Testing
 
 private final class ReviewScopeServiceStub: GitHubProjectReviewServiceProtocol, @unchecked Sendable {
   var pullRequests: [GitHubProjectPullRequest] = []
-  var login: String?
+  var login: String? = "fixture-viewer"
   /// Answers for successive `viewerLogin()` calls; `login` once these run out.
   var loginSequence: [String?] = []
   var loginCalls = 0
@@ -15,6 +15,18 @@ private final class ReviewScopeServiceStub: GitHubProjectReviewServiceProtocol, 
   func pullRequestDetail(_ request: GitHubProjectPullRequest) async throws -> GitHubReviewDetail {
     if let detail { return detail }
     throw GitHubCLIError.commandFailed("Detail unavailable")
+  }
+  func reviewSourceContext() async throws -> GitHubReviewSourceContext {
+    guard let login = await viewerLogin() else { throw GitHubCLIError.notAuthenticated }
+    let account = GitHubReviewAccount(host: "github.com", nodeID: login, login: login)
+    return GitHubReviewSourceContext(
+      account: account,
+      owners: [
+        GitHubReviewOwner(account: account, nodeID: login, login: login, isPersonal: true)
+      ])
+  }
+  func listPullRequests(query: GitHubReviewQuery, limit: Int) async throws -> GitHubReviewQueue {
+    GitHubReviewQueue(pullRequests: pullRequests)
   }
   func listProjects() async throws -> [GitHubReviewProject] {
     [
@@ -32,7 +44,8 @@ private final class ReviewScopeServiceStub: GitHubProjectReviewServiceProtocol, 
   func rateLimitResetDate() async -> Date? { nil }
   func viewerLogin() async -> String? {
     loginCalls += 1
-    return loginSequence.isEmpty ? login : loginSequence.removeFirst()
+    if !loginSequence.isEmpty { login = loginSequence.removeFirst() }
+    return login
   }
 }
 
@@ -57,13 +70,13 @@ struct ReviewScopeTests {
     #expect(model.count(for: .all) == 3)
   }
 
-  @Test("Mine uses isOwnPullRequest: with an unknown login it shows nothing and Requested shows all")
+  @Test("Unknown authentication leaves every source empty")
   func unknownLogin() async {
     let model = await loadedModel(login: nil, authors: ["joey", "amaes"])
 
-    #expect(model.isOwnPullRequest(model.pullRequests[0]) == nil)
+    #expect(model.pullRequests.isEmpty)
     #expect(model.pullRequests(in: .mine).isEmpty)
-    #expect(model.count(for: .requested) == 2)
+    #expect(model.count(for: .requested) == 0)
   }
 
   @Test("The scope is saved and restored")
@@ -107,20 +120,23 @@ struct ReviewScopeTests {
     #expect(defaults.string(forKey: AgentHubDefaults.reviewsScope) == "requested")
   }
 
-  @Test("Jumping while the login is unknown widens to All, so your own PR stays listed")
+  @Test("Jumping while signed out cannot reveal unverified rows")
   func focusWithUnknownLogin() async {
     let model = await loadedModel(login: nil, authors: ["joey", "amaes"])
 
     model.focusPullRequest(owner: "org", repository: "repo", number: 100)
 
-    #expect(model.reviewScope == .all)
+    #expect(model.selectedPullRequestID == nil)
   }
 
-  @Test("When the login arrives late, a selection that left the scope widens to All")
+  @Test(
+    "Authentication recovery clears a previous selection instead of carrying it across accounts")
   func lateLoginKeepsSelectionVisible() async {
     let service = ReviewScopeServiceStub()
     service.loginSequence = [nil, "joey"]
-    service.pullRequests = [pullRequest(index: 0, author: "joey"), pullRequest(index: 1, author: "amaes")]
+    service.pullRequests = [
+      pullRequest(index: 0, author: "joey"), pullRequest(index: 1, author: "amaes"),
+    ]
     let defaults = isolatedDefaults()
     let model = GitHubReviewsViewModel(service: service, userDefaults: defaults)
     await model.load()
@@ -130,7 +146,8 @@ struct ReviewScopeTests {
     await model.reloadProjects()
 
     #expect(model.viewerLogin == "joey")
-    #expect(model.reviewScope == .all)
+    #expect(model.reviewScope == .requested)
+    #expect(model.selectedPullRequestID == nil)
     #expect(defaults.string(forKey: AgentHubDefaults.reviewsScope) == nil)
   }
 
@@ -138,7 +155,9 @@ struct ReviewScopeTests {
   func reloadRefetchesLogin() async {
     let service = ReviewScopeServiceStub()
     service.loginSequence = [nil, "joey"]
-    service.pullRequests = [pullRequest(index: 0, author: "joey"), pullRequest(index: 1, author: "amaes")]
+    service.pullRequests = [
+      pullRequest(index: 0, author: "joey"), pullRequest(index: 1, author: "amaes"),
+    ]
     let model = GitHubReviewsViewModel(service: service, userDefaults: isolatedDefaults())
     await model.load()
     #expect(model.viewerLogin == nil)
@@ -151,7 +170,7 @@ struct ReviewScopeTests {
     #expect(model.pullRequests(in: .requested).map(\.id) == ["1"])
 
     await model.reloadProjects()
-    #expect(service.loginCalls == 2)
+    #expect(service.loginCalls == 3)
   }
 
   @Test("A loaded detail records the pull request's checks")

@@ -116,14 +116,14 @@ struct ReviewsNativeLayoutTests {
   }
 
   private func host<V: View>(_ view: V, width: CGFloat, height: CGFloat) -> (NSWindow, NSHostingView<V>) {
-    let window = NSWindow(
+    let window = BackgroundTestWindow(
       contentRect: NSRect(x: 0, y: 0, width: width, height: height),
       styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     let host = NSHostingView(rootView: view)
     window.contentView = host
     host.frame = NSRect(x: 0, y: 0, width: width, height: height)
-    window.orderBack(nil)
+    window.presentForTesting()
     host.layoutSubtreeIfNeeded()
     host.displayIfNeeded()
     return (window, host)

@@ -8,15 +8,22 @@
 import Foundation
 
 public struct GitHubPullRequestURLReference: Equatable, Hashable, Sendable {
+  public let host: String
   public let owner: String
   public let repository: String
   public let number: Int
   public let url: String
 
   public init?(urlString: String) {
+    self.init(urlString: urlString, expectedHost: "github.com")
+  }
+
+  public init?(urlString: String, expectedHost: String) {
     guard let components = URLComponents(string: urlString),
           let host = components.host?.lowercased(),
-          host == "github.com" || host == "www.github.com" else {
+      host == expectedHost.lowercased()
+        || (expectedHost == "github.com" && host == "www.github.com")
+    else {
       return nil
     }
 
@@ -30,6 +37,7 @@ public struct GitHubPullRequestURLReference: Equatable, Hashable, Sendable {
       return nil
     }
 
+    self.host = expectedHost.lowercased()
     self.owner = parts[0]
     self.repository = parts[1]
     self.number = number
@@ -45,7 +53,8 @@ public struct GitHubPullRequestURLReference: Equatable, Hashable, Sendable {
   }
 
   public func belongs(to identity: GitHubRepositoryIdentity) -> Bool {
-    owner.caseInsensitiveCompare(identity.owner) == .orderedSame
+    host.caseInsensitiveCompare(identity.host) == .orderedSame
+      && owner.caseInsensitiveCompare(identity.owner) == .orderedSame
       && repository.caseInsensitiveCompare(identity.repository) == .orderedSame
   }
 
