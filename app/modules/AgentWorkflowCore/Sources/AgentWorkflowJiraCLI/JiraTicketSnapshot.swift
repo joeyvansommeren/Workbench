@@ -1,6 +1,8 @@
 import Foundation
 
 public struct JiraTicketSnapshot: Codable, Equatable, Sendable {
+  /// Jira's immutable issue ID, when returned by the server.
+  public let issueID: String?
   public let key: String
   public let summary: String
   public let issueType: String?
@@ -18,6 +20,7 @@ public struct JiraTicketSnapshot: Codable, Equatable, Sendable {
   public init(
     key: String,
     summary: String,
+    issueID: String? = nil,
     issueType: String? = nil,
     status: String? = nil,
     assignee: String? = nil,
@@ -29,6 +32,7 @@ public struct JiraTicketSnapshot: Codable, Equatable, Sendable {
     priority: String? = nil,
     fetchedAt: Date = Date()
   ) {
+    self.issueID = issueID
     self.key = key
     self.summary = summary
     self.issueType = issueType
@@ -51,6 +55,7 @@ extension JiraTicketSnapshot {
     JiraTicketSnapshot(
       key: key,
       summary: summary,
+      issueID: issueID,
       issueType: issueType,
       status: status,
       assignee: assignee,

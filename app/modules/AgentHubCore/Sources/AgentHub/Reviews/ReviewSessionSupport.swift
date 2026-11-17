@@ -66,7 +66,7 @@ struct ReviewSessionSupport {
         hasher.combine(pending.worktree.name)
       }
       hasher.combine(sessions.resolvedPendingSessionHistory)
-      hasher.combine(sessions.sessionCustomNames)
+      hasher.combine(sessions.sessionDisplayNames)
     }
     hasher.combine(agentHub.jiraSprintViewModel.knownProjectKeys)
     return hasher.finalize()
@@ -128,7 +128,7 @@ struct ReviewSessionSupport {
       sessions: sessions.allSessions,
       pendingSessions: sessions.pendingHubSessions,
       resolvedPendingSessionIDs: sessions.resolvedPendingSessionHistory,
-      customNames: sessions.sessionCustomNames,
+      customNames: sessions.sessionDisplayNames,
       statuses: sessions.sessionStatuses,
       ticketKeysBySessionID: ticketKeys(for: sessions)
     )
@@ -150,7 +150,7 @@ struct ReviewSessionSupport {
       let keys = jira.sessionLinker.cachedKeys(
         id: SidebarSessionItemID.monitored(provider: sessions.providerKind, sessionId: session.id),
         branchName: session.branchName,
-        customName: sessions.sessionCustomNames[session.id],
+        customName: sessions.sessionDisplayNames[session.id],
         prompt: session.firstMessage,
         knownProjectKeys: knownProjects
       )

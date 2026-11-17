@@ -423,7 +423,7 @@ public final class LinearViewModel {
 
   static func sessionName(for issue: LinearIssue) -> String {
     let title = issue.title.trimmingCharacters(in: .whitespacesAndNewlines)
-    let shortened = title.count > 70 ? String(title.prefix(69)) + "\u{2026}" : title
+    let shortened = title
     return "\(issue.identifier): \(shortened)"
   }
 
@@ -520,6 +520,10 @@ public final class LinearViewModel {
         text: "Could not move \(original.identifier) to \(target.name): \(Self.moveFailureMessage(error))",
         isError: true)
     }
+  }
+
+  public func presentLaunchError(_ message: String) {
+    statusNotice = StatusNotice(text: message, isError: true)
   }
 
   public func dismissStatusNotice() {

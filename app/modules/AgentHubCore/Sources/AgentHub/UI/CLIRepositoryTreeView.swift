@@ -23,6 +23,7 @@ public struct CLIRepositoryTreeView: View {
   let onToggleMonitoring: (CLISession) -> Void
   let onDeleteWorktree: ((WorktreeBranch) -> Void)?
   let getCustomName: ((String) -> String?)?
+  let getDisplayName: ((CLISession) -> String)?
   let onCreateWorktree: ((SelectedRepository) -> Void)?
   let onStartInHubForWorktree: ((WorktreeBranch) -> Void)?
   let onStartInHubDangerousForWorktree: ((WorktreeBranch) -> Void)?
@@ -47,6 +48,7 @@ public struct CLIRepositoryTreeView: View {
     onToggleMonitoring: @escaping (CLISession) -> Void,
     onDeleteWorktree: ((WorktreeBranch) -> Void)? = nil,
     getCustomName: ((String) -> String?)? = nil,
+    getDisplayName: ((CLISession) -> String)? = nil,
     onCreateWorktree: ((SelectedRepository) -> Void)? = nil,
     onStartInHubForWorktree: ((WorktreeBranch) -> Void)? = nil,
     onStartInHubDangerousForWorktree: ((WorktreeBranch) -> Void)? = nil,
@@ -67,6 +69,7 @@ public struct CLIRepositoryTreeView: View {
     self.onToggleMonitoring = onToggleMonitoring
     self.onDeleteWorktree = onDeleteWorktree
     self.getCustomName = getCustomName
+    self.getDisplayName = getDisplayName
     self.onCreateWorktree = onCreateWorktree
     self.onStartInHubForWorktree = onStartInHubForWorktree
     self.onStartInHubDangerousForWorktree = onStartInHubDangerousForWorktree
@@ -104,6 +107,7 @@ public struct CLIRepositoryTreeView: View {
             isSessionMonitored: isSessionMonitored,
             onToggleMonitoring: onToggleMonitoring,
             getCustomName: getCustomName,
+            getDisplayName: getDisplayName,
             onStartInHub: { onStartInHubForWorktree?(worktree) },
             onStartInHubDangerous: { onStartInHubDangerousForWorktree?(worktree) },
             isCLIAvailable: isCLIAvailable,

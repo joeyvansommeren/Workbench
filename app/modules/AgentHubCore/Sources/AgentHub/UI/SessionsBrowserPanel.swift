@@ -125,7 +125,7 @@ public struct SessionsBrowserPanel: View {
         providerKind: item.providerKind,
         isFocused: isFocused(item),
         isHighlighted: isHighlighted(item),
-        customName: viewModel.sessionCustomNames[session.id],
+        displayTitle: viewModel.displayName(for: session),
         onSelect: { selectSession(item) }
       )
     }
@@ -157,25 +157,41 @@ public struct SessionsBrowserPanel: View {
       }
 
       VStack(alignment: .leading, spacing: 2) {
-        Text(pending.isFailed ? "Failed to start" : "Starting session...")
+        Text(viewModel.displayName(for: pending.placeholderSession))
+          .lineLimit(1)
+          .help(viewModel.displayName(for: pending.placeholderSession))
           .font(.geist(size: 11, weight: .medium))
           .foregroundColor(pending.isFailed ? .red : .primary)
 
-        Text(URL(fileURLWithPath: pending.worktree.path).lastPathComponent)
-          .font(.geist(size: 10))
-          .foregroundColor(.secondary)
+        Text(
+          pending.removalError
+            ?? (pending.needsIdentification
+              ? "Session identity unavailable"
+              : pending.isFailed
+                ? "Failed to start"
+                : URL(fileURLWithPath: pending.worktree.path).lastPathComponent)
+        )
+        .font(.geist(size: 10))
+        .foregroundColor(.secondary)
       }
 
       Spacer()
 
+      if pending.needsIdentification && !pending.isFailed {
+        PendingLaunchRecoveryPicker(pending: pending, viewModel: viewModel)
+      }
+
       if pending.isFailed {
-        Button(action: { viewModel.retryPendingSession(pending) }) {
-          Image(systemName: "arrow.clockwise")
-            .font(.system(size: 12))
-            .foregroundColor(.secondary)
+        if pending.removalError == nil {
+          Button(action: { viewModel.retryPendingSession(pending) }) {
+            Image(systemName: "arrow.clockwise")
+              .font(.system(size: 12))
+              .foregroundColor(.secondary)
+          }
+          .buttonStyle(.plain)
+          .help("Retry")
+          .disabled(viewModel.restoredLaunchMessage(for: pending.placeholderSession.id) != nil)
         }
-        .buttonStyle(.plain)
-        .help("Retry")
 
         Button(action: { viewModel.removePendingSession(pending) }) {
           Image(systemName: "xmark.circle.fill")
@@ -277,3 +293,47 @@ public struct SessionsBrowserPanel: View {
 }
 
 // NOTE: Uses ProviderMonitoringItem defined in MultiProviderMonitoringPanelView.swift
+
+
+/// A user-selected, confirmed link replaces uncertain automatic identity recovery.
+struct PendingLaunchRecoveryPicker: View {
+  let pending: PendingHubSession
+  @Bindable var viewModel: CLISessionsViewModel
+  @State private var selectedSession: CLISession?
+
+  var body: some View {
+    if pending.needsIdentification && !pending.isFailed {
+      Menu("Link session…") {
+        let candidates = viewModel.recoveryCandidates(for: pending)
+        if candidates.isEmpty {
+          Text("No matching sessions found. Refresh Sessions and try again.")
+        }
+        ForEach(candidates) { session in
+          Button("\(viewModel.displayName(for: session)) · \(session.shortId)") {
+            selectedSession = session
+          }
+        }
+      }
+      .help("Choose the session started for this ticket")
+      .confirmationDialog(
+        "Link this session to \(pending.origin?.key ?? "the ticket")?",
+        isPresented: Binding(
+          get: { selectedSession != nil },
+          set: { if !$0 { selectedSession = nil } }),
+        titleVisibility: .visible
+      ) {
+        if let selectedSession {
+          Button("Link session") {
+            viewModel.confirmRecoveredLaunch(pending.id, sessionID: selectedSession.id)
+            self.selectedSession = nil
+          }
+        }
+        Button("Cancel", role: .cancel) { selectedSession = nil }
+      } message: {
+        if let selectedSession {
+          Text("Session: \(viewModel.displayName(for: selectedSession)) · \(selectedSession.id)\nTicket: \(pending.origin?.displayName ?? "")\nA custom session name will be kept.")
+        }
+      }
+    }
+  }
+}

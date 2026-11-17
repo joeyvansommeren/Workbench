@@ -32,6 +32,27 @@ struct CodexSessionFileScannerTests {
     let expectedDate = iso8601Date("2026-05-05T12:00:00.000Z")
     #expect(meta.startedAt == expectedDate)
   }
+  @Test("Only explicit interactive CLI origins identify a ticket launch")
+  func interactiveOrigin() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "codex-source-\(UUID())")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("rollout.jsonl")
+    for (source, parent, expected) in [
+      ("cli", false, true), ("cli", true, false), ("exec", false, false), ("unknown", false, false),
+    ] {
+      var payload: [String: Any] = ["id": "session-333", "cwd": "/tmp/test-333", "source": source]
+      if parent { payload["parent_thread_id"] = "parent-333" }
+      let data = try JSONSerialization.data(withJSONObject: [
+        "type": "session_meta", "payload": payload,
+      ])
+      try data.write(to: file)
+      #expect(
+        CodexSessionFileScanner.readSessionMeta(from: file.path)?.isInteractiveCLI == expected)
+    }
+  }
+
 }
 
 private func iso8601Date(_ string: String) -> Date? {
@@ -77,10 +98,10 @@ private func oversizedCodexSessionFileContents(
   ]
 
   return """
-  \(jsonLine(sessionMeta))
-  \(jsonLine(userMessage))
+    \(jsonLine(sessionMeta))
+    \(jsonLine(userMessage))
 
-  """
+    """
 }
 
 private func jsonLine(_ object: [String: Any]) -> String {
