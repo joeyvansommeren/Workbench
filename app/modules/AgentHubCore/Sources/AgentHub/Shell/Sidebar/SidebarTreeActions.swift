@@ -12,7 +12,36 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class SidebarTreeActions {
+protocol SidebarTreeActionHandling: AnyObject {
+  func approvalPhase(for node: SessionNode) -> ApprovalResponsePhase?
+  func approvalPresentation(for node: SessionNode) -> ApprovalRequestPresentation?
+  func open(_ node: SessionNode)
+  func setRepository(_ model: RepoHeaderRowModel, collapsed: Bool)
+  func startSession(at path: String)
+  func startSession(onBranch model: BranchRowModel)
+  func createWorktree(repositoryPath: String)
+  func createWorkspace(projectPath: String)
+  func showProjectDetails(path: String, name: String)
+  func showGitHub(path: String)
+  func openInFinder(path: String)
+  func archiveSessions(_ nodes: [SessionNode], groupName: String)
+  func requestRemoveRepository(path: String, name: String, sessionCount: Int)
+  func requestRemoveWorktree(_ branch: BranchRowModel, sessions: [SessionNode])
+  func requestDeleteWorktree(_ branch: BranchRowModel, sessions: [SessionNode])
+  func startReview(_ decoration: BranchWorkflowDecoration)
+  func compare(_ decoration: BranchWorkflowDecoration)
+  func openPullRequest(_ decoration: BranchWorkflowDecoration)
+  func openTicket(_ decoration: BranchWorkflowDecoration)
+  func archiveWorkflow(_ decoration: BranchWorkflowDecoration)
+  func copySessionID(_ node: SessionNode)
+  func viewTranscript(_ node: SessionNode)
+  func openInTerminal(_ node: SessionNode)
+  func fork(_ node: SessionNode)
+  func archive(_ node: SessionNode)
+}
+
+@MainActor
+final class SidebarTreeActions: SidebarTreeActionHandling {
   let agentHub: AgentHubProvider
   let shellModel: WorkbenchShellModel
   let navigationModel: SessionNavigationModel
@@ -322,6 +351,14 @@ final class SidebarTreeActions {
 /// run a command nobody read. Its tooltip and VoiceOver label still say
 /// what waits, so the tree can be scanned without opening each session.
 enum SidebarApprovePillText {
+  /// The pill remains busy until the sent answer is no longer pending.
+  static func isBusy(_ phase: ApprovalResponsePhase?) -> Bool {
+    switch phase {
+    case .sending, .answered: true
+    case .checkTerminal, .answerInTerminal, nil: false
+    }
+  }
+
   static func help(_ phase: ApprovalResponsePhase?, presentation: ApprovalRequestPresentation?) -> String {
     switch phase {
     case .answerInTerminal: return "The app could not confirm Claude's menu. Answer in the terminal."
