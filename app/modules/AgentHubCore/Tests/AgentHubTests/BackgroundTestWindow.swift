@@ -25,7 +25,12 @@ class BackgroundTestWindow: NSWindow {
       makeKeyAndOrderFront(nil)
       application.activate(ignoringOtherApps: true)
     } else {
-      precondition(application.setActivationPolicy(.prohibited),
+      // An unhosted runner can already be prohibited. AppKit's transition
+      // return value is not proof of the resulting policy; check the state.
+      if application.activationPolicy() != .prohibited {
+        application.setActivationPolicy(.prohibited)
+      }
+      precondition(application.activationPolicy() == .prohibited,
                    "Background test runner must prohibit activation before ordering a window")
       let desktop = NSScreen.screens.reduce(NSRect.zero) { $0.union($1.frame) }
       setFrameOrigin(NSPoint(x: desktop.minX - frame.width - 1_000,
