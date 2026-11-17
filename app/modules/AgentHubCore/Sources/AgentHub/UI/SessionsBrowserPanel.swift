@@ -177,6 +177,10 @@ public struct SessionsBrowserPanel: View {
 
       Spacer()
 
+      if pending.needsIdentification && !pending.isFailed {
+        PendingLaunchRecoveryPicker(pending: pending, viewModel: viewModel)
+      }
+
       if pending.isFailed {
         if pending.removalError == nil {
           Button(action: { viewModel.retryPendingSession(pending) }) {
@@ -289,3 +293,47 @@ public struct SessionsBrowserPanel: View {
 }
 
 // NOTE: Uses ProviderMonitoringItem defined in MultiProviderMonitoringPanelView.swift
+
+
+/// A user-selected, confirmed link replaces uncertain automatic identity recovery.
+struct PendingLaunchRecoveryPicker: View {
+  let pending: PendingHubSession
+  @Bindable var viewModel: CLISessionsViewModel
+  @State private var selectedSession: CLISession?
+
+  var body: some View {
+    if pending.needsIdentification && !pending.isFailed {
+      Menu("Link session…") {
+        let candidates = viewModel.recoveryCandidates(for: pending)
+        if candidates.isEmpty {
+          Text("No matching sessions found. Refresh Sessions and try again.")
+        }
+        ForEach(candidates) { session in
+          Button("\(viewModel.displayName(for: session)) · \(session.shortId)") {
+            selectedSession = session
+          }
+        }
+      }
+      .help("Choose the session started for this ticket")
+      .confirmationDialog(
+        "Link this session to \(pending.origin?.key ?? "the ticket")?",
+        isPresented: Binding(
+          get: { selectedSession != nil },
+          set: { if !$0 { selectedSession = nil } }),
+        titleVisibility: .visible
+      ) {
+        if let selectedSession {
+          Button("Link session") {
+            viewModel.confirmRecoveredLaunch(pending.id, sessionID: selectedSession.id)
+            self.selectedSession = nil
+          }
+        }
+        Button("Cancel", role: .cancel) { selectedSession = nil }
+      } message: {
+        if let selectedSession {
+          Text("Session: \(viewModel.displayName(for: selectedSession)) · \(selectedSession.id)\nTicket: \(pending.origin?.displayName ?? "")\nA custom session name will be kept.")
+        }
+      }
+    }
+  }
+}

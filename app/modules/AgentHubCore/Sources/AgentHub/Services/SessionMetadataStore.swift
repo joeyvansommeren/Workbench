@@ -494,6 +494,20 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
   nonisolated func resolveLaunchOrigin(
     pendingID: UUID, provider: SessionProviderKind, sessionID: String
   ) throws {
+    try resolveLaunchOrigin(
+      pendingID: pendingID, provider: provider, sessionID: sessionID, userConfirmed: false)
+  }
+
+  nonisolated func confirmLaunchOrigin(
+    pendingID: UUID, provider: SessionProviderKind, sessionID: String
+  ) throws {
+    try resolveLaunchOrigin(
+      pendingID: pendingID, provider: provider, sessionID: sessionID, userConfirmed: true)
+  }
+
+  private nonisolated func resolveLaunchOrigin(
+    pendingID: UUID, provider: SessionProviderKind, sessionID: String, userConfirmed: Bool
+  ) throws {
     try dbQueue.write { db in
       guard var record = try SessionLaunchOriginRecord.fetchOne(db, key: pendingID.uuidString),
         record.provider == provider.rawValue
@@ -505,7 +519,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
       // old pending name once this exact resolution has committed.
       if record.sessionID == sessionID { return }
       let launch = try record.launch()
-      guard !launch.failed, !launch.needsIdentification,
+      guard !launch.failed, !launch.needsIdentification || userConfirmed,
         launch.expectedSessionID == nil || launch.expectedSessionID == sessionID
       else {
         throw LaunchOriginError.conflictingResolution

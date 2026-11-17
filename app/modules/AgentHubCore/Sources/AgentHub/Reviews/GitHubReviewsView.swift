@@ -1017,7 +1017,7 @@ struct GitHubReviewsView: View {
         sessions: claudeSessionsViewModel.allSessions,
         pendingSessions: claudeSessionsViewModel.pendingHubSessions,
         resolvedPendingSessionIDs: claudeSessionsViewModel.resolvedPendingSessionHistory,
-        customNames: claudeSessionsViewModel.sessionCustomNames,
+        customNames: claudeSessionsViewModel.sessionDisplayNames,
         statuses: claudeSessionsViewModel.sessionStatuses,
         ticketKeysBySessionID: ticketKeys(for: claudeSessionsViewModel),
         sourceOrigins: claudeSessionsViewModel.sessionOrigins,
@@ -1028,7 +1028,7 @@ struct GitHubReviewsView: View {
         sessions: codexSessionsViewModel.allSessions,
         pendingSessions: codexSessionsViewModel.pendingHubSessions,
         resolvedPendingSessionIDs: codexSessionsViewModel.resolvedPendingSessionHistory,
-        customNames: codexSessionsViewModel.sessionCustomNames,
+        customNames: codexSessionsViewModel.sessionDisplayNames,
         statuses: codexSessionsViewModel.sessionStatuses,
         ticketKeysBySessionID: ticketKeys(for: codexSessionsViewModel),
         sourceOrigins: codexSessionsViewModel.sessionOrigins,
@@ -1052,7 +1052,7 @@ struct GitHubReviewsView: View {
       let keys = jira.sessionLinker.cachedKeys(
         id: SidebarSessionItemID.monitored(provider: sessions.providerKind, sessionId: session.id),
         branchName: session.branchName,
-        customName: sessions.sessionCustomNames[session.id],
+        customName: sessions.sessionDisplayNames[session.id],
         prompt: session.firstMessage,
         knownProjectKeys: knownProjects
       )

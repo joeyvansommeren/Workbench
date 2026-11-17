@@ -96,23 +96,31 @@ struct ChatTranscriptLoaderTests {
   }
 
   @Test("Opening another chat in the same active column focuses its input")
-  func openingChatFocusesInput() async {
+  func openingChatFocusesInput() async throws {
     let reader = GatedReader()
     let host = NSHostingView(rootView: ChatTranscriptView(
       transcriptPath: "/focus-a", providerKind: .claude, reader: reader, onSend: { _ in false }))
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
+    let window = ChatFocusAcknowledgingWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
       styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
+    let (firstFocus, firstContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    defer { firstContinuation.finish() }
+    window.onAcceptedTextFocus = { firstContinuation.yield(()) }
     window.contentView = host
     window.makeKeyAndOrderFront(nil)
     defer { window.close() }
-    await settle { window.firstResponder is NSTextView }
+    var firstIterator = firstFocus.makeAsyncIterator()
+    try #require(await firstIterator.next() != nil)
     #expect(window.firstResponder is NSTextView)
 
     window.makeFirstResponder(nil)
+    let (secondFocus, secondContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    defer { secondContinuation.finish() }
+    window.onAcceptedTextFocus = { secondContinuation.yield(()) }
     host.rootView = ChatTranscriptView(
       transcriptPath: "/focus-b", providerKind: .claude, reader: reader, onSend: { _ in false })
-    await settle { window.firstResponder is NSTextView }
+    var secondIterator = secondFocus.makeAsyncIterator()
+    try #require(await secondIterator.next() != nil)
     #expect(window.firstResponder is NSTextView)
 
     window.makeFirstResponder(nil)
@@ -163,5 +171,19 @@ struct ChatTranscriptLoaderTests {
     await reader.release("/p")
     await settle { loader.items.count == 2 }
     #expect(loader.items == [item("one"), item("two")])
+  }
+}
+
+// Acknowledge only a text responder accepted by this test's window.
+@MainActor
+private final class ChatFocusAcknowledgingWindow: NSWindow {
+  var onAcceptedTextFocus: (() -> Void)?
+
+  override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+    let accepted = super.makeFirstResponder(responder)
+    if accepted, responder is NSTextView, firstResponder === responder {
+      onAcceptedTextFocus?()
+    }
+    return accepted
   }
 }

@@ -77,10 +77,12 @@ private func makeCIFailureContext(sessionId: String = "session-1") -> GitHubCIFa
 }
 
 private actor NotificationRequestRecorder {
+  nonisolated let delivered = TestCallbackReceipt()
   private(set) var requests: [UNNotificationRequest] = []
 
   func record(_ request: UNNotificationRequest) {
     requests.append(request)
+    delivered.record()
   }
 }
 
@@ -102,12 +104,12 @@ struct GitHubCIFailureNotifierTests {
 
   @Test("posts one notification with Fix CI category and routable payload")
   @MainActor
-  func postsNotificationForFailingCI() async {
+  func postsNotificationForFailingCI() async throws {
     let recorder = NotificationRequestRecorder()
     let notifier = makeNotifier(recorder: recorder)
 
     notifier.evaluate(snapshot: makeCIFailureSnapshot(), context: makeCIFailureContext())
-    try? await Task.sleep(for: .milliseconds(50))
+    try await recorder.delivered.wait(for: 1)
 
     let requests = await recorder.requests
     #expect(requests.count == 1)
@@ -127,12 +129,13 @@ struct GitHubCIFailureNotifierTests {
 
   @Test("deduplicates repeat snapshots for the same PR head commit")
   @MainActor
-  func deduplicatesSameHead() async {
+  func deduplicatesSameHead() async throws {
     let recorder = NotificationRequestRecorder()
     let notifier = makeNotifier(recorder: recorder)
 
     notifier.evaluate(snapshot: makeCIFailureSnapshot(), context: makeCIFailureContext())
     notifier.evaluate(snapshot: makeCIFailureSnapshot(), context: makeCIFailureContext(sessionId: "other-surface"))
+    try await recorder.delivered.wait(for: 1)
     try? await Task.sleep(for: .milliseconds(50))
 
     #expect(await recorder.requests.count == 1)
@@ -140,7 +143,7 @@ struct GitHubCIFailureNotifierTests {
 
   @Test("notifies again when the PR head commit changes")
   @MainActor
-  func notifiesAgainForNewHead() async {
+  func notifiesAgainForNewHead() async throws {
     let recorder = NotificationRequestRecorder()
     let notifier = makeNotifier(recorder: recorder)
 
@@ -149,7 +152,7 @@ struct GitHubCIFailureNotifierTests {
       snapshot: makeCIFailureSnapshot(pullRequest: makeCIFailurePR(headRefOid: "def456")),
       context: makeCIFailureContext()
     )
-    try? await Task.sleep(for: .milliseconds(50))
+    try await recorder.delivered.wait(for: 2)
 
     #expect(await recorder.requests.count == 2)
   }
