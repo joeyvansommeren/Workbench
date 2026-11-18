@@ -8,6 +8,7 @@
 #   scripts/test.sh packages    # motion + shell guards + fast `swift test` packages only
 #   scripts/test.sh motion      # motion guard only (scripts/check-motion.sh)
 #   scripts/test.sh shell       # shell toolbar guard only (scripts/check-shell.sh)
+#   AGENTHUB_TEST_VISIBLE_WINDOWS=1 scripts/test.sh titlebar-interactive  # manual native mouse dispatch
 #   AGENTHUB_TEST_VISIBLE_WINDOWS=1 scripts/test.sh core  # explicit desktop interaction
 #
 # Notes:
@@ -99,6 +100,17 @@ run_test_window_check() {
 }
 
 run_core() {
+  local only_test_args=()
+  local core_environment=("TEST_RUNNER_AGENTHUB_TEST_VISIBLE_WINDOWS=${AGENTHUB_TEST_VISIBLE_WINDOWS:-0}")
+  if [ "${1:-}" = "titlebar-interactive" ]; then
+    if [ "${AGENTHUB_TEST_VISIBLE_WINDOWS:-0}" != "1" ]; then
+      echo "Interactive title-bar verification requires AGENTHUB_TEST_VISIBLE_WINDOWS=1 and an available desktop." >&2
+      FAILURES+=("interactive title-bar verification requires explicit visible-window opt-in")
+      return
+    fi
+    only_test_args=(-only-testing:AgentHubTests/ShellTitleBarHitTests)
+    core_environment+=("TEST_RUNNER_AGENTHUB_TEST_TITLEBAR_INTERACTIVE_REQUIRED=1")
+  fi
   run_test_window_check
   echo ""
   echo "▶ pending session watcher lifecycle guard"
@@ -123,12 +135,14 @@ run_core() {
   # (non-blocking, see test.yml), so a single deterministic-duration pass is what
   # we want; flaky tests are tracked in TestQuarantine.md / #380.
   if ( cd "$MODULES/AgentHubCore" && \
-       TEST_RUNNER_AGENTHUB_TEST_VISIBLE_WINDOWS="${AGENTHUB_TEST_VISIBLE_WINDOWS:-0}" xcodebuild test \
+       env "${core_environment[@]}" xcodebuild test \
          -scheme AgentHubCore-Tests \
          -destination 'platform=macOS' \
+         -parallel-testing-enabled NO \
          -test-timeouts-enabled YES \
          -default-test-execution-time-allowance 60 \
          -maximum-test-execution-time-allowance 120 \
+         "${only_test_args[@]+"${only_test_args[@]}"}" \
          "${result_bundle_args[@]+"${result_bundle_args[@]}"}" \
          -skipPackagePluginValidation ); then
     echo "✓ AgentHubCore"
@@ -140,11 +154,12 @@ run_core() {
 
 case "${1:-all}" in
   core)     run_core ;;
+  titlebar-interactive) run_core titlebar-interactive ;;
   packages) run_motion_check; run_shell_check; run_test_window_check; run_packages ;;
   motion)   run_motion_check ;;
   shell)    run_shell_check ;;
   all)      run_motion_check; run_shell_check; run_test_window_check; run_packages; run_core ;;   # cheap failures surface first
-  *)        echo "usage: scripts/test.sh [all|core|packages|motion|shell]" >&2; exit 2 ;;
+  *)        echo "usage: scripts/test.sh [all|core|packages|motion|shell|titlebar-interactive]" >&2; exit 2 ;;
 esac
 
 echo ""

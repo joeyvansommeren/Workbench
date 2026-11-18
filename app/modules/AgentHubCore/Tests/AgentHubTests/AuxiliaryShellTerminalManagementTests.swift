@@ -168,9 +168,14 @@ private final class RecordingTerminalWorkspaceStore: TerminalWorkspaceStoreProto
   private let lock = NSLock()
   private var snapshots: [String: TerminalWorkspaceSnapshot]
   private var savedSnapshotsByKey: [String: TerminalWorkspaceSnapshot] = [:]
+  private let onSave: @Sendable () -> Void
 
-  init(snapshots: [String: TerminalWorkspaceSnapshot] = [:]) {
+  init(
+    snapshots: [String: TerminalWorkspaceSnapshot] = [:],
+    onSave: @escaping @Sendable () -> Void = {}
+  ) {
     self.snapshots = snapshots
+    self.onSave = onSave
   }
 
   func loadTerminalWorkspace(
@@ -190,10 +195,11 @@ private final class RecordingTerminalWorkspaceStore: TerminalWorkspaceStoreProto
     backend: EmbeddedTerminalBackend
   ) async throws {
     lock.lock()
-    defer { lock.unlock() }
     let key = key(provider: provider, sessionId: sessionId, backend: backend)
     snapshots[key] = snapshot
     savedSnapshotsByKey[key] = snapshot
+    lock.unlock()
+    onSave()
   }
 
   func deleteTerminalWorkspace(
@@ -228,10 +234,14 @@ private final class RecordingTerminalWorkspaceStore: TerminalWorkspaceStoreProto
 private final class RecordingSessionRelationshipStore: SessionRelationshipStoreProtocol, @unchecked Sendable {
   private let lock = NSLock()
   private var relationships: [SessionRelationshipRecord] = []
+  private let onSave: @Sendable () -> Void
+
+  init(onSave: @escaping @Sendable () -> Void = {}) {
+    self.onSave = onSave
+  }
 
   func saveSessionRelationship(_ relationship: SessionRelationshipRecord) async throws {
     lock.lock()
-    defer { lock.unlock() }
     relationships.removeAll {
       $0.sourceProvider == relationship.sourceProvider
         && $0.sourceSessionId == relationship.sourceSessionId
@@ -240,6 +250,8 @@ private final class RecordingSessionRelationshipStore: SessionRelationshipStoreP
         && $0.kind == relationship.kind
     }
     relationships.append(relationship)
+    lock.unlock()
+    onSave()
   }
 
   func sessionRelationships(
@@ -778,7 +790,8 @@ struct AuxiliaryShellTerminalManagementTests {
   func startAccessorySessionPersistsResolvedRelationship() async throws {
     let surface = TestTerminalSurface()
     surface.activeWorkingDirectoryResult = "/tmp/project"
-    let relationshipStore = RecordingSessionRelationshipStore()
+    let saveCompletion = AsyncTestCompletion()
+    let relationshipStore = RecordingSessionRelationshipStore { saveCompletion.signal() }
     let detection = ImmediateAccessoryDetectionService(result: AccessorySessionDetectionResult(
       provider: .codex,
       sessionId: "child-1",
@@ -791,13 +804,14 @@ struct AuxiliaryShellTerminalManagementTests {
       accessorySessionDetectionService: detection
     )
     viewModel.activeTerminals["parent-1"] = surface
+    defer { viewModel.removeTerminal(forKey: "parent-1") }
 
     viewModel.startAccessorySession(
       parentSession: CLISession(id: "parent-1", projectPath: "/tmp/project"),
       childProvider: .codex
     )
 
-    try await Task.sleep(for: .milliseconds(1_100))
+    try await saveCompletion.wait()
 
     #expect(surface.openedAccessoryPanes.map(\.provider) == [.codex])
     #expect(surface.markedAccessorySessions.map(\.sessionId) == ["child-1"])
@@ -884,7 +898,8 @@ struct AuxiliaryShellTerminalManagementTests {
   @MainActor
   func savesTerminalWorkspaceChanges() async throws {
     let snapshot = makeWorkspaceSnapshot(activePanelIndex: 1)
-    let store = RecordingTerminalWorkspaceStore()
+    let saveCompletion = AsyncTestCompletion()
+    let store = RecordingTerminalWorkspaceStore { saveCompletion.signal() }
     let surface = TestTerminalSurface()
     let factory = RecordingTerminalSurfaceFactory(surfaces: [surface])
     let viewModel = makeAuxiliaryShellViewModel(
@@ -899,9 +914,10 @@ struct AuxiliaryShellTerminalManagementTests {
       projectPath: "/tmp/project",
       initialPrompt: nil
     )
+    defer { viewModel.removeTerminal(forKey: "session-123") }
     surface.onWorkspaceChanged?(snapshot)
 
-    try await Task.sleep(for: .milliseconds(350))
+    try await saveCompletion.wait()
 
     #expect(store.savedSnapshot(provider: .claude, sessionId: "session-123", backend: .ghostty) == snapshot)
   }
@@ -910,7 +926,8 @@ struct AuxiliaryShellTerminalManagementTests {
   @MainActor
   func pendingTerminalWorkspaceSavesAfterTransfer() async throws {
     let snapshot = makeWorkspaceSnapshot(activePanelIndex: 1)
-    let store = RecordingTerminalWorkspaceStore()
+    let saveCompletion = AsyncTestCompletion()
+    let store = RecordingTerminalWorkspaceStore { saveCompletion.signal() }
     let surface = TestTerminalSurface()
     surface.workspaceSnapshotToCapture = snapshot
     let pendingID = UUID()
@@ -921,9 +938,10 @@ struct AuxiliaryShellTerminalManagementTests {
     )
     viewModel.activeTerminals[pendingKey] = surface
 
+    defer { viewModel.removeTerminal(forKey: "session-123") }
     viewModel.transferTerminal(fromPendingId: pendingID, toSessionId: "session-123")
 
-    try await Task.sleep(for: .milliseconds(350))
+    try await saveCompletion.wait()
 
     #expect(store.savedSnapshot(provider: .claude, sessionId: "session-123", backend: .ghostty) == snapshot)
   }

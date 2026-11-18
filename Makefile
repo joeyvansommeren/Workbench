@@ -1,4 +1,4 @@
-.PHONY: update install test
+.PHONY: update install test test-interactive-titlebar
 
 # Pull main, build, replace /Applications/Workbench.app, relaunch.
 update:
@@ -10,3 +10,7 @@ install:
 
 test:
 	@./scripts/test.sh
+
+# Manual desktop verification. Requires explicit AGENTHUB_TEST_VISIBLE_WINDOWS=1.
+test-interactive-titlebar:
+	@./scripts/test.sh titlebar-interactive

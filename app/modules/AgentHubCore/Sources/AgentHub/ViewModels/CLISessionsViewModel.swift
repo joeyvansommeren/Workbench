@@ -98,7 +98,10 @@ public final class CLISessionsViewModel {
 
   // MARK: - State
 
-  public private(set) var selectedRepositories: [SelectedRepository] = []
+  @ObservationIgnored private var repositoryProjectionRevision = 0
+  public private(set) var selectedRepositories: [SelectedRepository] = [] {
+    didSet { repositoryProjectionRevision &+= 1 }
+  }
   /// True once the launch restore has put the saved repositories in
   /// `selectedRepositories` (or found none). Stays false when the saved
   /// state could not be read, so the UI never claims "no projects" then.
@@ -2932,60 +2935,59 @@ public final class CLISessionsViewModel {
   // MARK: - Subscriptions
 
   private func setupSubscriptions() {
+    // Publications can arrive after a newer explicit registration has already
+    // updated the sidebar. Coalesce notifications and read the current monitor state.
+    let updates = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let subscription = monitorService.repositoriesPublisher.sink(
+      receiveCompletion: { @Sendable _ in updates.continuation.finish() },
+      receiveValue: { @Sendable _ in updates.continuation.yield(()) }
+    )
     subscriptionTask = Task { [weak self] in
-      guard let self = self else { return }
+      defer { subscription.cancel() }
 
       var hasHandledInitialEmission = false
-      for await repositories in self.monitorService.repositoriesPublisher.values {
-        guard !Task.isCancelled else { break }
-
-        if !hasHandledInitialEmission {
-          hasHandledInitialEmission = true
-          if repositories.isEmpty {
-            continue
-          }
+      for await _ in updates.stream {
+        guard !Task.isCancelled, let self else { break }
+        let isInitialEmission = !hasHandledInitialEmission
+        hasHandledInitialEmission = true
+        guard await self.updateRepositoryProjection(accepting: { repositories in
+          !repositories.isEmpty || (!isInitialEmission && !self.isRestoringPersistedWorkspace)
+        }) else {
+          continue
         }
 
-        await MainActor.run { [weak self] in
-          guard let self = self else { return }
+        self.persistSelectedRepositories()
+        self.syncMonitoredSessionBackup()
+        self.processPendingAutoObserve()
+        self.processPendingSessionRestorations()
 
-          if self.loadingState == .restoringRepositories
-            || self.loadingState == .restoringMonitoredSessions,
-            repositories.isEmpty
-          {
-            return
-          }
-
-          // Preserve expanded state from current repositories
-          self.selectedRepositories = self.mergePreservingExpandedState(
-            current: self.selectedRepositories,
-            updated: repositories
-          )
-
-          // Persist after state is updated to ensure consistency
-          self.persistSelectedRepositories()
-
-          // Sync backup with latest session data for monitored sessions
-          self.syncMonitoredSessionBackup()
-
-          // Check for pending auto-observe
-          self.processPendingAutoObserve()
-
-          // Progressively restore sessions from persistence as they become available
-          self.processPendingSessionRestorations()
-
-          // Claude-only: make sure every repo/worktree path the user has
-          // added has the approval hook registered in its
-          // `.claude/settings.local.json`. Claude Code reads that file once
-          // at session start, so we install eagerly here rather than on
-          // per-session startup. Codex injects nil → no-op.
-          let hookPaths = self.claudeHookInstallPaths(from: self.selectedRepositories)
-          if !self.shouldSkipRepositorySubscriptionHookSync(for: hookPaths) {
-            self.syncClaudeHookInstalls(paths: hookPaths)
-          }
+        // Claude Code reads installed approval hooks at session start.
+        let hookPaths = self.claudeHookInstallPaths(from: self.selectedRepositories)
+        if !self.shouldSkipRepositorySubscriptionHookSync(for: hookPaths) {
+          self.syncClaudeHookInstalls(paths: hookPaths)
         }
       }
     }
+  }
+
+  @discardableResult
+  private func updateRepositoryProjection(
+    accepting shouldApply: ([SelectedRepository]) -> Bool = { _ in true }
+  ) async -> Bool {
+    while !Task.isCancelled {
+      let revision = repositoryProjectionRevision
+      let repositories = await monitorService.getSelectedRepositories()
+      guard !Task.isCancelled else { return false }
+      // Another sidebar update may have finished while the monitor read was pending.
+      guard revision == repositoryProjectionRevision else { continue }
+      guard shouldApply(repositories) else { return false }
+      selectedRepositories = mergePreservingExpandedState(
+        current: selectedRepositories,
+        updated: repositories
+      )
+      return true
+    }
+    return false
   }
 
   /// Computes the flat set of paths that should have the approval hook
@@ -3615,11 +3617,7 @@ public final class CLISessionsViewModel {
       browseSessionsLoadState = .loaded
     }
 
-    let repositories = await monitorService.getSelectedRepositories()
-    selectedRepositories = mergePreservingExpandedState(
-      current: selectedRepositories,
-      updated: repositories
-    )
+    await updateRepositoryProjection()
     persistSelectedRepositories()
     syncClaudeHookInstalls()
   }
@@ -3812,11 +3810,7 @@ public final class CLISessionsViewModel {
         await monitorService.addRepositories(selection.repositoryPaths)
       }
 
-      let repositories = await monitorService.getSelectedRepositories()
-      selectedRepositories = mergePreservingExpandedState(
-        current: selectedRepositories,
-        updated: repositories
-      )
+      await updateRepositoryProjection()
       persistSelectedRepositories()
       browseSessionsLoadState = .loaded
       loadingState = .idle
@@ -3936,11 +3930,7 @@ public final class CLISessionsViewModel {
 
     await setOwnedWorktreePaths(ownedWorktreePaths.union([worktree.path]))
     await monitorService.registerWorktree(worktree, parentRepositoryPath: parentRepositoryPath)
-    let updatedRepositories = await monitorService.getSelectedRepositories()
-    selectedRepositories = mergePreservingExpandedState(
-      current: selectedRepositories,
-      updated: updatedRepositories
-    )
+    await updateRepositoryProjection()
     persistSelectedRepositories()
     syncClaudeHookInstalls()
     return worktree
@@ -3991,11 +3981,7 @@ public final class CLISessionsViewModel {
 
   public func refreshImportedWorktreeSessions() async {
     await monitorService.refreshSessions(skipWorktreeRedetection: true)
-    let updatedRepositories = await monitorService.getSelectedRepositories()
-    selectedRepositories = mergePreservingExpandedState(
-      current: selectedRepositories,
-      updated: updatedRepositories
-    )
+    await updateRepositoryProjection()
     persistSelectedRepositories()
   }
 
