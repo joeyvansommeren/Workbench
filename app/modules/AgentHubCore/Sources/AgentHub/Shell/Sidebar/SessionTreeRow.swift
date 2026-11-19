@@ -192,8 +192,8 @@ private struct SessionGuideLine: View {
   let isFirst: Bool
   let isLast: Bool
 
-  /// Centre of the session status column.
-  fileprivate static let x = SidebarTreeInset.session + DesignTokens.Size.tile / 2
+  /// Centre of the session status column (shared via `SidebarTreeInset.guideX`).
+  fileprivate static let x = SidebarTreeInset.guideX
   /// Gap above and below the glyph centre.
   fileprivate static let gap: CGFloat = 9
   /// The line stops this far above the last row's bottom.

@@ -42,10 +42,11 @@ struct SidePanelDiffNativeLayoutTests {
     #expect(revealed, "Offscreen selection must scroll into the file viewport")
   }
 
-  @Test("A restored offscreen selection is visible when the file list opens")
-  func restoredSelectionIsVisible() async throws {
-    let selectedIndex = 198
-    let fixture = try await Fixture(height: 320, initialSelectedIndex: selectedIndex)
+  @Test(
+    "A restored offscreen selection is visible when the file list opens",
+    arguments: [198, 299], [320.0, 700.0])
+  func restoredSelectionIsVisible(selectedIndex: Int, height: Double) async throws {
+    let fixture = try await Fixture(height: CGFloat(height), initialSelectedIndex: selectedIndex)
     defer { fixture.close() }
 
     #expect(fixture.model.selectedPath == fixture.paths[selectedIndex])
@@ -54,6 +55,9 @@ struct SidePanelDiffNativeLayoutTests {
       let selectedMidpoint = (CGFloat(selectedIndex) + 0.5) * DesignTokens.Size.row
       return scroll.contentView.bounds.minY <= selectedMidpoint
         && selectedMidpoint <= scroll.contentView.bounds.maxY
+    }
+    if !revealed {
+      print("RESTORED_DIFF_LAYOUT index=\(selectedIndex) height=\(height) \(fixture.failureGeometry())")
     }
     #expect(revealed, "The restored file row must be inside the visible list viewport")
   }
@@ -141,6 +145,21 @@ private final class Fixture {
         (scroll.documentView?.frame.height ?? 0) > scroll.contentView.bounds.height
           + DesignTokens.Size.row
       }
+  }
+
+  /// Synthetic fixture geometry only; emitted when the restored-selection check fails.
+  func failureGeometry() -> String {
+    func collect(_ view: NSView) -> [NSScrollView] {
+      let nested = view.subviews.flatMap(collect)
+      return (view as? NSScrollView).map { [$0] + nested } ?? nested
+    }
+    let scrolls = collect(host).enumerated().map { index, scroll in
+      "scroll[\(index)] frame=\(scroll.frame) clip=\(scroll.contentView.bounds) "
+        + "document=\(String(describing: scroll.documentView?.frame)) "
+        + "flipped=\(String(describing: scroll.documentView?.isFlipped))"
+    }.joined(separator: "; ")
+    return "hostFrame=\(host.frame) hostBounds=\(host.bounds) windowFrame=\(window.frame) "
+      + "animationDuration=\(NSAnimationContext.current.duration); \(scrolls)"
   }
 
   func fileListScroll() -> NSScrollView? {

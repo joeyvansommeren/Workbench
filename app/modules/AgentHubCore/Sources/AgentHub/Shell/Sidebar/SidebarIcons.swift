@@ -19,6 +19,8 @@ enum SidebarGlyph: Sendable {
   case plus
   case agentClaude
   case agentCodex
+  /// Three horizontal dots for "Show older sessions".
+  case ellipsis
 
   /// Stroke width in the 16-unit view box. The agent marks use 1.6 like the
   /// prototype; every other icon uses `.icon`'s 1.4.
@@ -132,6 +134,13 @@ struct SidebarGlyphShape: Shape {
       line([(8, 1.75), (13.4, 4.9), (13.4, 11.1), (8, 14.25), (2.6, 11.1), (2.6, 4.9)])
       path.closeSubpath()
       line([(6.3, 6.2), (8.3, 8), (6.3, 9.8)])
+
+    case .ellipsis:
+      // Three dots at y=8. Radius matches half the stroke width so the
+      // stroked circle reads as a filled dot at icon size.
+      circle(4, 8, 0.7)
+      circle(8, 8, 0.7)
+      circle(12, 8, 0.7)
     }
     return path
   }

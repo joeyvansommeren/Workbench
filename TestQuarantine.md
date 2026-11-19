@@ -10,15 +10,38 @@ by removing the `.disabled(...)` trait once the underlying issue is fixed.
 
 `make test` keeps native fixtures in the background by default. The package test
 runner uses a prohibited activation policy. Ordered fixtures use an offscreen,
-non-key window that AppKit cannot move onto a display. No test is skipped by this
-mode. Native layout, direct event routing, and first-responder assertions still run.
-These checks do not establish foreground keyboard or VoiceOver behaviour.
+non-key window that AppKit cannot move onto a display. Native geometry, layout,
+and first-responder assertions continue to run in this mode.
 
-For an intentional visible interaction run, use
-`AGENTHUB_TEST_VISIBLE_WINDOWS=1 make test`. This can activate windows and interrupt
-other work. Only run it when the desktop is available. Direct `xcodebuild` calls
-can opt in with `TEST_RUNNER_AGENTHUB_TEST_VISIBLE_WINDOWS=1`; default calls remain
-in background mode. Do not use visible mode while Joey is using this device.
+Six `ShellTitleBarHitTests` methods use real `NSWindow.sendEvent` dispatch and are
+an explicit **manual interactive gate**. They are conditionally skipped in the
+background run with reason `manual-interactive-gate`. Their original test names,
+parameter sets and assertions remain unchanged. A skipped interactive check is
+**not a pass** and does not establish end-to-end title-row click coverage.
+The six methods have fourteen parameter cases in the current source; reports
+must use the actual runtime skip count, separate from existing defect quarantines.
+
+Run this separate gate only when Joey explicitly makes the desktop available:
+
+```sh
+AGENTHUB_TEST_VISIBLE_WINDOWS=1 make test-interactive-titlebar
+```
+
+The target refuses to start without the visible-window opt-in. A separately
+forwarded manual-required marker also makes a runtime configuration guard fail if
+a background wrapper forces the actual test runner's visible mode off. This guard
+is not a mouse-dispatch check. It runs unconditionally in the whole title-bar suite.
+The manual target runs that suite, including all six original interactive methods,
+using the same60/120-second limits. It may activate fixture windows and interrupt other work.
+Do not run it while Joey uses this device. A successful background gate does not
+complete this manual gate. The external background-only safety runner forces
+visible mode off and must not be used to claim an interactive run.
+
+`AGENTHUB_TEST_VISIBLE_WINDOWS=1 make test` remains an explicit full visible run.
+Direct `xcodebuild` calls forward the opt-in with
+`TEST_RUNNER_AGENTHUB_TEST_VISIBLE_WINDOWS=1`. Foreground keyboard and VoiceOver
+behaviour require their own observed checks; native mouse-dispatch results do not
+establish either. The installed app and macOS user settings remain unchanged.
 
 `BackgroundTestWindowTests` checks the background policy. `scripts/check-test-windows.sh`
 rejects direct foreground presentation in test files so new fixtures use the same policy.
@@ -137,3 +160,8 @@ or resolve fixture temp paths). Decide whether product code *should* canonicaliz
 - `SpotlightProjectFileSearchServiceTests` → "Escapes quoted query literals…": the
   backslash-escape branch in `SpotlightQueryBuilder.escapeQuotedString` appears unreachable
   because `\` is consumed as a path separator by the filename-component extraction first.
+
+
+### Core execution order
+
+The default Core command uses `-parallel-testing-enabled NO`. A paired two-case run on Xcode27.2 confirms that this public setting serializes independent Swift Testing cases in this toolchain. The full gate must still execute all suites and parameterized cases. This changes scheduling only: assertions,60/120-second limits and the separately documented skips remain unchanged. Tests that create concurrent tasks still exercise that concurrency inside their bodies. Fast-package CI remains a separate signal.

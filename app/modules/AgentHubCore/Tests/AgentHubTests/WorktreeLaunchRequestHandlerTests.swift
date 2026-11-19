@@ -249,7 +249,7 @@ struct WorktreeLaunchRequestHandlerTests {
 }
 
 @MainActor
-private func makeLaunchRequestViewModel(
+func makeLaunchRequestViewModel(
   providerKind: SessionProviderKind,
   monitorService: TestLaunchMonitorService = TestLaunchMonitorService()
 ) -> CLISessionsViewModel {
@@ -282,10 +282,21 @@ private final class TestLaunchFileWatcher: SessionFileWatcherProtocol, @unchecke
   func setApprovalTimeout(_ seconds: Int) async {}
 }
 
-private actor TestLaunchMonitorService: SessionMonitorServiceProtocol {
+actor TestLaunchMonitorService: SessionMonitorServiceProtocol {
+  struct PausedRead: Sendable {
+    let started = AsyncTestCompletion()
+    let release = AsyncTestCompletion()
+  }
+
   private nonisolated(unsafe) let subject = CurrentValueSubject<[SelectedRepository], Never>([])
+  private let publishesRegistrationUpdates: Bool
   private var repositories: [SelectedRepository] = []
   private var ownedWorktreePaths: Set<String> = []
+  private var pausedRead: PausedRead?
+
+  init(publishesRegistrationUpdates: Bool = true) {
+    self.publishesRegistrationUpdates = publishesRegistrationUpdates
+  }
 
   nonisolated var repositoriesPublisher: AnyPublisher<[SelectedRepository], Never> {
     subject.eraseToAnyPublisher()
@@ -323,11 +334,39 @@ private actor TestLaunchMonitorService: SessionMonitorServiceProtocol {
         worktree
       ]))
     }
-    subject.send(repositories)
+    if publishesRegistrationUpdates {
+      subject.send(repositories)
+    }
   }
 
   func getSelectedRepositories() async -> [SelectedRepository] {
-    repositories
+    let snapshot = repositories
+    if let pausedRead {
+      self.pausedRead = nil
+      pausedRead.started.signal()
+      try? await pausedRead.release.wait()
+    }
+    return snapshot
+  }
+
+  func pauseReadAfterPublishing() -> PausedRead {
+    let read = PausedRead()
+    pausedRead = read
+    subject.send(repositories)
+    return read
+  }
+
+  func publishDelayedRegistrationSnapshot(_ snapshot: [SelectedRepository]) {
+    // Give the current snapshot a visible change so the test observes publication
+    // whether the subscriber applies the stale payload or reads the monitor again.
+    renameRepositoriesForRefresh()
+    subject.send(snapshot)
+  }
+
+  func renameRepositoriesForRefresh() {
+    repositories = repositories.map {
+      SelectedRepository(path: $0.path, name: "Refreshed", worktrees: $0.worktrees, isExpanded: $0.isExpanded)
+    }
   }
 
   func setSelectedRepositories(_ repositories: [SelectedRepository]) async {
@@ -339,6 +378,8 @@ private actor TestLaunchMonitorService: SessionMonitorServiceProtocol {
 
   func refreshSessions(skipWorktreeRedetection: Bool) async {
     refreshSessionsCallCount += 1
-    subject.send(repositories)
+    if publishesRegistrationUpdates {
+      subject.send(repositories)
+    }
   }
 }

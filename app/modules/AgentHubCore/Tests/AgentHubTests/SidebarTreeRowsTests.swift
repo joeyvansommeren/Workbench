@@ -22,7 +22,23 @@ struct SidebarTreeRowsTests {
     }
     #expect(first.title == "A1")
     #expect(first.isFirstInBranch && !first.isLastInBranch)
-    #expect(last.isLastInBranch)
+    // When hasMore, the last visible session is NOT the last in branch —
+    // the guide line should continue through to the Load More row.
+    #expect(!last.isLastInBranch, "Guide line should continue when hasMore")
+  }
+
+  @Test("Guide line ends at the last session when no more exist")
+  func guideLineEndsWithoutHasMore() {
+    let rows = SidebarTreeRows.rows(
+      repos: [repo("/tmp/A", branches: [branch("main", sessions: ["a1", "a2"])])],
+      collapsedRepoPaths: [],
+      decorations: .empty,
+      title: { $0.id }
+    )
+    guard case .session(let last) = rows[3] else {
+      Issue.record("expected session row"); return
+    }
+    #expect(last.isLastInBranch, "Guide line should end at last session when no hasMore")
   }
 
   @Test("Accessibility hierarchy follows visible repository and branch ownership")
@@ -554,6 +570,99 @@ struct SidebarTreeRowsTests {
     #expect(SidebarTreeRows.roleLabel(for: node, decoration: implementOnly) == nil)
     #expect(SidebarTreeRows.roleLabel(for: node, decoration: nil) == nil)
   }
+
+  @Test("Hierarchy insets increase by one step per level")
+  func hierarchyInsets() {
+    let step = SidebarTreeInset.step
+    #expect(step > 0)
+    #expect(SidebarTreeInset.branch == SidebarTreeInset.repository + step)
+    #expect(SidebarTreeInset.session == SidebarTreeInset.branch + step)
+    // Each level must be wider than the last.
+    #expect(SidebarTreeInset.branch > SidebarTreeInset.repository)
+    #expect(SidebarTreeInset.session > SidebarTreeInset.branch)
+    // Guide line x is at the centre of the session tile column.
+    #expect(SidebarTreeInset.guideX == SidebarTreeInset.session + DesignTokens.Size.tile / 2)
+  }
+
+  @Test("Session inset leaves enough text width in the sidebar")
+  func sessionInsetTextWidth() {
+    let tile = DesignTokens.Size.tile          // 18 pt
+    let spacing = DesignTokens.Spacing.smPlus   // 10 pt (HStack spacing)
+    let sidebarPadding = DesignTokens.Inset.sidebar * 2  // 24 pt total
+    let trailingPad = DesignTokens.Spacing.xs   // 4 pt trailing
+    let textLeading = SidebarTreeInset.session + tile + spacing
+    let available = DesignTokens.Width.sidebar - sidebarPadding - textLeading - trailingPad
+    // At least 180 pt for session title text, to fit long names.
+    #expect(available >= 180, "Session text width \(available) pt is too narrow")
+  }
+
+  @Test("Stress: 12-session mixed-provider fixture produces correct tree order")
+  func stressFixture() {
+    let sessions = (0..<12).map { "s\($0)" }
+    let mixed: [SessionProviderKind] = [.claude, .codex]
+    let repos = [
+      repo("/tmp/long-repository-name-that-will-truncate", branches: [
+        branch(
+          "feature/very-long-branch-name-with-ticket-prefix-TES-318",
+          sessions: Array(sessions.prefix(5)),
+          hasMore: true,
+          providerKinds: mixed),
+        branch("main", sessions: Array(sessions.dropFirst(5).prefix(4)), providerKinds: mixed)
+      ]),
+      repo("/tmp/B", attention: 3, branches: [
+        branch("develop", sessions: Array(sessions.suffix(3)), providerKinds: [.codex])
+      ])
+    ]
+    // Long display titles that stress the 198 pt text budget.
+    let longTitles: [String: String] = Dictionary(uniqueKeysWithValues:
+      sessions.map { ($0, "Refactor authentication flow for \($0) with extended description") })
+
+    let snapshot = SessionTreeSnapshot(
+      repos: repos,
+      collapsedRepoPaths: ["/tmp/B"],
+      decorations: .empty,
+      title: { longTitles[$0.id] ?? $0.id })
+
+    // First repo expanded: header + 2 branches + 5 sessions + load more + 4 sessions = 13
+    // Second repo collapsed: header only = 1. Total projected rows: 14.
+    // 9 sessions rendered (5 + 4); 3 hidden in collapsed repo.
+    let expectedIDs = [
+      "repo|/tmp/long-repository-name-that-will-truncate",
+      "branch|/tmp/long-repository-name-that-will-truncate|feature/very-long-branch-name-with-ticket-prefix-TES-318",
+      "s0", "s1", "s2", "s3", "s4",
+      "more|/tmp/long-repository-name-that-will-truncate|feature/very-long-branch-name-with-ticket-prefix-TES-318",
+      "branch|/tmp/long-repository-name-that-will-truncate|main",
+      "s5", "s6", "s7", "s8",
+      "repo|/tmp/B"
+    ]
+    #expect(snapshot.rows.map(\.id) == expectedIDs)
+
+    // Verify alternating providers in rendered sessions.
+    let sessionRows = snapshot.rows.compactMap { row -> SessionRowModel? in
+      guard case .session(let model) = row else { return nil }
+      return model
+    }
+    #expect(sessionRows[0].node.providerKind == .claude)   // s0
+    #expect(sessionRows[1].node.providerKind == .codex)    // s1
+    #expect(sessionRows[2].node.providerKind == .claude)   // s2
+
+    // Long titles are passed through.
+    #expect(sessionRows[0].title.hasPrefix("Refactor authentication"))
+
+    // Collapsed repo still tracks its sessions for arrow-key navigation.
+    #expect(snapshot.repoPathBySessionID["s9"] == "/tmp/B")
+
+    // Hierarchy levels are consistent.
+    let hierarchy = SidebarTreeRows.accessibilityHierarchy(snapshot.rows)
+    for item in hierarchy {
+      switch item.level {
+      case 0: #expect(item.parentID == nil)
+      case 1: #expect(item.parentID?.hasPrefix("repo|") == true)
+      case 2: #expect(item.parentID?.hasPrefix("branch|") == true)
+      default: Issue.record("unexpected level \(item.level)")
+      }
+    }
+  }
 }
 
 // MARK: - Fixtures
@@ -569,12 +678,18 @@ private func repo(_ path: String, attention: Int = 0, branches: [BranchNode]) ->
     })
 }
 
-private func branch(_ name: String, sessions: [String], hasMore: Bool = false) -> BranchNode {
+private func branch(
+  _ name: String,
+  sessions: [String],
+  hasMore: Bool = false,
+  providerKinds: [SessionProviderKind]? = nil
+) -> BranchNode {
   BranchNode(
     id: name, name: name, worktreePath: nil, isWorktree: false,
-    sessions: sessions.map {
-      SessionNode(
-        id: $0, session: CLISession(id: $0, projectPath: "/tmp"), providerKind: .claude,
+    sessions: sessions.enumerated().map { index, id in
+      let provider = providerKinds?[index % providerKinds!.count] ?? .claude
+      return SessionNode(
+        id: id, session: CLISession(id: id, projectPath: "/tmp"), providerKind: provider,
         isPending: false, status: nil)
     },
     hasMore: hasMore, visibleCount: sessions.count)

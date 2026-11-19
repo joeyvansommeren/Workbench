@@ -15,7 +15,7 @@ private final class OriginMonitor: SessionMonitorServiceProtocol, @unchecked Sen
   }
   func addRepository(_ path: String) async -> SelectedRepository? { nil }
   func removeRepository(_ path: String) async {}
-  func getSelectedRepositories() async -> [SelectedRepository] { [] }
+  func getSelectedRepositories() async -> [SelectedRepository] { subject.value }
   func setSelectedRepositories(_ repositories: [SelectedRepository]) async {
     subject.send(repositories)
   }

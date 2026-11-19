@@ -34,15 +34,20 @@ struct EphemeralDefaultsSuite {
   /// cannot delete its own file. Instead each cleanUp removes what it can and
   /// sweeps residue that earlier test runs left for the same prefix; the age
   /// gate keeps files belonging to concurrently running suites safe.
-  private static func sweepResidue(prefix: String, ownSuiteName: String) {
-    let fileManager = FileManager.default
-    let preferences = fileManager.homeDirectoryForCurrentUser
+  static func sweepResidue(
+    prefix: String,
+    ownSuiteName: String,
+    preferencesDirectory: URL? = nil,
+    fileManager: FileManager = .default
+  ) {
+    let preferences = preferencesDirectory ?? fileManager.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/Preferences", isDirectory: true)
     try? fileManager.removeItem(at: preferences.appendingPathComponent("\(ownSuiteName).plist"))
     let staleCutoff = Date(timeIntervalSinceNow: -600)
     let files = (try? fileManager.contentsOfDirectory(
       at: preferences,
-      includingPropertiesForKeys: [.contentModificationDateKey]
+      // Fetch dates only after filtering, so unrelated preferences need no metadata reads.
+      includingPropertiesForKeys: []
     )) ?? []
     for file in files where file.lastPathComponent.hasPrefix("\(prefix).") {
       let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?

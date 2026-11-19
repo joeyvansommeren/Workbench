@@ -107,6 +107,12 @@ struct SidePanelDiffView: View {
           }
         }
         .padding(.horizontal, DesignTokens.Spacing.sm)
+        .onGeometryChange(for: Bool.self) { geometry in
+          geometry.size.height > 0
+        } action: { hasLayout in
+          guard hasLayout, let path = model.selectedPath else { return }
+          scrollProxy.scrollTo(path, anchor: .center)
+        }
       }
       .frame(maxHeight: listHeight)
       .focusable()
