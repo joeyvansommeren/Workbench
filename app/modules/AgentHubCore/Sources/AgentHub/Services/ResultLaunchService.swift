@@ -1,8 +1,22 @@
 import AppKit
 import Foundation
 
+enum ResultHealthStatus: Equatable, Sendable {
+  case reachable
+  /// The server answered from another route, such as a sign-in page.
+  case redirected(URL)
+  case unreachable
+}
+
 protocol ResultHealthChecking: Sendable {
   func isReachable(_ url: URL) async -> Bool
+  func status(of url: URL) async -> ResultHealthStatus
+}
+
+extension ResultHealthChecking {
+  func status(of url: URL) async -> ResultHealthStatus {
+    await isReachable(url) ? .reachable : .unreachable
+  }
 }
 
 actor ResultHealthService: ResultHealthChecking {
@@ -15,25 +29,51 @@ actor ResultHealthService: ResultHealthChecking {
   }
 
   func isReachable(_ url: URL) async -> Bool {
+    await status(of: url) == .reachable
+  }
+
+  func status(of url: URL) async -> ResultHealthStatus {
     guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-      return false
+      return .unreachable
     }
     components.fragment = nil
-    guard let networkURL = components.url else { return false }
+    guard let networkURL = components.url else { return .unreachable }
     var request = URLRequest(
       url: networkURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 4)
     request.httpMethod = "HEAD"
-    guard let response = await responseHeaders(for: request), !Task.isCancelled,
-      response.url == networkURL
+    guard var response = await responseHeaders(for: request), !Task.isCancelled else {
+      return .unreachable
+    }
+    if response.statusCode == 405 || response.statusCode == 501 {
+      request.httpMethod = "GET"
+      request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+      guard let fallback = await responseHeaders(for: request), !Task.isCancelled else {
+        return .unreachable
+      }
+      response = fallback
+    }
+    guard (200..<400).contains(response.statusCode), let finalURL = response.url else {
+      return .unreachable
+    }
+    return Self.isSameRoute(finalURL, as: networkURL) ? .reachable : .redirected(finalURL)
+  }
+
+  /// A trailing slash is the server's spelling of one route. Any other change is another page.
+  private static func isSameRoute(_ finalURL: URL, as requestedURL: URL) -> Bool {
+    guard let final = URLComponents(url: finalURL, resolvingAgainstBaseURL: false),
+      let requested = URLComponents(url: requestedURL, resolvingAgainstBaseURL: false)
     else { return false }
-    if (200..<400).contains(response.statusCode) { return true }
-    guard response.statusCode == 405 || response.statusCode == 501 else { return false }
-    request.httpMethod = "GET"
-    request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-    guard let fallback = await responseHeaders(for: request), !Task.isCancelled,
-      fallback.url == networkURL
-    else { return false }
-    return (200..<400).contains(fallback.statusCode)
+    return final.scheme == requested.scheme && final.host == requested.host
+      && final.port == requested.port
+      && final.percentEncodedUser == requested.percentEncodedUser
+      && final.percentEncodedPassword == requested.percentEncodedPassword
+      && final.percentEncodedQuery == requested.percentEncodedQuery
+      && pathWithoutTrailingSlash(final) == pathWithoutTrailingSlash(requested)
+  }
+
+  private static func pathWithoutTrailingSlash(_ components: URLComponents) -> String {
+    let path = components.percentEncodedPath
+    return path.hasSuffix("/") ? String(path.dropLast()) : path
   }
 
   private func responseHeaders(for request: URLRequest) async -> HTTPURLResponse? {

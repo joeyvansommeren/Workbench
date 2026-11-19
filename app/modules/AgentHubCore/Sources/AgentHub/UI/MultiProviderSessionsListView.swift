@@ -2658,10 +2658,7 @@ public struct MultiProviderSessionsListView: View {
   }
 
   private func selectedSessionCustomName(forArchivable item: ArchivableSessionItem) -> String? {
-    switch item.providerKind {
-    case .claude: return claudeViewModel.sessionCustomNames[item.session.id]
-    case .codex: return codexViewModel.sessionCustomNames[item.session.id]
-    }
+    sessionsViewModel(for: item.providerKind).displayName(for: item.session)
   }
 
   private func sessionsViewModel(for provider: SessionProviderKind) -> CLISessionsViewModel {

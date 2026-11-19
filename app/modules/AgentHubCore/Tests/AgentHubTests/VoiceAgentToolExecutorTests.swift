@@ -17,6 +17,7 @@ private final class MockVoiceSessionManager: VoiceSessionManaging {
   var resolvedPendingSessions: [UUID: String] = [:]
   var lastCreatedPendingId: UUID?
   var activeTerminalResult = false
+  var originDisplayNames: [String: String] = [:]
   var calls: [String] = []
   private(set) var shownPrompts: [String] = []
   private(set) var approvalDecisions: [ApprovalDecision] = []
@@ -25,6 +26,13 @@ private final class MockVoiceSessionManager: VoiceSessionManaging {
 
   init(providerKind: SessionProviderKind) {
     self.providerKind = providerKind
+  }
+
+  func displayName(for session: CLISession) -> String {
+    sessionCustomNames[session.id]
+      ?? originDisplayNames[session.id]
+      ?? session.slug
+      ?? "Untitled session \u{00B7} \(session.shortId)"
   }
 
   func sendPromptToActiveTerminal(

@@ -120,6 +120,7 @@ final class SessionResultViewModel {
     defer { isOpening = false }
     do {
       await load(projectPath: result.projectPath)
+      try Task.checkCancellation()
       // A failed recipe load must not launch with stale settings from another repository.
       if error != nil { throw ResultLaunchError.unavailableStore }
       let fallback = result.kind == .native ? recipe?.nativeTarget ?? "" : recipe?.destination ?? ""
@@ -149,18 +150,28 @@ final class SessionResultViewModel {
       }
       if url.isFileURL {
         guard FileManager.default.fileExists(atPath: url.path) else { throw ResultLaunchError.missingFile }
-      } else if !(await health.isReachable(url)) {
-        guard var recipe, !recipe.executable.isEmpty else { throw ResultLaunchError.unreachable }
-        // The exact selected route is also the launch health target; never silently use a homepage.
-        recipe.destination = url.absoluteString
-        if !restart { try await server.start(recipe: recipe, key: result.id + ":result", worktreePath: root) }
-        var reached = false
-        for _ in 0..<10 {
-          try Task.checkCancellation()
-          if await health.isReachable(url) { reached = true; break }
-          try await Task.sleep(for: .milliseconds(400))
+      } else {
+        var status = await health.status(of: url)
+        try Task.checkCancellation()
+        if status == .unreachable {
+          guard var recipe, !recipe.executable.isEmpty else { throw ResultLaunchError.unreachable }
+          // The exact selected route is also the launch health target; never silently use a homepage.
+          recipe.destination = url.absoluteString
+          if !restart { try await server.start(recipe: recipe, key: result.id + ":result", worktreePath: root) }
+          for _ in 0..<10 {
+            try Task.checkCancellation()
+            status = await health.status(of: url)
+            try Task.checkCancellation()
+            if status != .unreachable { break }
+            try await Task.sleep(for: .milliseconds(400))
+          }
         }
-        guard reached else { throw ResultLaunchError.unreachable }
+        switch status {
+        case .reachable: break
+        // Only the path is shown: a sign-in query can carry tokens.
+        case .redirected(let finalURL): throw ResultLaunchError.redirected(finalURL.path)
+        case .unreachable: throw ResultLaunchError.unreachable
+        }
       }
       try Task.checkCancellation()
       guard opener.open(url) else { throw ResultLaunchError.unsupportedDestination }

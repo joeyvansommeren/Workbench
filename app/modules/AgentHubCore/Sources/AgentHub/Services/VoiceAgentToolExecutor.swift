@@ -26,6 +26,10 @@ public protocol VoiceSessionManaging: AnyObject {
     _ worktree: WorktreeBranch,
     initialPrompt: String?
   )
+
+  /// Returns the display name for a session following the title policy:
+  /// manual rename > origin (ticket/PR) title > provider slug > untitled fallback.
+  func displayName(for session: CLISession) -> String
 }
 
 extension CLISessionsViewModel: VoiceSessionManaging {
@@ -179,7 +183,7 @@ public final class VoiceAgentToolExecutor: VoiceAgentToolExecuting {
           let state = viewModel.monitorStates[session.id]
           return VoiceSessionSummary(
             id: session.id,
-            name: viewModel.sessionCustomNames[session.id] ?? session.displayName,
+            name: viewModel.displayName(for: session),
             provider: viewModel.providerKind,
             worktree: session.projectPath,
             status: state?.status.displayName
@@ -229,7 +233,7 @@ public final class VoiceAgentToolExecutor: VoiceAgentToolExecuting {
     return VoiceSessionStatusDetail(
       sessionId: sessionId,
       provider: record.provider,
-      name: record.viewModel.sessionCustomNames[sessionId] ?? record.session.displayName,
+      name: record.viewModel.displayName(for: record.session),
       status: state?.status.displayName
         ?? (record.session.isActive ? "Active" : "Idle"),
       currentTool: state?.currentTool,
@@ -540,8 +544,7 @@ public final class VoiceAgentToolExecutor: VoiceAgentToolExecuting {
     return (
       sessionId: lookupId,
       provider: record.provider,
-      name: record.viewModel.sessionCustomNames[lookupId]
-        ?? record.session.displayName,
+      name: record.viewModel.displayName(for: record.session),
       path: path
     )
   }

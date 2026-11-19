@@ -29,15 +29,13 @@ private final class HealthURLProtocol: URLProtocol, @unchecked Sendable {
     guard let url = request.url else { return }
     let status: Int
     switch (url.path, request.httpMethod) {
-    case ("/get-only", "HEAD"), ("/fallback-redirect", "HEAD"): status = 405
+    case ("/get-only", "HEAD"), ("/fallback-redirect", "HEAD"), ("/slash-fallback", "HEAD"):
+      status = 405
     case ("/not-implemented", "HEAD"): status = 501
     case ("/missing", _): status = 404
     default: status = 200
     }
-    let changedDestination =
-      url.path == "/redirected"
-      || (url.path == "/fallback-redirect" && request.httpMethod == "GET")
-    let responseURL = changedDestination ? URL(string: "http://localhost:3000/other")! : url
+    let responseURL = responseURL(for: url)
     let response = HTTPURLResponse(
       url: responseURL, statusCode: status, httpVersion: nil, headerFields: nil)!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -46,6 +44,25 @@ private final class HealthURLProtocol: URLProtocol, @unchecked Sendable {
     }
     client?.urlProtocolDidFinishLoading(self)
   }
+  private func responseURL(for url: URL) -> URL {
+    let changedDestination =
+      url.path == "/redirected"
+      || (url.path == "/fallback-redirect" && request.httpMethod == "GET")
+    let responseURL: URL
+    switch url.absoluteString {
+    case "http://localhost:3000/docs": responseURL = URL(string: "http://localhost:3000/docs/")!
+    case "http://localhost:3000/guide/": responseURL = URL(string: "http://localhost:3000/guide")!
+    case "http://localhost:3000/slash-fallback" where request.httpMethod == "GET":
+      responseURL = URL(string: "http://localhost:3000/slash-fallback/")!
+    case "http://localhost:3000/credentials":
+      responseURL = URL(string: "http://fixture@localhost:3000/credentials/")!
+    case "http://localhost:3000/tabs?tab=a":
+      responseURL = URL(string: "http://localhost:3000/tabs/?tab=b")!
+    default: responseURL = changedDestination ? URL(string: "http://localhost:3000/other")! : url
+    }
+    return responseURL
+  }
+
   override func stopLoading() {}
 }
 
@@ -113,6 +130,29 @@ struct ResultHealthServiceTests {
       allRequests.map(\.httpMethod) == [
         "HEAD", "GET", "HEAD", "GET", "HEAD", "HEAD", "HEAD", "GET",
       ])
+  }
+
+  @Test func trailingSlashRedirectKeepsTheRequestedRoute() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [HealthURLProtocol.self]
+    let service = ResultHealthService(configuration: configuration)
+    #expect(await service.isReachable(URL(string: "http://localhost:3000/docs")!))
+    #expect(await service.isReachable(URL(string: "http://localhost:3000/guide/")!))
+    #expect(await service.isReachable(URL(string: "http://localhost:3000/slash-fallback")!))
+  }
+
+  @Test func trailingSlashRedirectWithAChangedQueryIsAnotherRoute() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [HealthURLProtocol.self]
+    let service = ResultHealthService(configuration: configuration)
+    #expect(!(await service.isReachable(URL(string: "http://localhost:3000/tabs?tab=a")!)))
+  }
+
+  @Test func redirectWithCredentialsIsAnotherRoute() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [HealthURLProtocol.self]
+    let service = ResultHealthService(configuration: configuration)
+    #expect(!(await service.isReachable(URL(string: "http://localhost:3000/credentials")!)))
   }
 }
 
