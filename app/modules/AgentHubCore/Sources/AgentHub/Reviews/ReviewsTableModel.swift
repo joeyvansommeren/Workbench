@@ -230,6 +230,7 @@ struct ReviewsTableRowPresentation: Equatable {
   let priority: String?
   let isUrgent: Bool
   let checks: PullRequestChecksState?
+  let isDraft: Bool
   let sessionName: String?
   let sessionStatus: SessionStatusPresentation?
   /// Linked sessions beyond the first, shown as `+N`.
@@ -252,11 +253,13 @@ struct ReviewsTableRowPresentation: Equatable {
     priority = Self.nonEmpty(pullRequest.projectPriority)
     isUrgent = GitHubReviewRecommendation.isUrgent(pullRequest.projectPriority)
     self.checks = PullRequestChecksState(checks)
+    isDraft = pullRequest.isDraft
     let link = row.sessionLinks.first
     sessionName = link?.displayName
     sessionStatus = link.map { SessionStatusPresentation(status: $0.status, isPending: $0.isPending) }
     extraSessionCount = max(0, row.sessionLinks.count - 1)
     accessibilityValue = [
+      isDraft ? "Draft" : nil,
       status,
       priority.map { "\($0) priority" },
       "by \(author)",

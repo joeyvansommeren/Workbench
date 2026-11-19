@@ -28,7 +28,7 @@ extension CLISessionsViewModel: VoiceSessionTargetSource {
       return VoiceSessionTarget(
         sessionId: session.id,
         provider: providerKind,
-        name: sessionCustomNames[session.id] ?? session.displayName,
+        name: displayName(for: session),
         projectPath: session.projectPath,
         lastActivityAt: monitorStates[session.id]?.lastActivityAt
           ?? session.lastActivityAt

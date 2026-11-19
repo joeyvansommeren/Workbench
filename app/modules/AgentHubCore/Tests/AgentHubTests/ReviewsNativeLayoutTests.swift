@@ -15,7 +15,10 @@ struct ReviewsNativeLayoutTests {
   func renderTitleStressCases() async throws {
     let title = "Review workspace navigation and preserve every selected item while resizing the window — 界面の確認 👩🏽‍💻 "
       + "LongUnbrokenComponentNameForTheNavigationAndReviewWorkspace"
-    let rows = makeRows(title: title)
+    let rows = [
+      GitHubReviewTableRow(pullRequest: request("draft", title: title, isDraft: true), sessionLinks: []),
+      GitHubReviewTableRow(pullRequest: request("ready", title: "Ready for review"), sessionLinks: [])
+    ]
     let suite = "reviews-native-columns-\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
@@ -107,11 +110,11 @@ struct ReviewsNativeLayoutTests {
       .background(Color.wbSurfaceContent)
   }
 
-  private func request(_ id: String, title: String) -> GitHubProjectPullRequest {
+  private func request(_ id: String, title: String, isDraft: Bool = false) -> GitHubProjectPullRequest {
     GitHubProjectPullRequest(
       id: id, number: 42, title: title, url: "https://github.com/example/\(id)/pull/42",
       repositoryName: "workspace", repositoryNameWithOwner: "example/workspace",
-      authorLogin: "contributor", updatedAt: nil, isDraft: false, state: "open",
+      authorLogin: "contributor", updatedAt: nil, isDraft: isDraft, state: "open",
       projectStatus: nil, projectPriority: nil)
   }
 

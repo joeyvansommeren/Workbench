@@ -56,8 +56,10 @@ struct ProjectLaunchRecipe: Codable, Equatable, Sendable {
 
 enum ResultLaunchError: LocalizedError, Equatable {
   case outsideWorkspace, noDestination, unsupportedDestination, missingFile, unreachable, stale, unavailableStore, unsupportedNativeTarget
+  case redirected(String)
   var errorDescription: String? {
     switch self {
+    case .redirected(let route): "This route redirects to \(route). Complete the required state, or edit the recipe."
     case .unsupportedNativeTarget: "Choose a built .app inside the working directory. Simulator launch is not supported here; use the Simulator action."
     case .outsideWorkspace: "Choose a path inside this session’s worktree."
     case .noDestination: "Add the exact result URL or a file path."

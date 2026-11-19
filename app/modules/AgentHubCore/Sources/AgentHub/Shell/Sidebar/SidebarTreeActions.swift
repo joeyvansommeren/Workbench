@@ -183,7 +183,7 @@ final class SidebarTreeActions: SidebarTreeActionHandling {
       nodes.map(archivable),
       groupName: groupName,
       viewModelForProvider: viewModel(for:),
-      customNameForItem: { self.viewModel(for: $0.providerKind).sessionCustomNames[$0.session.id] }
+      customNameForItem: { self.viewModel(for: $0.providerKind).displayName(for: $0.session) }
     )
   }
 

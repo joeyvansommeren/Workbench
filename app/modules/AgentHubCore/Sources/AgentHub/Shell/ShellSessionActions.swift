@@ -69,7 +69,7 @@ struct ShellSessionActions {
         )
       },
       viewModelForProvider: viewModelFor,
-      customNameForItem: { viewModelFor($0.providerKind).sessionCustomNames[$0.session.id] }
+      customNameForItem: { viewModelFor($0.providerKind).displayName(for: $0.session) }
     )
   }
 

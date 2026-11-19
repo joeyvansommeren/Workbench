@@ -304,6 +304,11 @@ private struct ReviewsTableRow: View {
           .foregroundStyle(Color.wbTextPrimary)
           .fixedSize(horizontal: false, vertical: true)
           .accessibilityIdentifier("reviews.title.\(presentation.id)")
+        if presentation.isDraft {
+          ReviewsTagChip(tag: ReviewsTag(text: "Draft", tone: .neutral, kind: .draft))
+            .fixedSize()
+            .accessibilityIdentifier("reviews.draft.\(presentation.id)")
+        }
         Text(verbatim: presentation.number)
           .wbText(.codeSmall)
           .foregroundStyle(Color.wbTextTertiary)

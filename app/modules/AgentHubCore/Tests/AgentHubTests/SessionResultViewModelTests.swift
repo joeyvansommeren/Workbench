@@ -108,6 +108,13 @@ struct SessionResultViewModelTests {
 }
 
 
+private struct CancellingResultHealth: ResultHealthChecking {
+  func isReachable(_ url: URL) async -> Bool {
+    withUnsafeCurrentTask { $0?.cancel() }
+    return false
+  }
+}
+
 private actor ResultTestHealth: ResultHealthChecking {
   private var responses: [Bool]
   private(set) var requested: [URL] = []
@@ -239,6 +246,70 @@ struct ResultLaunchViewModelTests {
     #expect(opener.urls.isEmpty)
     #expect(model.error != nil)
   }
+
+  @Test func cancelledHealthProbeDoesNotStartSavedRecipe() async {
+    let store = ResultTestStore()
+    await store.saveProjectLaunchRecipe(ProjectLaunchRecipe(repositoryPath: "/tmp/main", executable: "bun",
+      arguments: ["dev"], destination: "http://localhost:3000/"))
+    let server = ResultTestServer()
+    let opener = ResultTestOpener()
+    let model = SessionResultViewModel(recipeStore: store, sourceService: ResultTestSource(identity: "source"),
+      health: CancellingResultHealth(), server: server, opener: opener)
+    var result = SessionResult(provider: .codex, sessionID: "s", projectPath: "/tmp/work")
+    result.destination = "http://localhost:3000/dashboard"
+    let open = Task { await model.open(result: result) }
+    await open.value
+    #expect(model.launchMessage == "Opening cancelled.")
+    #expect(server.launches.isEmpty && opener.urls.isEmpty)
+  }
+
+  @Test func redirectToAnotherRouteNamesItWithoutStartingTheServer() async throws {
+    let store = ResultTestStore()
+    await store.saveProjectLaunchRecipe(ProjectLaunchRecipe(repositoryPath: "/tmp/main", executable: "bun",
+      arguments: ["dev"], destination: "http://localhost:3000/"))
+    let server = ResultTestServer()
+    let opener = ResultTestOpener()
+    let model = SessionResultViewModel(recipeStore: store, sourceService: ResultTestSource(identity: "source"),
+      health: Self.redirectingHealth(), server: server, opener: opener)
+    var result = SessionResult(provider: .codex, sessionID: "s", projectPath: "/tmp/work")
+    result.destination = "http://localhost:3000/dashboard"
+    await model.open(result: result)
+    #expect(model.error == "This route redirects to /login. Complete the required state, or edit the recipe.")
+    #expect(server.launches.isEmpty && opener.urls.isEmpty)
+  }
+
+  @Test func trailingSlashRedirectOpensTheRequestedRoute() async throws {
+    let server = ResultTestServer()
+    let opener = ResultTestOpener()
+    let model = SessionResultViewModel(recipeStore: nil, sourceService: ResultTestSource(identity: "source"),
+      health: Self.redirectingHealth(), server: server, opener: opener)
+    var result = SessionResult(provider: .codex, sessionID: "s", projectPath: "/tmp/work")
+    result.destination = "http://localhost:3000/docs"
+    await model.open(result: result)
+    #expect(opener.urls.map(\.absoluteString) == [result.destination])
+    #expect(server.launches.isEmpty && model.error == nil)
+  }
+
+  private static func redirectingHealth() -> ResultHealthService {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ResultRedirectURLProtocol.self]
+    return ResultHealthService(configuration: configuration)
+  }
+}
+
+/// Reports the final URL a real redirect leaves on the response.
+private final class ResultRedirectURLProtocol: URLProtocol, @unchecked Sendable {
+  override static func canInit(with request: URLRequest) -> Bool { true }
+  override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    guard let url = request.url else { return }
+    let finalPath = url.path == "/dashboard" ? "/login" : url.path + "/"
+    let finalURL = URL(string: "http://localhost:3000\(finalPath)")!
+    let response = HTTPURLResponse(url: finalURL, statusCode: 200, httpVersion: nil, headerFields: nil)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
 }
 
 @MainActor
