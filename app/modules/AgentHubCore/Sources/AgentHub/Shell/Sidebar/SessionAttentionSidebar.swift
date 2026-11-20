@@ -16,6 +16,7 @@ struct SessionAttentionSidebar: View {
         Text("Needs you (\(agentHub?.sessionAttentionModel.items.count ?? 0))").tag(true)
       }
       .pickerStyle(.segmented)
+      .labelsHidden()
       .padding(.horizontal, 10)
       if shellModel.needsYouFilter, let agentHub {
         SessionAttentionQueue(
