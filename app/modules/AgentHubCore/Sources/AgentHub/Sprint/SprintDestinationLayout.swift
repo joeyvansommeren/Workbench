@@ -203,20 +203,3 @@ enum SprintBoardNavigation {
     return next == selected ? nil : next
   }
 }
-
-/// Picks the agent for the card's "Start session": Claude Code when it is
-/// installed, else Codex. The detail panel still offers both.
-enum SprintStartProvider {
-  static func preferred(isClaudeAvailable: Bool, isCodexAvailable: Bool) -> SessionProviderKind? {
-    if isClaudeAvailable { return .claude }
-    if isCodexAvailable { return .codex }
-    return nil
-  }
-
-  /// The detail panel names the agent; a card's Start leaves it to `preferred`.
-  static func resolve(
-    _ explicit: SessionProviderKind?, isClaudeAvailable: Bool, isCodexAvailable: Bool
-  ) -> SessionProviderKind? {
-    explicit ?? preferred(isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
-  }
-}

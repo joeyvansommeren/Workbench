@@ -12,13 +12,12 @@ import SwiftUI
 struct LinearBoardColumnView: View {
   let column: LinearViewModel.BoardColumn
   let selectedIssueID: String?
-  let canStart: Bool
-  var isClaudeAvailable: Bool = true
-  var isCodexAvailable: Bool = true
+  let startingIssueIDs: Set<String>
+
   let linkedSessions: [String: [LinearLinkedSession]]
   let onOpen: (LinearIssue) -> Void
   let onOpenSession: (LinearLinkedSession) -> Void
-  let onStart: (LinearIssue, SessionProviderKind) -> Void
+  let onStart: (LinearIssue) -> Void
 
   @Environment(\.runtimeTheme) private var runtimeTheme
 
@@ -103,12 +102,8 @@ struct LinearBoardColumnView: View {
   private func contextMenu(for issue: LinearIssue) -> some View {
     Button("Open Details") { onOpen(issue) }
     Divider()
-    Button("Pick Up with Claude") { onStart(issue, .claude) }
-      .disabled(!canStart || !isClaudeAvailable)
-      .help(isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
-    Button("Pick Up with Codex") { onStart(issue, .codex) }
-      .disabled(!canStart || !isCodexAvailable)
-      .help(isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
+    Button("Start Session…") { onStart(issue) }
+      .disabled(startingIssueIDs.contains(issue.id))
     Divider()
     if let url = URL(string: issue.url) {
       Button("Open in Linear") { NSWorkspace.shared.open(url) }

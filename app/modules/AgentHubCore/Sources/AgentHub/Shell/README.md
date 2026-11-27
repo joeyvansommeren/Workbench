@@ -463,10 +463,8 @@ ticket or a Linear issue to one `SprintTicketDetail`. The panel: key and close
 (Esc), title, the status chip (a menu with the other columns, "Move To"; Linear
 moves through `LinearViewModel.moveIssue`, optimistic with rollback, as on the
 board), priority, type and label tags,
-"Start session" (`SplitButton`; the primary half uses
-`SprintStartProvider.preferred`, the menu names Claude Code or Codex; same
-start path and starting guard as the card) and "Open in Jira/Linear", a
-`PropertyCard` (Assignee, Sprint or Cycle, Project: the legacy repository
+"Start session" (opens the same agent chooser as the card, context menu, and
+Return), "Open in Jira/Linear", a `PropertyCard` (Assignee, Sprint or Cycle, Project: the legacy repository
 picker), linked sessions (`StatusGlyph` and word, click opens), pull requests
 (Jira only, with refresh), and the description through the Reviews
 `pullRequestDescription` MarkdownUI theme (headings capped below the panel

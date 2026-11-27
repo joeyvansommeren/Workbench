@@ -40,9 +40,8 @@ struct JiraDestinationView: View {
       viewModel: agentHub.jiraSprintViewModel,
       repositories: context.repositories,
       linkedSessions: agentHub.jiraLinkedSessions(),
-      isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
-      isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
       sessionStatus: context.sessionStatus,
+      readStartOptions: actions.ticketSessionOptions,
       onStart: { ticket, provider, repositoryPath in
         await actions.startJiraTicket(ticket, provider: provider, repositoryPath: repositoryPath)
       },
@@ -61,9 +60,8 @@ struct LinearDestinationView: View {
       viewModel: agentHub.linearViewModel,
       repositories: context.repositories,
       linkedSessions: agentHub.linearLinkedSessions(),
-      isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
-      isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
       sessionStatus: context.sessionStatus,
+      readStartOptions: actions.ticketSessionOptions,
       onStart: { issue, provider, repositoryPath in
         await actions.startLinearIssue(issue, provider: provider, repositoryPath: repositoryPath)
       },
@@ -78,12 +76,13 @@ struct JiraSprintDestination: View {
   @Bindable var viewModel: JiraSprintViewModel
   let repositories: [SelectedRepository]
   let linkedSessions: [String: [JiraLinkedSession]]
-  let isClaudeAvailable: Bool
-  let isCodexAvailable: Bool
+
   let sessionStatus: (SessionProviderKind, String) -> SessionStatus?
-  let onStart: (JiraTicketSnapshot, SessionProviderKind, String) async -> Void
+  let readStartOptions: () -> [TicketSessionProviderOption]
+  let onStart: (JiraTicketSnapshot, SessionProviderKind, String) async -> String?
   let onOpenSession: (JiraLinkedSession) -> Void
 
+  @State private var sessionRequest: TicketSessionRequest?
   @State private var isFiltersOpen = false
   @FocusState private var isBoardFocused: Bool
 
@@ -119,6 +118,11 @@ struct JiraSprintDestination: View {
     }
     .sheet(isPresented: isSyncPlanPresented) {
       JiraSyncPlanSheet(viewModel: viewModel)
+    }
+    .sheet(item: $sessionRequest) { request in
+      TicketSessionChooser(
+        request: request, repositories: repositories, repositoryPath: viewModel.repositoryPath,
+        readOptions: readStartOptions, onStarted: { viewModel.repositoryPath = $0 })
     }
     .task {
       if viewModel.state == .idle { await viewModel.load(keepsBoardOnFailure: true) }
@@ -173,7 +177,7 @@ struct JiraSprintDestination: View {
       isFocused: isBoardFocused,
       actions: SprintBoardActions(
         onOpen: open,
-        onStart: { start($0, provider: nil) },
+        onStart: start,
         onOpenSession: { key in
           if let session = SprintBoardItems.sessionToOpen(linkedSessions[key] ?? []) {
             onOpenSession(session)
@@ -195,7 +199,7 @@ struct JiraSprintDestination: View {
     .onKeyPress(.downArrow) { move(.down) }
     .onKeyPress(.leftArrow) { move(.left) }
     .onKeyPress(.rightArrow) { move(.right) }
-    .onKeyPress(.return) { startSelected() }
+    .onKeyPress(.return, phases: .down) { _ in startSelected() }
     .onKeyPress(.escape) {
       guard viewModel.selectedTicketKey != nil else { return .ignored }
       close()
@@ -217,7 +221,7 @@ struct JiraSprintDestination: View {
     guard let ticket = viewModel.sprintTickets.first(where: { $0.key == key }),
       ticket.statusCategory != "done", (linkedSessions[key] ?? []).isEmpty
     else { return .ignored }
-    start(key, provider: nil)
+    start(key)
     return .handled
   }
 
@@ -240,10 +244,8 @@ struct JiraSprintDestination: View {
         repositoryPath: $viewModel.repositoryPath,
         repositories: repositories,
         isStarting: viewModel.startingSessionKeys.contains(ticket.key),
-        isClaudeAvailable: isClaudeAvailable,
-        isCodexAvailable: isCodexAvailable,
         actions: TicketDetailActions(
-          onStart: { provider in start(ticket.key, provider: provider) },
+          onStart: { start(ticket.key) },
           onOpenSession: { id in
             guard let link = links.first(where: { $0.id == id }) else { return }
             MainThreadStallMonitor.breadcrumb("sprint ticket: open session")
@@ -358,23 +360,20 @@ struct JiraSprintDestination: View {
     return .handled
   }
 
-  /// Starts a session, or opens the detail when no project or agent is picked yet.
-  private func start(_ key: String, provider: SessionProviderKind?) {
-    guard
+  private func start(_ key: String) {
+    guard sessionRequest == nil, !viewModel.startingSessionKeys.contains(key),
       let ticket = viewModel.selectedTicket?.key == key
-        ? viewModel.selectedTicket : viewModel.sprintTickets.first(where: { $0.key == key }),
-      let path = viewModel.repositoryPath,
-      let provider = SprintStartProvider.resolve(
-        provider, isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
-    else {
-      open(key)
-      return
-    }
-    guard viewModel.beginStartingSession(for: key) else { return }
-    MainThreadStallMonitor.breadcrumb("sprint ticket: start \(key)")
-    Task {
+        ? viewModel.selectedTicket : viewModel.sprintTickets.first(where: { $0.key == key })
+    else { return }
+    sessionRequest = TicketSessionRequest(
+      id: key, key: ticket.key, title: ticket.summary
+    ) { provider, path in
+      guard viewModel.beginStartingSession(for: key) else {
+        return "A session is already starting for this ticket."
+      }
       defer { viewModel.endStartingSession(for: key) }
-      await onStart(ticket, provider, path)
+      MainThreadStallMonitor.breadcrumb("sprint ticket: start \(ticket.key)")
+      return await onStart(ticket, provider, path)
     }
   }
 

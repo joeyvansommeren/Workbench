@@ -251,37 +251,4 @@ struct TicketDetailPresentationTests {
     #expect(capped.text.hasSuffix("word…"))
     #expect(capped.text.count <= 101)
   }
-
-  // MARK: - Start
-
-  @Test("Start session needs an agent and a project, and is off while starting")
-  func start() {
-    let ready = SprintDetailStart.make(
-      hasProject: true, isStarting: false, isClaudeAvailable: true, isCodexAvailable: false)
-    #expect(ready.isPrimaryEnabled)
-    #expect(ready.title == "Start session")
-    #expect(ready.hint == nil)
-
-    let noProject = SprintDetailStart.make(
-      hasProject: false, isStarting: false, isClaudeAvailable: true, isCodexAvailable: true)
-    #expect(!noProject.isPrimaryEnabled)
-    #expect(noProject.hint == "Choose a project to start a session.")
-
-    let noAgent = SprintDetailStart.make(
-      hasProject: true, isStarting: false, isClaudeAvailable: false, isCodexAvailable: false)
-    #expect(!noAgent.isPrimaryEnabled)
-    #expect(noAgent.hint == "Install Claude Code or Codex to start a session.")
-
-    let starting = SprintDetailStart.make(
-      hasProject: true, isStarting: true, isClaudeAvailable: true, isCodexAvailable: true)
-    #expect(!starting.isPrimaryEnabled)
-    #expect(starting.title == "Starting…")
-
-    #expect(
-      !SprintDetailStart.canStart(
-        .claude, hasProject: true, isStarting: false, isClaudeAvailable: false, isCodexAvailable: true))
-    #expect(
-      SprintDetailStart.canStart(
-        .codex, hasProject: true, isStarting: false, isClaudeAvailable: false, isCodexAvailable: true))
-  }
 }

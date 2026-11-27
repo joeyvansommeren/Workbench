@@ -185,16 +185,4 @@ struct SprintBoardItemsTests {
       footer: .session(providerName: "Codex", presentation: SessionStatusPresentation(status: nil)))
     #expect(!item.canStart)
   }
-
-  @Test("Card Start prefers Claude Code, then Codex")
-  func startProvider() {
-    #expect(SprintStartProvider.preferred(isClaudeAvailable: true, isCodexAvailable: true) == .claude)
-    #expect(SprintStartProvider.preferred(isClaudeAvailable: false, isCodexAvailable: true) == .codex)
-    #expect(SprintStartProvider.preferred(isClaudeAvailable: false, isCodexAvailable: false) == nil)
-    // The detail panel's explicit choice wins.
-    #expect(
-      SprintStartProvider.resolve(.codex, isClaudeAvailable: true, isCodexAvailable: true) == .codex)
-    #expect(
-      SprintStartProvider.resolve(nil, isClaudeAvailable: true, isCodexAvailable: true) == .claude)
-  }
 }

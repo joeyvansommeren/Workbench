@@ -13,11 +13,12 @@ struct LinearBoardView: View {
   @Bindable var viewModel: LinearViewModel
   let repositories: [SelectedRepository]
   let linkedSessions: [String: [LinearLinkedSession]]
-  var isClaudeAvailable: Bool = true
-  var isCodexAvailable: Bool = true
-  let onStart: (LinearIssue, SessionProviderKind, String) async -> Void
+
+  let readStartOptions: () -> [TicketSessionProviderOption]
+  let onStart: (LinearIssue, SessionProviderKind, String) async -> String?
   let onOpenSession: (LinearLinkedSession) -> Void
 
+  @State private var sessionRequest: TicketSessionRequest?
   @FocusState private var isBoardFocused: Bool
 
   var body: some View {
@@ -28,6 +29,11 @@ struct LinearBoardView: View {
     .inspector(isPresented: isDetailPresented) {
       detail
         .inspectorColumnWidth(min: 340, ideal: 420, max: 560)
+    }
+    .sheet(item: $sessionRequest) { request in
+      TicketSessionChooser(
+        request: request, repositories: repositories, repositoryPath: viewModel.repositoryPath,
+        readOptions: readStartOptions, onStarted: { viewModel.repositoryPath = $0 })
     }
     .task {
       if viewModel.loadState == .idle || viewModel.loadState == .noKey {
@@ -101,6 +107,13 @@ struct LinearBoardView: View {
     .focused($isBoardFocused)
     .focusEffectDisabled()
     .onAppear { isBoardFocused = true }
+    .onKeyPress(.return, phases: .down) { _ in
+      guard let issue = viewModel.selectedIssue,
+        issue.state.type != "completed", (linkedSessions[issue.identifier] ?? []).isEmpty
+      else { return .ignored }
+      start(issue)
+      return .handled
+    }
     .onKeyPress(.escape) {
       guard viewModel.selectedIssueID != nil else { return .ignored }
       viewModel.closeIssue()
@@ -125,9 +138,7 @@ struct LinearBoardView: View {
           LinearBoardColumnView(
             column: column,
             selectedIssueID: viewModel.selectedIssueID,
-            canStart: viewModel.repositoryPath != nil,
-            isClaudeAvailable: isClaudeAvailable,
-            isCodexAvailable: isCodexAvailable,
+            startingIssueIDs: viewModel.startingIssueIDs,
             linkedSessions: linkedSessions,
             onOpen: {
               viewModel.openIssue($0.id)
@@ -153,9 +164,8 @@ struct LinearBoardView: View {
         repositoryPath: $viewModel.repositoryPath,
         repositories: repositories,
         linkedSessions: linkedSessions[issue.identifier] ?? [],
-        isClaudeAvailable: isClaudeAvailable,
-        isCodexAvailable: isCodexAvailable,
-        onStart: { provider in start(issue, provider) },
+        isStartingSession: viewModel.startingIssueIDs.contains(issue.id),
+        onStart: { start(issue) },
         onOpenSession: onOpenSession,
         onClose: viewModel.closeIssue
       )
@@ -169,13 +179,18 @@ struct LinearBoardView: View {
     )
   }
 
-  private func start(_ issue: LinearIssue, _ provider: SessionProviderKind) {
-    guard let path = viewModel.repositoryPath else {
-      viewModel.openIssue(issue.id)
-      return
-    }
+  private func start(_ issue: LinearIssue) {
+    guard sessionRequest == nil, !viewModel.startingIssueIDs.contains(issue.id) else { return }
     let detailed = viewModel.selectedIssue?.id == issue.id ? viewModel.selectedIssue ?? issue : issue
-    Task { await onStart(detailed, provider, path) }
+    sessionRequest = TicketSessionRequest(
+      id: detailed.id, key: detailed.identifier, title: detailed.title
+    ) { provider, path in
+      guard viewModel.beginStartingSession(for: detailed.id) else {
+        return "A session is already starting for this ticket."
+      }
+      defer { viewModel.endStartingSession(for: detailed.id) }
+      return await onStart(detailed, provider, path)
+    }
   }
 }
 

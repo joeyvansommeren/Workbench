@@ -18,8 +18,7 @@ import SwiftUI
 
 /// What the detail can do. The host owns every side effect.
 struct TicketDetailActions {
-  /// Nil: the preferred agent (Claude Code when installed, else Codex).
-  var onStart: (SessionProviderKind?) -> Void
+  var onStart: () -> Void
   /// A session row's id (`SprintDetailSessionRow.id`).
   var onOpenSession: (String) -> Void
   /// A column id from `SprintDetailStatus.moveTargets`.
@@ -33,8 +32,7 @@ struct TicketDetailView: View {
   @Binding var repositoryPath: String?
   let repositories: [SelectedRepository]
   let isStarting: Bool
-  let isClaudeAvailable: Bool
-  let isCodexAvailable: Bool
+
   let actions: TicketDetailActions
 
   var body: some View {
@@ -113,12 +111,6 @@ struct TicketDetailView: View {
 
   // MARK: - Start and open
 
-  private var start: SprintDetailStart {
-    SprintDetailStart.make(
-      hasProject: repositoryPath != nil, isStarting: isStarting,
-      isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
-  }
-
   private var startActions: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
       HStack(spacing: DesignTokens.Spacing.sm) {
@@ -139,48 +131,22 @@ struct TicketDetailView: View {
           .accessibilityIdentifier("sprint.detail.openInTracker")
         }
       }
-      if let hint = start.hint {
-        Text(hint)
-          .wbText(.callout)
-          .foregroundStyle(Color.wbTextSecondary)
-      }
     }
   }
 
   private var startButton: some View {
-    let start = start
-    return SplitButton(
-      accessibilityIdentifier: "sprint.detail.start",
-      isPrimaryEnabled: start.isPrimaryEnabled,
-      menuAccessibilityLabel: "Choose agent",
-      primaryAccessibilityLabel: start.isStarting ? "Starting session" : "Start session",
-      action: { actions.onStart(nil) },
-      label: {
-        HStack(spacing: DesignTokens.Spacing.xsPlus) {
-          if start.isStarting {
-            ProgressView()
-              .controlSize(.mini)
-              .frame(width: 12, height: 12)
-          }
-          Text(start.title)
+    Button(action: actions.onStart) {
+      HStack(spacing: DesignTokens.Spacing.xsPlus) {
+        if isStarting {
+          ProgressView().controlSize(.mini)
         }
-      },
-      menu: {
-        agentItem(.claude, title: "Start with Claude Code")
-        agentItem(.codex, title: "Start with Codex")
+        Text(isStarting ? "Starting…" : "Start session")
       }
-    )
-    .disabled(start.isStarting)
+    }
+    .buttonStyle(.wbPrimary)
+    .disabled(isStarting)
     .fixedSize()
-  }
-
-  private func agentItem(_ provider: SessionProviderKind, title: String) -> some View {
-    let isAvailable = provider == .claude ? isClaudeAvailable : isCodexAvailable
-    return Button(isAvailable ? title : "\(title) (not installed)") { actions.onStart(provider) }
-      .disabled(
-        !SprintDetailStart.canStart(
-          provider, hasProject: repositoryPath != nil, isStarting: isStarting,
-          isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable))
+    .accessibilityIdentifier("sprint.detail.start")
   }
 
   // MARK: - Properties

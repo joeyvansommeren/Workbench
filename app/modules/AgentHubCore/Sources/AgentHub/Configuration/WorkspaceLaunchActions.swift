@@ -165,63 +165,82 @@ struct WorkspaceLaunchActions {
 
   // MARK: - Sprint
 
+  private var ticketSessionAdapters: [SessionProviderKind: CLISessionsViewModel] {
+    [.claude: agentHub.claudeSessionsViewModel, .codex: agentHub.codexSessionsViewModel]
+  }
+
+  func ticketSessionOptions() -> [TicketSessionProviderOption] {
+    let adapters = ticketSessionAdapters
+    return TicketSessionProviderOption.resolve(TicketSessionProviderDescriptor.catalog) { id in
+      guard let provider = SessionProviderKind(rawValue: id), let viewModel = adapters[provider] else {
+        return nil
+      }
+      viewModel.refreshCLIAvailability()
+      return (provider, viewModel.isCLIAvailable)
+    }
+  }
+
   func startJiraTicket(
     _ ticket: JiraTicketSnapshot,
     provider: SessionProviderKind,
     repositoryPath: String
-  ) async {
+  ) async -> String? {
     guard let account = agentHub.jiraSprintViewModel.account,
       let issueID = ticket.issueID, !issueID.isEmpty
-    else {
-      agentHub.jiraSprintViewModel.presentLaunchError(
-        "Refresh Jira to load the account and ticket identity, then try again.",
-        ticketKey: ticket.key)
-      return
-    }
+    else { return "Refresh Jira to load the account and ticket identity, then try again." }
     let origin = SessionLaunchOrigin(
       source: .jira, accountID: "\(account.site)/\(account.email)",
       sourceID: issueID, key: ticket.key, title: ticket.summary)
     let prompt = await agentHub.jiraSprintViewModel.launchPrompt(for: ticket)
-    guard account == agentHub.jiraSprintViewModel.account else { return }
-    let viewModel = sessionsViewModel(for: provider)
-    guard
-      Self.startTicketSession(
-        origin: origin, prompt: prompt, repositoryPath: repositoryPath, viewModel: viewModel) != nil
-    else {
-      agentHub.jiraSprintViewModel.presentLaunchError(
-        viewModel.launchError ?? "Could not start the session. Try again.", ticketKey: ticket.key)
-      return
+    guard account == agentHub.jiraSprintViewModel.account else {
+      return "The Jira account changed. Close this chooser and reopen the ticket."
+    }
+    if let error = launchTicket(origin: origin, prompt: prompt, provider: provider, path: repositoryPath) {
+      return error
     }
     showSessions()
     await agentHub.jiraSprintViewModel.markInProgressIfNeeded(ticket.key)
+    return nil
   }
 
   func startLinearIssue(
     _ issue: LinearIssue,
     provider: SessionProviderKind,
     repositoryPath: String
-  ) async {
+  ) async -> String? {
     guard let accountID = agentHub.linearViewModel.viewer?.id else {
-      agentHub.linearViewModel.presentLaunchError(
-        "Refresh Linear to load the account, then try again.")
-      return
+      return "Refresh Linear to load the account, then try again."
     }
     let origin = SessionLaunchOrigin(
       source: .linear, accountID: accountID, sourceID: issue.id,
       key: issue.identifier, title: issue.title)
     let prompt = await agentHub.linearViewModel.launchPrompt(for: issue)
-    guard accountID == agentHub.linearViewModel.viewer?.id else { return }
-    let viewModel = sessionsViewModel(for: provider)
-    guard
-      Self.startTicketSession(
-        origin: origin, prompt: prompt, repositoryPath: repositoryPath, viewModel: viewModel) != nil
-    else {
-      agentHub.linearViewModel.presentLaunchError(
-        viewModel.launchError ?? "Could not start the session. Try again.")
-      return
+    guard accountID == agentHub.linearViewModel.viewer?.id else {
+      return "The Linear account changed. Close this chooser and reopen the ticket."
+    }
+    if let error = launchTicket(origin: origin, prompt: prompt, provider: provider, path: repositoryPath) {
+      return error
     }
     showSessions()
     await agentHub.linearViewModel.markStartedIfNeeded(issue.id)
+    return nil
+  }
+
+  private func launchTicket(
+    origin: SessionLaunchOrigin, prompt: String, provider: SessionProviderKind, path: String
+  ) -> String? {
+    guard let viewModel = ticketSessionAdapters[provider] else {
+      return "This agent cannot start ticket sessions."
+    }
+    let normalizedPath = WorktreeModuleResolver.normalizedDirectoryPath(path)
+    guard mergedRepositories.contains(where: {
+      WorktreeModuleResolver.normalizedDirectoryPath($0.path) == normalizedPath
+    }), TicketSessionChooserModel.directoryExists(normalizedPath)
+    else { return "This repository is no longer available. Choose another repository." }
+    guard Self.startTicketSession(
+      origin: origin, prompt: prompt, repositoryPath: normalizedPath, viewModel: viewModel
+    ) != nil else { return viewModel.launchError ?? "Could not start the session. Try again." }
+    return nil
   }
 
   /// The shared ticket launch boundary: publication only follows a durable origin transaction.
@@ -239,9 +258,11 @@ struct WorkspaceLaunchActions {
     viewModel.addRepository(at: path)
     return pendingID
   }
+}
 
-  // MARK: - Helpers
+// MARK: - Helpers
 
+extension WorkspaceLaunchActions {
   static func reviewRepositoryPath(
     pullRequest: GitHubProjectPullRequest, repositories: [SelectedRepository],
     resolver: any GitHubRepositoryIdentityResolverProtocol
