@@ -201,6 +201,7 @@ struct SessionTreeRowLabel: View {
 
 extension SessionRowModel {
   var reason: String? {
+    if let publicationSuggestion { return publicationSuggestion.title }
     guard let progress else { return action }
     switch progress.action {
     case .answer where node.showsAnswerPill, .permission where node.showsApprovePill:

@@ -19,6 +19,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
   // MARK: - Properties
 
   enum MigrationID {
+    static let addPullRequestPublications = "v26_add_pull_request_publications"
     static let createLinearQueueTransitions = "v25_create_linear_queue_transitions"
     static let addOrchestratorAllocationDisposition = "v24_add_orchestrator_allocation_disposition"
     static let createOrchestratorRuns = "v23_create_orchestrator_runs"
@@ -82,7 +83,8 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     MigrationID.createReviewSources,
     MigrationID.createOrchestratorRuns,
     MigrationID.addOrchestratorAllocationDisposition,
-    MigrationID.createLinearQueueTransitions
+    MigrationID.createLinearQueueTransitions,
+    MigrationID.addPullRequestPublications,
   ]
 
   let dbQueue: DatabaseQueue
@@ -552,6 +554,22 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
         CREATE UNIQUE INDEX linear_queue_transitions_active_issue
         ON linear_queue_transitions (workspaceID, userID, issueID) WHERE active = 1
         """)
+    }
+    migrator.registerMigration(MigrationID.addPullRequestPublications) { database in
+      try database.create(table: "pull_request_publications") { table in
+        table.column("id", .text).notNull().primaryKey()
+        table.column("host", .text).notNull()
+        table.column("owner", .text).notNull()
+        table.column("repository", .text).notNull()
+        table.column("branch", .text).notNull()
+        table.column("baseBranch", .text).notNull()
+        table.column("baseOID", .text).notNull()
+        table.column("head", .text).notNull()
+        table.column("sessionID", .text).notNull()
+        table.column("provider", .text).notNull()
+        table.column("phase", .text).notNull()
+        table.uniqueKey(["host", "owner", "repository", "branch"])
+      }
     }
     return migrator
   }

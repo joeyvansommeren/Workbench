@@ -188,9 +188,12 @@ struct WorkspaceLaunchActions {
     guard let account = agentHub.jiraSprintViewModel.account,
       let issueID = ticket.issueID, !issueID.isEmpty
     else { return "Refresh Jira to load the account and ticket identity, then try again." }
+    let publicationRepository = await agentHub.gitHubRepositoryIdentityResolver.resolveIdentity(
+      at: repositoryPath, expectedHost: "github.com")
     let origin = SessionLaunchOrigin(
       source: .jira, accountID: "\(account.site)/\(account.email)",
-      sourceID: issueID, key: ticket.key, title: ticket.summary)
+      sourceID: issueID, key: ticket.key, title: ticket.summary,
+      publicationRepository: publicationRepository)
     let prompt = await agentHub.jiraSprintViewModel.launchPrompt(for: ticket)
     guard account == agentHub.jiraSprintViewModel.account else {
       return "The Jira account changed. Close this chooser and reopen the ticket."
@@ -211,9 +214,11 @@ struct WorkspaceLaunchActions {
     guard let accountID = agentHub.linearViewModel.viewer?.id else {
       return "Refresh Linear to load the account, then try again."
     }
+    let publicationRepository = await agentHub.gitHubRepositoryIdentityResolver.resolveIdentity(
+      at: repositoryPath, expectedHost: "github.com")
     let origin = SessionLaunchOrigin(
       source: .linear, accountID: accountID, sourceID: issue.id,
-      key: issue.identifier, title: issue.title)
+      key: issue.identifier, title: issue.title, publicationRepository: publicationRepository)
     let prompt = await agentHub.linearViewModel.launchPrompt(for: issue)
     guard accountID == agentHub.linearViewModel.viewer?.id else {
       return "The Linear account changed. Close this chooser and reopen the ticket."

@@ -5,7 +5,6 @@
 //  Created by Assistant on 3/11/26.
 //
 
-import AgentHubGitDiff
 import AgentHubGitHub
 import SwiftUI
 
@@ -17,8 +16,6 @@ struct ResourceLinksPanel<TrailingAccessory: View>: View {
   let providerKind: SessionProviderKind
   var currentPullRequest: GitHubPullRequest? = nil
   var onOpenCurrentPullRequest: ((GitHubPullRequest) -> Void)? = nil
-  var localDiffSummary: LocalDiffSummary? = nil
-  var isCreatingPullRequest: Bool = false
   var onCreatePullRequest: (() -> Void)? = nil
   @ViewBuilder var trailingAccessory: () -> TrailingAccessory
 
@@ -61,14 +58,9 @@ struct ResourceLinksPanel<TrailingAccessory: View>: View {
             pullRequest: currentPullRequest,
             action: { openCurrentPullRequest(currentPullRequest) }
           )
-        } else if let localDiffSummary,
-                  localDiffSummary.fileCount > 0,
-                  let onCreatePullRequest {
-          CreatePullRequestChip(
-            summary: localDiffSummary,
-            isCreating: isCreatingPullRequest,
-            action: onCreatePullRequest
-          )
+        } else if let onCreatePullRequest {
+          Button("Create PR…", action: onCreatePullRequest)
+            .controlSize(.small)
         }
 
         trailingAccessory()
@@ -185,60 +177,6 @@ private struct ResourceLinkChip: View {
     } else {
       return "globe"
     }
-  }
-}
-
-// MARK: - CreatePullRequestChip
-
-private struct CreatePullRequestChip: View {
-  let summary: LocalDiffSummary
-  let isCreating: Bool
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      HStack(spacing: 8) {
-        if isCreating {
-          ProgressView().controlSize(.small)
-        } else {
-          Image(systemName: "arrow.triangle.pull")
-            .font(.caption2)
-            .foregroundStyle(.green)
-        }
-
-        Text("Create PR")
-          .font(.geist(size: 10))
-          .bold()
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-
-        Text("\(formattedCount(summary.fileCount)) files")
-          .font(.geist(size: 10))
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-
-        Text("+\(formattedCount(summary.additions))")
-          .font(.geist(size: 10))
-          .bold()
-          .foregroundStyle(.green)
-          .lineLimit(1)
-
-        Text("-\(formattedCount(summary.deletions))")
-          .font(.geist(size: 10))
-          .bold()
-          .foregroundStyle(.red)
-          .lineLimit(1)
-      }
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .disabled(isCreating)
-    .help(isCreating ? "Creating pull request…" : "Ask the session to create a pull request for \(summary.fileCount) changed files")
-    .accessibilityLabel("Create pull request for \(summary.fileCount) changed files")
-  }
-
-  private func formattedCount(_ value: Int) -> String {
-    value.formatted(.number.grouping(.automatic))
   }
 }
 

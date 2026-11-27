@@ -145,6 +145,14 @@ public final class AgentHubProvider {
   /// Session metadata store for user-provided session names
   let commitChangesService: any CommitChangesServiceProtocol = CommitChangesService()
 
+  private(set) lazy var pullRequestPublication: (any PullRequestPublicationServiceProtocol)? = {
+    guard let metadataStore, let remote = gitHubService as? any GitHubReviewedPublishing else {
+      return nil
+    }
+    return PullRequestPublicationService(remote: remote, store: metadataStore)
+  }()
+
+  private(set) lazy var pullRequestPublicationStatus = PullRequestPublicationStatus(store: metadataStore)
   private(set) lazy var sessionResultLibrary = SessionResultLibrary(store: metadataStore)
   private(set) lazy var sessionAttentionModel = SessionAttentionModel()
   private(set) lazy var sessionReadCursors = SessionReadCursorModel(store: metadataStore)
