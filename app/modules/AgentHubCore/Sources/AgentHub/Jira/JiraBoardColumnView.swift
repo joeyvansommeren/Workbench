@@ -12,14 +12,12 @@ import SwiftUI
 struct JiraBoardColumnView: View {
   let column: JiraSprintViewModel.BoardColumn
   let selectedTicketKey: String?
-  let canStart: Bool
   let startingSessionKeys: Set<String>
-  var isClaudeAvailable: Bool = true
-  var isCodexAvailable: Bool = true
+
   let linkedSessions: [String: [JiraLinkedSession]]
   let onOpen: (JiraTicketSnapshot) -> Void
   let onOpenSession: (JiraLinkedSession) -> Void
-  let onStart: (JiraTicketSnapshot, SessionProviderKind) -> Void
+  let onStart: (JiraTicketSnapshot) -> Void
   let browseURL: (JiraTicketSnapshot) -> URL?
   /// A ticket key dropped on this column: move it to this column's status.
   var onDropTicket: (String) -> Void = { _ in }
@@ -133,12 +131,8 @@ struct JiraBoardColumnView: View {
   private func contextMenu(for ticket: JiraTicketSnapshot) -> some View {
     Button("Open Details") { onOpen(ticket) }
     Divider()
-    Button("Pick Up with Claude") { onStart(ticket, .claude) }
-      .disabled(!canStart || startingSessionKeys.contains(ticket.key) || !isClaudeAvailable)
-      .help(isClaudeAvailable ? "" : SessionProviderKind.claude.notInstalledHelp)
-    Button("Pick Up with Codex") { onStart(ticket, .codex) }
-      .disabled(!canStart || startingSessionKeys.contains(ticket.key) || !isCodexAvailable)
-      .help(isCodexAvailable ? "" : SessionProviderKind.codex.notInstalledHelp)
+    Button("Start Session…") { onStart(ticket) }
+      .disabled(startingSessionKeys.contains(ticket.key))
     Divider()
     if let url = browseURL(ticket) {
       Button("Open in Jira") { NSWorkspace.shared.open(url) }

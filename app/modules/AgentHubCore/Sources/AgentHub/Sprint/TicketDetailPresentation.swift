@@ -85,45 +85,6 @@ struct SprintDetailPullRequests: Equatable {
   let emptyText: String?
 }
 
-/// "Start session": its title, whether the primary half runs, and a short
-/// reason when it cannot.
-struct SprintDetailStart: Equatable {
-  let title: String
-  let isPrimaryEnabled: Bool
-  let isStarting: Bool
-  /// Shown under the button when nothing can start.
-  let hint: String?
-
-  static func make(
-    hasProject: Bool, isStarting: Bool, isClaudeAvailable: Bool, isCodexAvailable: Bool
-  ) -> SprintDetailStart {
-    let hasAgent = isClaudeAvailable || isCodexAvailable
-    let hint: String?
-    if !hasAgent {
-      hint = "Install Claude Code or Codex to start a session."
-    } else if !hasProject {
-      hint = "Choose a project to start a session."
-    } else {
-      hint = nil
-    }
-    return SprintDetailStart(
-      title: isStarting ? "Starting…" : "Start session",
-      isPrimaryEnabled: hasAgent && hasProject && !isStarting,
-      isStarting: isStarting,
-      hint: hint
-    )
-  }
-
-  /// Whether the menu item for one agent runs.
-  static func canStart(
-    _ provider: SessionProviderKind, hasProject: Bool, isStarting: Bool,
-    isClaudeAvailable: Bool, isCodexAvailable: Bool
-  ) -> Bool {
-    let isAvailable = provider == .claude ? isClaudeAvailable : isCodexAvailable
-    return isAvailable && hasProject && !isStarting
-  }
-}
-
 /// Everything the detail panel draws for one ticket.
 struct SprintTicketDetail: Equatable {
   /// What the host selects by: Jira key or Linear issue id.

@@ -22,9 +22,8 @@ struct JiraTicketDetailView: View {
   let isLoadingPullRequests: Bool
   let onRefreshPullRequests: () -> Void
   let isStartingSession: Bool
-  var isClaudeAvailable: Bool = true
-  var isCodexAvailable: Bool = true
-  let onStart: (SessionProviderKind) -> Void
+
+  let onStart: () -> Void
   let onOpenSession: (JiraLinkedSession) -> Void
   let onClose: () -> Void
 
@@ -49,8 +48,6 @@ struct JiraTicketDetailView: View {
             repositoryPath: $repositoryPath,
             repositories: repositories,
             isStartingSession: isStartingSession,
-            isClaudeAvailable: isClaudeAvailable,
-            isCodexAvailable: isCodexAvailable,
             onStart: onStart
           )
           descriptionBlock
@@ -179,27 +176,20 @@ private struct JiraPickUpCard: View {
   @Binding var repositoryPath: String?
   let repositories: [SelectedRepository]
   let isStartingSession: Bool
-  var isClaudeAvailable: Bool = true
-  var isCodexAvailable: Bool = true
-  let onStart: (SessionProviderKind) -> Void
+
+  let onStart: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
       HStack {
-        Text("Pick up with an agent")
+        Text("Agent session")
           .font(.heading)
         Spacer()
         repositoryMenu
       }
-      HStack(spacing: DesignTokens.Spacing.sm) {
-        providerButton(.claude, title: "Claude")
-        providerButton(.codex, title: "Codex")
-      }
-      if repositoryPath == nil {
-        Text("Choose the repository the agent should work in.")
-          .font(.secondarySmall)
-          .foregroundStyle(.secondary)
-      }
+      Button(isStartingSession ? "Starting…" : "Start session", action: onStart)
+        .buttonStyle(.wbPrimary)
+        .disabled(isStartingSession)
     }
     .padding(DesignTokens.Spacing.md)
     .background(
@@ -227,23 +217,6 @@ private struct JiraPickUpCard: View {
     guard let repositoryPath else { return nil }
     return repositories.first { $0.path == repositoryPath }?.name
       ?? URL(fileURLWithPath: repositoryPath).lastPathComponent
-  }
-
-  private func providerButton(_ provider: SessionProviderKind, title: String) -> some View {
-    let available = provider == .claude ? isClaudeAvailable : isCodexAvailable
-    return Button {
-      onStart(provider)
-    } label: {
-      HStack(spacing: 4) {
-        if isStartingSession {
-          ProgressView().controlSize(.small)
-        }
-        Label("Start \(title)", systemImage: "play.fill")
-      }
-    }
-    .buttonStyle(ProviderActionButtonStyle(provider: provider))
-    .disabled(repositoryPath == nil || isStartingSession || !available)
-    .help(available ? "" : provider.notInstalledHelp)
   }
 }
 

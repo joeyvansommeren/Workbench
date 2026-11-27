@@ -136,8 +136,7 @@ public struct AgentHubOperationsView: View {
                     + agentHub.codexSessionsViewModel.selectedRepositories
                 ),
                 linkedSessions: agentHub.jiraLinkedSessions(),
-                isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
-                isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
+                readStartOptions: launchActions(agentHub).ticketSessionOptions,
                 onStart: { ticket, provider, repositoryPath in
                   await launchActions(agentHub).startJiraTicket(
                     ticket,
@@ -162,8 +161,7 @@ public struct AgentHubOperationsView: View {
                   + agentHub.codexSessionsViewModel.selectedRepositories
               ),
               linkedSessions: agentHub.linearLinkedSessions(),
-              isClaudeAvailable: agentHub.claudeSessionsViewModel.isCLIAvailable,
-              isCodexAvailable: agentHub.codexSessionsViewModel.isCLIAvailable,
+              readStartOptions: launchActions(agentHub).ticketSessionOptions,
               onStart: { issue, provider, repositoryPath in
                 await launchActions(agentHub).startLinearIssue(
                   issue,

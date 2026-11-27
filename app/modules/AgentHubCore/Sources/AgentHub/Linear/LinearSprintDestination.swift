@@ -14,12 +14,13 @@ struct LinearSprintDestination: View {
   @Bindable var viewModel: LinearViewModel
   let repositories: [SelectedRepository]
   let linkedSessions: [String: [LinearLinkedSession]]
-  let isClaudeAvailable: Bool
-  let isCodexAvailable: Bool
+
   let sessionStatus: (SessionProviderKind, String) -> SessionStatus?
-  let onStart: (LinearIssue, SessionProviderKind, String) async -> Void
+  let readStartOptions: () -> [TicketSessionProviderOption]
+  let onStart: (LinearIssue, SessionProviderKind, String) async -> String?
   let onOpenSession: (LinearLinkedSession) -> Void
 
+  @State private var sessionRequest: TicketSessionRequest?
   @State private var isFiltersOpen = false
   @FocusState private var isBoardFocused: Bool
 
@@ -53,6 +54,11 @@ struct LinearSprintDestination: View {
       }
     } detail: {
       detail
+    }
+    .sheet(item: $sessionRequest) { request in
+      TicketSessionChooser(
+        request: request, repositories: repositories, repositoryPath: viewModel.repositoryPath,
+        readOptions: readStartOptions, onStarted: { viewModel.repositoryPath = $0 })
     }
     .task {
       if viewModel.loadState == .idle || viewModel.loadState == .noKey {
@@ -99,7 +105,7 @@ struct LinearSprintDestination: View {
       isFocused: isBoardFocused,
       actions: SprintBoardActions(
         onOpen: open,
-        onStart: { start($0, provider: nil) },
+        onStart: start,
         onOpenSession: { id in
           guard let identifier = viewModel.issues.first(where: { $0.id == id })?.identifier else {
             return
@@ -124,7 +130,7 @@ struct LinearSprintDestination: View {
     .onKeyPress(.downArrow) { move(.down) }
     .onKeyPress(.leftArrow) { move(.left) }
     .onKeyPress(.rightArrow) { move(.right) }
-    .onKeyPress(.return) { startSelected() }
+    .onKeyPress(.return, phases: .down) { _ in startSelected() }
     .onKeyPress(.escape) {
       guard viewModel.selectedIssueID != nil else { return .ignored }
       close()
@@ -154,7 +160,7 @@ struct LinearSprintDestination: View {
     guard let issue = viewModel.issues.first(where: { $0.id == id }),
       issue.state.type != "completed", (linkedSessions[issue.identifier] ?? []).isEmpty
     else { return .ignored }
-    start(id, provider: nil)
+    start(id)
     return .handled
   }
 
@@ -188,10 +194,8 @@ struct LinearSprintDestination: View {
         repositoryPath: $viewModel.repositoryPath,
         repositories: repositories,
         isStarting: viewModel.startingIssueIDs.contains(issue.id),
-        isClaudeAvailable: isClaudeAvailable,
-        isCodexAvailable: isCodexAvailable,
         actions: TicketDetailActions(
-          onStart: { provider in start(issue.id, provider: provider) },
+          onStart: { start(issue.id) },
           onOpenSession: { id in
             guard let link = links.first(where: { $0.id == id }) else { return }
             MainThreadStallMonitor.breadcrumb("sprint ticket: open session")
@@ -263,24 +267,20 @@ struct LinearSprintDestination: View {
     MainThreadStallMonitor.breadcrumb("sprint ticket: close")
   }
 
-  /// Starts a session, or opens the detail when no project or agent is picked yet.
-  private func start(_ id: String, provider: SessionProviderKind?) {
-    guard
+  private func start(_ id: String) {
+    guard sessionRequest == nil, !viewModel.startingIssueIDs.contains(id),
       let issue = viewModel.selectedIssue?.id == id
-        ? viewModel.selectedIssue : viewModel.issues.first(where: { $0.id == id }),
-      let path = viewModel.repositoryPath,
-      let provider = SprintStartProvider.resolve(
-        provider, isClaudeAvailable: isClaudeAvailable, isCodexAvailable: isCodexAvailable)
-    else {
-      open(id)
-      return
-    }
-    // A double-click on Start must not launch two sessions.
-    guard viewModel.beginStartingSession(for: id) else { return }
-    MainThreadStallMonitor.breadcrumb("sprint ticket: start \(issue.identifier)")
-    Task {
+        ? viewModel.selectedIssue : viewModel.issues.first(where: { $0.id == id })
+    else { return }
+    sessionRequest = TicketSessionRequest(
+      id: id, key: issue.identifier, title: issue.title
+    ) { provider, path in
+      guard viewModel.beginStartingSession(for: id) else {
+        return "A session is already starting for this ticket."
+      }
       defer { viewModel.endStartingSession(for: id) }
-      await onStart(issue, provider, path)
+      MainThreadStallMonitor.breadcrumb("sprint ticket: start \(issue.identifier)")
+      return await onStart(issue, provider, path)
     }
   }
 }
