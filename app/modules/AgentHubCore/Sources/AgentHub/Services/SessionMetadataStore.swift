@@ -19,6 +19,8 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
   // MARK: - Properties
 
   enum MigrationID {
+    static let addOrchestratorAllocationDisposition = "v24_add_orchestrator_allocation_disposition"
+    static let createOrchestratorRuns = "v23_create_orchestrator_runs"
     static let createReviewSources = "v22_create_review_sources"
     static let createSessionLaunchOrigins = "v21_create_session_launch_origins"
     static let createSessionReadCursors = "v20_create_session_read_cursors"
@@ -77,9 +79,11 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     MigrationID.createSessionReadCursors,
     MigrationID.createSessionLaunchOrigins,
     MigrationID.createReviewSources,
+    MigrationID.createOrchestratorRuns,
+    MigrationID.addOrchestratorAllocationDisposition,
   ]
 
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   // MARK: - Initialization
 
@@ -473,6 +477,64 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
       try db.alter(table: "github_review_sessions") { t in
         t.add(column: "sourceAccountKey", .text)
         t.add(column: "branchName", .text)
+      }
+    }
+    migrator.registerMigration(MigrationID.createOrchestratorRuns) { db in
+      try db.create(table: "orchestrator_runs") { table in
+        table.column("id", .text).notNull().primaryKey()
+        table.column("payload", .blob).notNull()
+      }
+      try db.create(table: "orchestrator_queue_items") { table in
+        table.column("runID", .text).notNull().references("orchestrator_runs")
+        table.column("id", .text).notNull()
+        table.column("payload", .blob).notNull()
+        table.primaryKey(["runID", "id"])
+      }
+      try db.create(table: "orchestrator_claims") { table in
+        table.column("trackerID", .blob).notNull()
+        table.column("accountID", .blob).notNull()
+        table.column("scopeID", .blob).notNull()
+        table.column("issueID", .blob).notNull()
+        table.column("runID", .text).notNull()
+        table.column("itemID", .text).notNull()
+        table.primaryKey(["trackerID", "accountID", "scopeID", "issueID"])
+        table.foreignKey(["runID", "itemID"], references: "orchestrator_queue_items")
+      }
+      try db.create(table: "orchestrator_attempts") { table in
+        table.column("id", .text).notNull().primaryKey()
+        table.column("runID", .text).notNull()
+        table.column("itemID", .text).notNull()
+        table.column("operationID", .text).notNull().unique()
+        table.foreignKey(["runID", "itemID"], references: "orchestrator_queue_items")
+      }
+      try db.create(table: "orchestrator_threads") { table in
+        table.column("id", .text).notNull().primaryKey()
+        table.column("runID", .text).notNull().references("orchestrator_runs").indexed()
+        table.column("itemID", .text)
+        table.column("pendingLaunchID", .text).notNull().unique()
+        table.column("providerID", .blob).notNull()
+        table.column("sessionID", .blob)
+        table.column("payload", .blob).notNull()
+        table.uniqueKey(["providerID", "sessionID"])
+        table.foreignKey(["runID", "itemID"], references: "orchestrator_queue_items")
+      }
+      try db.create(table: "orchestrator_transition_events") { table in
+        table.column("id", .text).notNull().primaryKey()
+        table.column("runID", .text).notNull().references("orchestrator_runs")
+        table.column("payload", .blob).notNull()
+      }
+      try db.create(table: "orchestrator_operations") { table in
+        table.column("id", .text).notNull().primaryKey()
+        table.column("runID", .text).notNull()
+        table.column("itemID", .text).notNull()
+        table.column("request", .blob).notNull()
+        table.column("allocated", .boolean).notNull().defaults(to: false)
+        table.foreignKey(["runID", "itemID"], references: "orchestrator_queue_items")
+      }
+    }
+    migrator.registerMigration(MigrationID.addOrchestratorAllocationDisposition) { database in
+      try database.alter(table: "orchestrator_operations") { table in
+        table.add(column: "rejected", .boolean).notNull().defaults(to: false)
       }
     }
     return migrator

@@ -41,6 +41,7 @@ public protocol AgentWorkflowStoreProtocol: Sendable {
 public actor AgentWorkflowStore: AgentWorkflowStoreProtocol {
   private enum MigrationID {
     static let createWorkflowTables = "v1_create_workflow_tables"
+    static let createAllocationReceipts = "v2_create_workflow_allocation_receipts"
   }
 
   private let dbQueue: DatabaseQueue
@@ -58,12 +59,12 @@ public actor AgentWorkflowStore: AgentWorkflowStoreProtocol {
     dbQueue = try DatabaseQueue(
       path: agentHubDirectory.appendingPathComponent("agent_workflows.sqlite").path
     )
-    try migrator.migrate(dbQueue)
+    try Self.migrator.migrate(dbQueue)
   }
 
   public init(path: String) throws {
     dbQueue = try DatabaseQueue(path: path)
-    try migrator.migrate(dbQueue)
+    try Self.migrator.migrate(dbQueue)
   }
 
   public func createTicketRun(
@@ -292,7 +293,7 @@ public actor AgentWorkflowStore: AgentWorkflowStoreProtocol {
     }
   }
 
-  private nonisolated var migrator: DatabaseMigrator {
+  nonisolated static var migrator: DatabaseMigrator {
     var migrator = DatabaseMigrator()
     migrator.registerMigration(MigrationID.createWorkflowTables) { db in
       try db.execute(
@@ -352,7 +353,168 @@ public actor AgentWorkflowStore: AgentWorkflowStoreProtocol {
           CREATE INDEX idx_workflow_events_ticket ON workflow_events(ticketRunID, createdAt);
           """)
     }
+    migrator.registerMigration(MigrationID.createAllocationReceipts) { db in
+      try db.execute(
+        sql: """
+          CREATE TABLE workflow_allocation_receipts (
+            operationID TEXT PRIMARY KEY NOT NULL,
+            requestIdentity BLOB NOT NULL,
+            ticketRunID TEXT NOT NULL UNIQUE REFERENCES ticket_runs(id),
+            branchRunID TEXT NOT NULL UNIQUE REFERENCES branch_runs(id),
+            ticketCreatedEventID TEXT NOT NULL UNIQUE REFERENCES workflow_events(id),
+            branchCreatedEventID TEXT NOT NULL UNIQUE REFERENCES workflow_events(id),
+            createdAt DOUBLE NOT NULL
+          );
+          """)
+    }
     return migrator
+  }
+}
+
+extension AgentWorkflowStore: WorkflowAllocationStoring {
+  public func ensureWorkflowAllocation(_ request: WorkflowAllocationRequest) async throws
+    -> WorkflowAllocation
+  {
+    let initialTicket = try TicketRun(
+      id: request.ticketRunID, ticketKey: request.ticketKey,
+      coordinatorProvider: request.coordinatorProvider,
+      createdAt: request.createdAt, updatedAt: request.createdAt)
+    let initialBranch = try BranchRun(
+      id: request.branchRunID, ticketRunID: request.ticketRunID,
+      repositoryPath: request.repositoryPath, worktreePath: request.worktreePath,
+      branchName: request.branchName, baseBranch: request.baseBranch,
+      implementerProvider: request.implementerProvider, reviewerProvider: request.reviewerProvider,
+      createdAt: request.createdAt, updatedAt: request.createdAt)
+    let identity = request.identityBytes
+
+    return try await dbQueue.write { db in
+      if let receipt = try WorkflowAllocationRecord.fetchOne(
+        db, key: request.operationID.uuidString)
+      {
+        guard receipt.requestIdentity == identity else {
+          if receipt.referencesRecords(from: request) {
+            throw WorkflowAllocationError.operationConflict(request.operationID)
+          }
+          throw WorkflowAllocationError.operationOwnedByAnotherAllocation(request.operationID)
+        }
+        guard receipt.matches(request) else {
+          throw WorkflowAllocationError.corruptReceipt(request.operationID)
+        }
+        return try Self.readAllocation(
+          request, initialTicket: initialTicket, initialBranch: initialBranch, in: db)
+      }
+
+      for (field, table, id) in [
+        ("ticketRunID", "ticket_runs", request.ticketRunID),
+        ("branchRunID", "branch_runs", request.branchRunID),
+        ("ticketCreatedEventID", "workflow_events", request.ticketCreatedEventID),
+        ("branchCreatedEventID", "workflow_events", request.branchCreatedEventID),
+      ] {
+        if try Bool.fetchOne(
+          db, sql: "SELECT EXISTS(SELECT 1 FROM \(table) WHERE id = ?)",
+          arguments: [id.uuidString]) == true
+        {
+          throw WorkflowAllocationError.identityCollision(field)
+        }
+      }
+
+      try TicketRunRecord(initialTicket).insert(db)
+      try BranchRunRecord(initialBranch).insert(db)
+      try WorkflowEventRecord(
+        WorkflowEvent(
+          id: request.ticketCreatedEventID, ticketRunID: request.ticketRunID,
+          kind: "ticket.created", message: initialTicket.ticketKey, createdAt: request.createdAt)
+      ).insert(db)
+      try WorkflowEventRecord(
+        WorkflowEvent(
+          id: request.branchCreatedEventID, ticketRunID: request.ticketRunID,
+          branchRunID: request.branchRunID, kind: "branch.created",
+          message: request.branchName, createdAt: request.createdAt)
+      ).insert(db)
+      try WorkflowAllocationRecord(request).insert(db)
+      return try Self.readAllocation(
+        request, initialTicket: initialTicket, initialBranch: initialBranch, in: db)
+    }
+  }
+
+  private static func readAllocation(
+    _ request: WorkflowAllocationRequest, initialTicket: TicketRun, initialBranch: BranchRun,
+    in db: Database
+  ) throws -> WorkflowAllocation {
+    guard
+      let ticketRecord = try TicketRunRecord.fetchOne(db, key: request.ticketRunID.uuidString),
+      let branchRecord = try BranchRunRecord.fetchOne(db, key: request.branchRunID.uuidString),
+      let ticketEvent = try WorkflowEventRecord.fetchOne(
+        db, key: request.ticketCreatedEventID.uuidString),
+      let branchEvent = try WorkflowEventRecord.fetchOne(
+        db, key: request.branchCreatedEventID.uuidString)
+    else { throw WorkflowAllocationError.corruptReceipt(request.operationID) }
+
+    let ticket = try ticketRecord.model()
+    let branch = try branchRecord.model()
+    let exactPairs = [
+      (ticket.ticketKey, initialTicket.ticketKey),
+      (branch.repositoryPath, initialBranch.repositoryPath),
+      (branch.worktreePath, initialBranch.worktreePath),
+      (branch.branchName, initialBranch.branchName),
+      (branch.baseBranch, initialBranch.baseBranch),
+    ]
+    guard branch.ticketRunID == ticket.id,
+      exactPairs.allSatisfy({ $0.0.utf8.elementsEqual($0.1.utf8) }),
+      ticket.createdAt.databaseValue == initialTicket.createdAt.databaseValue,
+      branch.createdAt.databaseValue == initialBranch.createdAt.databaseValue,
+      ticketEvent.ticketRunID == request.ticketRunID.uuidString, ticketEvent.branchRunID == nil,
+      ticketEvent.kind == "ticket.created",
+      ticketEvent.message.map({ $0.utf8.elementsEqual(initialTicket.ticketKey.utf8) }) == true,
+      ticketEvent.createdAt.databaseValue == initialTicket.createdAt.databaseValue,
+      branchEvent.ticketRunID == request.ticketRunID.uuidString,
+      branchEvent.branchRunID == request.branchRunID.uuidString,
+      branchEvent.kind == "branch.created",
+      branchEvent.message.map({ $0.utf8.elementsEqual(initialBranch.branchName.utf8) }) == true,
+      branchEvent.createdAt.databaseValue == initialBranch.createdAt.databaseValue
+    else { throw WorkflowAllocationError.corruptReceipt(request.operationID) }
+
+    // Status, assignments, summaries, reviews and approvals remain owned by the live workflow.
+    return WorkflowAllocation(
+      receipt: WorkflowAllocationReceipt(request: request), ticketRun: ticket, branchRun: branch)
+  }
+}
+
+private struct WorkflowAllocationRecord: Codable, FetchableRecord, PersistableRecord {
+  static let databaseTableName = "workflow_allocation_receipts"
+
+  var operationID: String
+  var requestIdentity: Data
+  var ticketRunID: String
+  var branchRunID: String
+  var ticketCreatedEventID: String
+  var branchCreatedEventID: String
+  var createdAt: Double
+
+  init(_ request: WorkflowAllocationRequest) {
+    operationID = request.operationID.uuidString
+    requestIdentity = request.identityBytes
+    ticketRunID = request.ticketRunID.uuidString
+    branchRunID = request.branchRunID.uuidString
+    ticketCreatedEventID = request.ticketCreatedEventID.uuidString
+    branchCreatedEventID = request.branchCreatedEventID.uuidString
+    createdAt = request.createdAt.timeIntervalSinceReferenceDate
+  }
+
+  func matches(_ request: WorkflowAllocationRequest) -> Bool {
+    operationID == request.operationID.uuidString && ticketRunID == request.ticketRunID.uuidString
+      && branchRunID == request.branchRunID.uuidString
+      && ticketCreatedEventID == request.ticketCreatedEventID.uuidString
+      && branchCreatedEventID == request.branchCreatedEventID.uuidString
+      && createdAt == request.createdAt.timeIntervalSinceReferenceDate
+  }
+
+  func referencesRecords(from request: WorkflowAllocationRequest) -> Bool {
+    let eventIDs = [request.ticketCreatedEventID.uuidString, request.branchCreatedEventID.uuidString]
+    return ticketRunID == request.ticketRunID.uuidString
+      || branchRunID == request.branchRunID.uuidString
+      || eventIDs.contains(ticketCreatedEventID)
+      || eventIDs.contains(branchCreatedEventID)
   }
 }
 
