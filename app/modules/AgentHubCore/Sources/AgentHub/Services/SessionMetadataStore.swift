@@ -19,6 +19,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
   // MARK: - Properties
 
   enum MigrationID {
+    static let createLinearQueueTransitions = "v25_create_linear_queue_transitions"
     static let addOrchestratorAllocationDisposition = "v24_add_orchestrator_allocation_disposition"
     static let createOrchestratorRuns = "v23_create_orchestrator_runs"
     static let createReviewSources = "v22_create_review_sources"
@@ -81,6 +82,7 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
     MigrationID.createReviewSources,
     MigrationID.createOrchestratorRuns,
     MigrationID.addOrchestratorAllocationDisposition,
+    MigrationID.createLinearQueueTransitions
   ]
 
   let dbQueue: DatabaseQueue
@@ -536,6 +538,20 @@ public actor SessionMetadataStore: TerminalWorkspaceStoreProtocol, AgentWorkspac
       try database.alter(table: "orchestrator_operations") { table in
         table.add(column: "rejected", .boolean).notNull().defaults(to: false)
       }
+    }
+    migrator.registerMigration(MigrationID.createLinearQueueTransitions) { database in
+      try database.create(table: "linear_queue_transitions") { table in
+        table.column("operationID", .text).notNull().primaryKey()
+        table.column("workspaceID", .blob).notNull()
+        table.column("userID", .blob).notNull()
+        table.column("issueID", .blob).notNull()
+        table.column("payload", .blob).notNull()
+        table.column("active", .boolean).notNull()
+      }
+      try database.execute(sql: """
+        CREATE UNIQUE INDEX linear_queue_transitions_active_issue
+        ON linear_queue_transitions (workspaceID, userID, issueID) WHERE active = 1
+        """)
     }
     return migrator
   }

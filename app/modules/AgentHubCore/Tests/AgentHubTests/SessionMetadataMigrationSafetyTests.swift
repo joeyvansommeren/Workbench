@@ -77,12 +77,15 @@ struct SessionMetadataMigrationSafetyTests {
 
   @Test("Orchestrator migration follows the review sources migration")
   func migrationIsAppended() {
-    #expect(
-      Array(SessionMetadataStore.migrationIdentifiers.suffix(3)) == [
-        SessionMetadataStore.MigrationID.createReviewSources,
-        SessionMetadataStore.MigrationID.createOrchestratorRuns,
-        SessionMetadataStore.MigrationID.addOrchestratorAllocationDisposition,
-      ])
+    let migrations = SessionMetadataStore.migrationIdentifiers
+    guard let review = migrations.firstIndex(of: SessionMetadataStore.MigrationID.createReviewSources)
+    else { Issue.record("Missing review sources migration"); return }
+    #expect(Array(migrations[review...].prefix(4)) == [
+      SessionMetadataStore.MigrationID.createReviewSources,
+      SessionMetadataStore.MigrationID.createOrchestratorRuns,
+      SessionMetadataStore.MigrationID.addOrchestratorAllocationDisposition,
+      SessionMetadataStore.MigrationID.createLinearQueueTransitions
+    ])
   }
 }
 
