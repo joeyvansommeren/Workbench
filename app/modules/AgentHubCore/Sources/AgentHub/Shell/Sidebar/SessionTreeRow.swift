@@ -125,7 +125,7 @@ struct SessionTreeRowLabel: View {
   let model: SessionRowModel
   private var node: SessionNode { model.node }
   private var presentation: SessionStatusPresentation {
-    SessionStatusPresentation(status: node.status, isPending: node.isPending)
+    model.progress?.status ?? SessionStatusPresentation(status: node.status, isPending: node.isPending)
   }
 
   var body: some View {
@@ -133,29 +133,29 @@ struct SessionTreeRowLabel: View {
       StatusGlyph(presentation: presentation)
         .frame(width: DesignTokens.Size.tile, height: DesignTokens.Size.tile)
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
-        HStack(spacing: DesignTokens.Spacing.xs) {
-          Text(model.title).wbText(.body).foregroundStyle(Color.wbTextPrimary)
-            .lineLimit(1).truncationMode(.tail)
-          if model.isUnread {
-            Circle().fill(Color.accentColor).frame(width: 6, height: 6).accessibilityHidden(true)
-          }
-          if model.showProvider {
-            SidebarIcon(glyph: node.providerKind.sidebarGlyph, size: 14)
-              .foregroundStyle(Color.wbTextTertiary)
-          }
-          Spacer(minLength: 0)
-          if let roleLabel = model.roleLabel {
-            Text(roleLabel).wbText(.subheadline).foregroundStyle(Color.wbTextTertiary).lineLimit(1)
-          }
-        }
-        if (model.diff?.fileCount ?? 0) > 0 || model.action != nil {
-          HStack(spacing: DesignTokens.Spacing.sm) {
-            if let diff = model.diff, diff.fileCount > 0 {
-              DiffStat(additions: diff.additions, deletions: diff.deletions)
-                .help("Worktree changes")
+        if let roleLabel = model.roleLabel {
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: DesignTokens.Spacing.xs) {
+              titleLine.fixedSize(horizontal: true, vertical: false)
+              Spacer(minLength: 0)
+              Text(roleLabel).wbText(.subheadline).foregroundStyle(Color.wbTextTertiary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             }
-            if let action = model.action {
-              Text(action).wbText(.subheadline).foregroundStyle(Color.wbTextTertiary).lineLimit(1)
+            titleLine
+          }
+        } else {
+          titleLine
+        }
+        if (model.diff?.fileCount ?? 0) > 0 || model.reason != nil {
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: DesignTokens.Spacing.sm) {
+              statusReason.fixedSize(horizontal: true, vertical: false)
+              diffStats.fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
+              statusReason
+              diffStats
             }
           }
         }
@@ -169,14 +169,54 @@ struct SessionTreeRowLabel: View {
     .accessibilityLabel(model.sidebarAccessibilityLabel)
   }
 
+  private var titleLine: some View {
+    HStack(spacing: DesignTokens.Spacing.xs) {
+      Text(model.title).wbText(.body).foregroundStyle(Color.wbTextPrimary)
+        .lineLimit(1).truncationMode(.tail)
+        .layoutPriority(1)
+      if model.isUnread {
+        Circle().fill(Color.accentColor).frame(width: 6, height: 6).accessibilityHidden(true)
+      }
+      if model.showProvider {
+        SidebarIcon(glyph: node.providerKind.sidebarGlyph, size: 14)
+          .foregroundStyle(Color.wbTextTertiary)
+      }
+    }
+  }
+
+  @ViewBuilder private var statusReason: some View {
+    if let reason = model.reason {
+      Text(reason).wbText(.subheadline).foregroundStyle(Color.wbTextSecondary).lineLimit(1)
+        .help(model.progress?.reason ?? reason)
+    }
+  }
+
+  @ViewBuilder private var diffStats: some View {
+    if let diff = model.diff, diff.fileCount > 0 {
+      DiffStat(additions: diff.additions, deletions: diff.deletions)
+        .help("Worktree changes")
+    }
+  }
 }
 
 extension SessionRowModel {
+  var reason: String? {
+    guard let progress else { return action }
+    switch progress.action {
+    case .answer where node.showsAnswerPill, .permission where node.showsApprovePill:
+      return nil
+    case .answer, .permission, .working, .starting, .checkFailure, .reviewChanges:
+      return progress.status.word
+    case .readResponse, .notRunning, .unavailable:
+      return action ?? progress.status.word
+    }
+  }
+
   var sidebarAccessibilityLabel: String {
-    let status = SessionStatusPresentation(status: node.status, isPending: node.isPending)
+    let status = progress?.status ?? SessionStatusPresentation(status: node.status, isPending: node.isPending)
     return "\(title), \(node.providerKind.agentDisplayName) session, \(status.accessibilityLabel)"
       + (roleLabel.map { ", \($0)" } ?? "")
-      + (action.map { ", \($0)" } ?? "")
+      + (reason.flatMap { $0 == status.word ? nil : ", \($0)" } ?? "")
       + (diff.flatMap {
         $0.fileCount > 0 ? ", Worktree changes: \($0.additions) additions, \($0.deletions) deletions" : nil
       } ?? "")
@@ -239,7 +279,7 @@ private struct SessionApprovePill: View {
     let phase = actions.approvalPhase(for: node)
     let presentation = actions.approvalPresentation(for: node)
     AttentionPill(
-      title: "Review request",
+      title: "Review",
       isBusy: SidebarApprovePillText.isBusy(phase),
       help: SidebarApprovePillText.help(phase, presentation: presentation),
       accessibilityLabel: SidebarApprovePillText.accessibilityLabel(

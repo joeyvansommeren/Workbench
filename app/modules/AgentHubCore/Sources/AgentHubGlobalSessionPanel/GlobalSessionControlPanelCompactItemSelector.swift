@@ -26,7 +26,7 @@ public enum GlobalSessionControlPanelCompactItemSelector {
     }
 
     switch status {
-    case .thinking, .executingTool, .waitingForUser, .awaitingApproval:
+    case .thinking, .executingTool, .waitingForUser, .responseReady, .awaitingApproval:
       return true
     case .idle:
       return false

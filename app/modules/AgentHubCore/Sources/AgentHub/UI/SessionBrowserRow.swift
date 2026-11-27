@@ -106,7 +106,7 @@ struct SessionBrowserRow: View {
         Circle()
           .fill(Color.green)
           .frame(width: 6, height: 6)
-      case .waitingForUser:
+      case .waitingForUser, .responseReady:
         Circle()
           .fill(Color.blue)
           .frame(width: 6, height: 6)

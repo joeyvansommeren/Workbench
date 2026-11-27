@@ -1309,7 +1309,8 @@ public final class AgentWorkflowDashboardViewModel {
   }
 
   private func isReadyForHandoff(_ assignment: DetectedAgentSession) -> Bool {
-    guard status(for: assignment) == .waitingForUser,
+    let status = status(for: assignment)
+    guard status == .responseReady || status == .waitingForUser,
       let message = lastAssistantMessage(for: assignment)?
         .trimmingCharacters(in: .whitespacesAndNewlines),
       !message.isEmpty

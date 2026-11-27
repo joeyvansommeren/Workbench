@@ -14,6 +14,8 @@ import PierreDiffsSwift
 public struct SessionMonitorState: Equatable, Sendable {
   // Activity
   public var status: SessionStatus
+  public var turnProgress: SessionTurnProgress
+  public var isSourceAvailable: Bool
   public var currentTool: String?
   public var lastActivityAt: Date
 
@@ -78,9 +80,13 @@ public struct SessionMonitorState: Equatable, Sendable {
     detectedMCPAppResources: [MCPAppResourceDescriptor] = [],
     detectedMCPAppInvocations: [MCPAppInvocation] = [],
     detectedLocalhostURL: URL? = nil,
-    detectedArtifacts: [ClaudeArtifact] = []
+    detectedArtifacts: [ClaudeArtifact] = [],
+    turnProgress: SessionTurnProgress = .init(),
+    isSourceAvailable: Bool = true
   ) {
     self.status = status
+    self.turnProgress = turnProgress
+    self.isSourceAvailable = isSourceAvailable
     self.currentTool = currentTool
     self.lastActivityAt = lastActivityAt
     self.inputTokens = inputTokens
@@ -164,6 +170,7 @@ public enum SessionStatus: Equatable, Sendable {
   case thinking
   case executingTool(name: String)
   case waitingForUser
+  case responseReady
   case awaitingApproval(tool: String)
   case idle
 
@@ -175,6 +182,8 @@ public enum SessionStatus: Equatable, Sendable {
       return "Tool: \(name)"
     case .waitingForUser:
       return "Waiting for you"
+    case .responseReady:
+      return "Response ready"
     case .awaitingApproval(let tool):
       return SessionInteractiveInputTool.matches(tool)
         ? "Input needed" : "Awaiting approval: \(tool)"
@@ -191,6 +200,8 @@ public enum SessionStatus: Equatable, Sendable {
       return "gearshape"
     case .waitingForUser:
       return "pause.circle"
+    case .responseReady:
+      return "text.bubble"
     case .awaitingApproval(let tool):
       return SessionInteractiveInputTool.matches(tool)
         ? "bubble.left.and.exclamationmark.bubble.right"
@@ -210,6 +221,8 @@ public enum SessionStatus: Equatable, Sendable {
       return "yellow"
     case .awaitingApproval:
       return "yellow"
+    case .responseReady:
+      return "gray"
     case .idle:
       return "gray"
     }

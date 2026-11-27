@@ -66,7 +66,7 @@ public actor CodexSessionFileWatcher {
 
     let source = DispatchSource.makeFileSystemObjectSource(
       fileDescriptor: fileDescriptor,
-      eventMask: [.write, .extend],
+      eventMask: [.write, .extend, .delete, .rename],
       queue: DispatchQueue.global(qos: .utility)
     )
 
@@ -78,7 +78,7 @@ public actor CodexSessionFileWatcher {
     let statusTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
 
     func rescheduleStatusTimer() {
-      guard
+      guard parseResult.isSourceAvailable,
         let nextInterval = SessionWatcherTimerPolicy.nextInterval(
           lastActivity: parseResult.recentActivities.last,
           currentStatus: parseResult.currentStatus,
@@ -95,13 +95,17 @@ public actor CodexSessionFileWatcher {
         deadline: .now() + nextInterval, leeway: SessionWatcherTimerPolicy.timerLeeway)
     }
 
-    source.setEventHandler { [weak self] in
+    source.setEventHandler { [weak self, weak source] in
+      guard let source else { return }
+      let disconnected = !source.data.intersection([.delete, .rename]).isEmpty
       guard let self else { return }
       self.processingQueue.async {
+        guard parseResult.isSourceAvailable else { return }
+        if disconnected { parseResult.isSourceAvailable = false }
         lastFileEventTime = Date()
-        let newLines = self.readNewLines(from: filePath, startingAt: &filePosition)
+        let newLines = disconnected ? [] : self.readNewLines(from: filePath, startingAt: &filePosition)
         lastKnownFileSize = filePosition
-        guard !newLines.isEmpty else {
+        guard disconnected || !newLines.isEmpty else {
           rescheduleStatusTimer()
           return
         }
@@ -140,6 +144,7 @@ public actor CodexSessionFileWatcher {
     statusTimer.setEventHandler { [weak self] in
       guard let self else { return }
       self.processingQueue.async {
+        guard parseResult.isSourceAvailable else { return }
         let timeSinceLastEvent = Date().timeIntervalSince(lastFileEventTime)
         let currentFileSize = self.getFileSize(filePath)
 
@@ -161,10 +166,9 @@ public actor CodexSessionFileWatcher {
           storedInfoNeedsUpdate = true
         }
 
-        let previousStatus = lastEmittedStatus
         CodexSessionJSONLParser.updateCurrentStatus(&parseResult, approvalTimeoutSeconds: timeout)
 
-        if parseResult.currentStatus != lastEmittedStatus {
+        if parseResult.currentStatus != lastEmittedStatus || storedInfoNeedsUpdate {
           lastEmittedStatus = parseResult.currentStatus
           storedInfoNeedsUpdate = true
           let updatedState = self.buildMonitorState(from: parseResult)
@@ -173,9 +177,6 @@ public actor CodexSessionFileWatcher {
             self.stateSubject.send(
               SessionFileWatcher.StateUpdate(sessionId: sessionId, state: updatedState))
           }
-        } else if previousStatus != parseResult.currentStatus {
-          lastEmittedStatus = parseResult.currentStatus
-          storedInfoNeedsUpdate = true
         }
 
         if storedInfoNeedsUpdate {
@@ -291,7 +292,7 @@ public actor CodexSessionFileWatcher {
     -> SessionMonitorState
   {
     return SessionMonitorState(
-      status: result.currentStatus,
+      status: result.isSourceAvailable ? result.currentStatus : .idle,
       currentTool: result.pendingToolUses.first?.value.toolName,
       lastActivityAt: result.lastActivityAt ?? Date(),
       inputTokens: result.lastInputTokens,
@@ -314,7 +315,9 @@ public actor CodexSessionFileWatcher {
       detectedResourceLinks: result.detectedResourceLinks,
       detectedMCPAppResources: result.detectedMCPAppResources,
       detectedMCPAppInvocations: result.detectedMCPAppInvocations,
-      detectedLocalhostURL: result.detectedLocalhostURL
+      detectedLocalhostURL: result.detectedLocalhostURL,
+      turnProgress: result.turnProgress,
+      isSourceAvailable: result.isSourceAvailable
     )
   }
 

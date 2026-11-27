@@ -5409,6 +5409,15 @@ public final class CLISessionsViewModel {
     startPolling(session: session)
   }
 
+  func refreshProgressMonitoring(_ session: CLISession) {
+    if monitoredSessionIds.contains(session.id) {
+      // A detached file descriptor will not follow a replaced transcript.
+      stopPolling(sessionId: session.id)
+      startPolling(session: session)
+    }
+    refresh()
+  }
+
   public func ensureLiveMonitoring(sessionId: String) {
     guard providerKind == .codex else { return }
     guard monitoredSessionIds.contains(sessionId) else { return }

@@ -12,6 +12,8 @@ import SwiftUI
 
 struct SessionHeaderView<ActionsMenu: View>: View {
   let presentation: SessionPresentation
+  let progress: SessionProgressPresentation
+  let onProgressAction: () -> Void
   let contextFraction: Double?
   let availableContentModes: [MonitoringCardContentMode]
   @Binding var contentMode: MonitoringCardContentMode
@@ -47,7 +49,7 @@ struct SessionHeaderView<ActionsMenu: View>: View {
           .foregroundStyle(Color.wbTextPrimary)
           .lineLimit(1)
           .truncationMode(.tail)
-        StatusChip(status: presentation.status, isPending: presentation.isPending)
+        SessionProgressButton(progress: progress, onAction: onProgressAction)
           .fixedSize()
       }
       metaLine

@@ -101,7 +101,7 @@ public struct GlobalSessionControlPanelItem: Identifiable, Equatable, Sendable {
         return .awaitingApproval
       case .thinking, .executingTool:
         return .working
-      case .waitingForUser:
+      case .waitingForUser, .responseReady:
         if gitHubState?.blockers.isEmpty == false { return .gitHubBlocked }
         if gitHubState?.ciStatus == .pending { return .pending }
         return .ready
@@ -339,7 +339,7 @@ public enum GlobalSessionCleanupSuggestionBuilder {
     switch status {
     case .thinking, .executingTool, .awaitingApproval:
       return true
-    case .waitingForUser, .idle:
+    case .waitingForUser, .responseReady, .idle:
       return false
     }
   }

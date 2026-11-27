@@ -94,7 +94,7 @@ enum WorkflowFinishRuntimePolicy {
       guard !session.isPending, !session.isActive, session.processState == .stopped,
         session.workflowID != nil else { return false }
       switch session.status {
-      case nil, .idle?, .waitingForUser?: break
+      case nil, .idle?, .waitingForUser?, .responseReady?: break
       case .thinking?, .executingTool?, .awaitingApproval?: return false
       }
       if session.workflowID == workflowID && !branchNames.contains(session.branchName ?? "") { return false }

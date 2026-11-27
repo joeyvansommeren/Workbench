@@ -43,8 +43,8 @@ struct SessionFileWatcherApprovalModeTests {
     await watcher.stopMonitoring(sessionId: fixture.sessionId)
   }
 
-  @Test("Default mode still surfaces timeout-inferred approval state")
-  func defaultModeSurfacesTimeoutInferredApprovalState() async throws {
+  @Test("An ordinary tool call does not imply permission is needed")
+  func ordinaryToolCallDoesNotImplyPermission() async throws {
     let fixture = try Fixture()
     defer { fixture.teardown() }
 
@@ -65,8 +65,8 @@ struct SessionFileWatcherApprovalModeTests {
     )
 
     let state = await watcher.getState(sessionId: fixture.sessionId)
-    #expect(state?.status == .awaitingApproval(tool: "Edit"))
-    #expect(state?.pendingToolUse?.toolUseId == "tu-default")
+    #expect(state?.status == .executingTool(name: "Edit"))
+    #expect(state?.pendingToolUse == nil)
     await watcher.stopMonitoring(sessionId: fixture.sessionId)
   }
 
@@ -127,6 +127,42 @@ struct SessionFileWatcherApprovalModeTests {
     let state = await watcher.getState(sessionId: fixture.sessionId)
     #expect(state?.status == .idle)
     #expect(state?.pendingToolUse == nil)
+    await watcher.stopMonitoring(sessionId: fixture.sessionId)
+  }
+
+  @Test("Both providers report a replaced transcript as disconnected", arguments: [SessionProviderKind.claude, .codex])
+  func reportsDisconnection(for provider: SessionProviderKind) async throws {
+    let fixture = try Fixture()
+    defer { fixture.teardown() }
+    try fixture.writeSessionFile(lines: [])
+    let watcher: any SessionFileWatcherProtocol
+    switch provider {
+    case .claude: watcher = fixture.makeWatcher()
+    case .codex: watcher = CodexSessionFileWatcher(codexPath: fixture.baseURL.path)
+    }
+
+    let disconnected = TestCallbackReceipt()
+    let observation = watcher.statePublisher
+      .filter { !$0.state.isSourceAvailable }
+      .sink { _ in disconnected.record() }
+    defer { observation.cancel() }
+
+    await watcher.startMonitoring(
+      sessionId: fixture.sessionId, projectPath: fixture.projectPath,
+      sessionFilePath: fixture.sessionFileURL.path)
+    let state = await watcher.getState(sessionId: fixture.sessionId)
+    #expect(state?.isSourceAvailable == true)
+    try FileManager.default.moveItem(at: fixture.sessionFileURL,
+      to: fixture.baseURL.appendingPathComponent("old.jsonl"))
+    try await disconnected.wait()
+
+    await watcher.stopMonitoring(sessionId: fixture.sessionId)
+    try fixture.writeSessionFile(lines: [])
+    await watcher.startMonitoring(
+      sessionId: fixture.sessionId, projectPath: fixture.projectPath,
+      sessionFilePath: fixture.sessionFileURL.path)
+    let reattached = await watcher.getState(sessionId: fixture.sessionId)
+    #expect(reattached?.isSourceAvailable == true)
     await watcher.stopMonitoring(sessionId: fixture.sessionId)
   }
 

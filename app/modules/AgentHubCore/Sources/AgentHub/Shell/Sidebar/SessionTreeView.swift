@@ -291,6 +291,15 @@ struct SessionTreeSnapshot {
               projectPath: node.session.projectPath,
               activity: vm.monitorStates[node.session.id]?.lastActivityAt))
         }
+        model.progress = SessionProgressPresentation(
+          state: vm.monitorStates[node.session.id],
+          pendingSince: node.isPending ? node.session.lastActivityAt : nil,
+          terminalExitedAt: vm.activeTerminals[node.session.id]?.confirmedProcessExitAt,
+          result: agentHub.sessionResultLibrary.records[node.id],
+          projectPath: node.session.projectPath,
+          branch: node.session.branchName,
+          snapshot: agentHub.sessionAttentionModel.snapshots[node.id]
+        )
         return model
       }
     )

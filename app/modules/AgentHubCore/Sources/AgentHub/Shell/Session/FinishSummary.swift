@@ -68,7 +68,7 @@ enum FinishCleanupPolicy {
         reasons.append("A session is working or needs approval.")
       case nil:
         if session.processState != .stopped { reasons.append("A session status is unknown.") }
-      case .idle?, .waitingForUser?: break
+      case .idle?, .waitingForUser?, .responseReady?: break
       }
     }
     if servers.contains(where: \.blocksCleanup) { reasons.append("A server is running or its ownership is unknown.") }

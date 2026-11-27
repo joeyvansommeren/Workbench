@@ -65,6 +65,12 @@ public struct SessionJSONLParser {
     let model: String?
     let content: [ContentBlock]?
     let usage: UsageInfo?
+    let stopReason: String?
+
+    private enum CodingKeys: String, CodingKey {
+      case role, model, content, usage
+      case stopReason = "stop_reason"
+    }
   }
 
   /// Content block (text, tool_use, tool_result, thinking)
@@ -118,6 +124,8 @@ public struct SessionJSONLParser {
     public var lastActivityAt: Date?
     public var sessionStartedAt: Date?
     public var currentStatus: SessionStatus = .idle
+    public var turnProgress = SessionTurnProgress()
+    var isSourceAvailable = true
     public var gitBranch: String?
     public var hasMermaidContent: Bool = false
     public var detectedResourceLinks: [ResourceLink] = []
@@ -233,12 +241,14 @@ public struct SessionJSONLParser {
     // Parse timestamp
     let timestamp = parseTimestamp(entry.timestamp)
 
+    if result.isObsoleteClaudeTurnEnd(entry, at: timestamp) { return }
+
     // Track first/last activity
     if let ts = timestamp {
       if result.sessionStartedAt == nil {
         result.sessionStartedAt = ts
       }
-      result.lastActivityAt = ts
+      result.lastActivityAt = max(result.lastActivityAt ?? ts, ts)
     }
 
     // Process based on type
@@ -254,6 +264,7 @@ public struct SessionJSONLParser {
       // Only add user message activity if there's actual text (not just tool results)
       let textPreview = extractTextPreview(from: entry.message?.content)
       if !textPreview.isEmpty {
+        result.recordClaudeInput(textPreview, at: timestamp)
         addActivity(
           type: .userMessage,
           description: textPreview,
@@ -293,6 +304,7 @@ public struct SessionJSONLParser {
         if !assistantText.isEmpty {
           result.lastAssistantMessage = String(assistantText.suffix(32_000))
         }
+        result.recordClaudeStop(entry.message?.stopReason, at: timestamp, hasResponse: !assistantText.isEmpty)
       }
 
     case "summary":
@@ -486,16 +498,19 @@ public struct SessionJSONLParser {
   ///   - result: The parse result to update
   ///   - approvalTimeoutSeconds: Seconds to wait before considering a tool as awaiting approval (default: 5)
   public static func updateCurrentStatus(
-    _ result: inout ParseResult, approvalTimeoutSeconds: Int = 0
+    _ result: inout ParseResult, approvalTimeoutSeconds: Int = 0, now: Date = .now
   ) {
-    // State machine with timeout-based detection
-    // Based on Kyle Mathews' claude-code-ui approach
+    if result.turnProgress.ended {
+      result.currentStatus = result.turnProgress.phase == .responded ? .responseReady : .idle
+      return
+    }
+
     guard let lastActivity = result.recentActivities.last else {
       result.currentStatus = .idle
       return
     }
 
-    let timeSince = Date().timeIntervalSince(lastActivity.timestamp)
+    let timeSince = now.timeIntervalSince(lastActivity.timestamp)
 
     // Claude's `AskUserQuestion` is an explicit input request. Keep it active
     // until its tool result is written instead of letting it age into idle or
@@ -509,22 +524,14 @@ public struct SessionJSONLParser {
     }
 
     // Global idle timeout: 5 minutes
-    if timeSince > 300 {
+    if !(0...300).contains(timeSince) {
       result.currentStatus = .idle
       return
     }
 
     switch lastActivity.type {
     case .toolUse(let name):
-      // Task tool runs in background, doesn't need approval
-      if name == "Task" {
-        result.currentStatus = .executingTool(name: name)
-      } else if timeSince > Double(approvalTimeoutSeconds) {
-        // After configured seconds without result, probably needs approval
-        result.currentStatus = .awaitingApproval(tool: name)
-      } else {
-        result.currentStatus = .executingTool(name: name)
-      }
+      result.currentStatus = .executingTool(name: name)
 
     case .toolResult:
       // Tool completed - Claude should be processing
@@ -535,8 +542,7 @@ public struct SessionJSONLParser {
       }
 
     case .assistantMessage:
-      // Claude sent text response - waiting for user input
-      result.currentStatus = .waitingForUser
+      result.currentStatus = timeSince < 60 ? .thinking : .idle
 
     case .userMessage:
       // User sent message - Claude should be working
