@@ -8,18 +8,16 @@ import Testing
 
 @Suite("Reviewed pull request publication")
 struct PullRequestPublicationTests {
-  @Test("Both providers prepare the same exact push and GitHub handoff",
+  @Test("Both providers prepare the same exact GitHub handoff",
         arguments: [SessionProviderKind.claude, .codex])
   func preparesReviewedDraftHandoff(provider: SessionProviderKind) async throws {
     let fixture = try PublicationFixture(provider: provider)
     let plan = try await fixture.prepare()
     #expect(plan.files == ["Read Me.md", "Sources/main.swift"])
-    #expect(plan.needsPush)
+    #expect(!plan.needsPush)
     let result = try await fixture.service.publish(plan)
     #expect(result.destination == PublicationFixture.handoff)
-    #expect(fixture.git.pushes == [plan.checkout.head])
     #expect(try await fixture.service.publish(plan).destination == result.destination)
-    #expect(fixture.git.pushes.count == 1)
   }
 
   @MainActor
@@ -41,14 +39,14 @@ struct PullRequestPublicationTests {
     await model.prepare()
     #expect(model.canPublish)
     #expect(model.title == "FIX-1 Review scope")
-    #expect(fixture.git.pushes.isEmpty)
+    let reads = await fixture.remote.refReads
     model.invalidate()
     await model.publish()
     #expect(!model.canPublish)
-    #expect(fixture.git.pushes.isEmpty)
+    #expect(await fixture.remote.refReads == reads)
   }
 
-  @Test("A handoff survives relaunch and cannot issue another push")
+  @Test("A handoff survives relaunch with the same durable identity")
   func uncertainOutcome() async throws {
     let fixture = try PublicationFixture()
     let plan = try await fixture.prepare()
@@ -57,15 +55,16 @@ struct PullRequestPublicationTests {
     let freshService = PullRequestPublicationService(git: fixture.git, remote: fixture.remote, store: reopened)
     #expect(try await freshService.prepare(fixture.context).destination == PublicationFixture.handoff)
     #expect(try await freshService.publish(plan).destination == PublicationFixture.handoff)
-    #expect(fixture.git.pushes.count == 1)
+    let saved = try #require(try await reopened.pullRequestPublication(for: plan.key))
+    #expect(saved.phase == .handedOff)
     fixture.git.failCheckout(with: .dirty)
-    #expect(try await freshService.prepare(fixture.context) == .pending)
+    #expect(try await freshService.prepare(fixture.context) == .pending(saved.id))
     await fixture.remote.setRequest(PublicationFixture.request)
     #expect(try await freshService.prepare(fixture.context) == .existing(PublicationFixture.request))
     #expect(try await reopened.pullRequestPublication(for: plan.key)?.phase == .verified)
   }
 
-  @Test("An unsuccessful remote read after pushing offers a fresh review after restart")
+  @Test("An unsuccessful GitHub read offers a fresh review after restart")
   func unsuccessfulReadCanBePreparedAgain() async throws {
     let fixture = try PublicationFixture()
     let plan = try await fixture.prepare()
@@ -82,22 +81,22 @@ struct PullRequestPublicationTests {
       return
     }
     #expect(!refreshed.needsPush)
-    #expect(fixture.git.pushes.count == 1)
   }
 
-  @Test("A changed handoff needs fresh review and does not push again")
+  @Test("A changed handoff needs fresh review")
   func explicitNewReviewAfterHandoff() async throws {
     let fixture = try PublicationFixture()
     let plan = try await fixture.prepare()
-    _ = try await fixture.service.publish(plan)
+    let handoff = try #require(try await fixture.service.publish(plan).handoff)
     fixture.git.setHead("new-local-head")
-    #expect(try await fixture.service.prepare(fixture.context) == .pending)
-    guard case .review(let refreshed) = try await fixture.service.reviewCurrentCommits(fixture.context) else {
+    #expect(try await fixture.service.prepare(fixture.context) == .pending(handoff.record.id))
+    let result = try await fixture.service.reviewCurrentCommits(fixture.context, expectedID: handoff.record.id)
+    guard case .review(let refreshed) = result else {
       Issue.record("Expected a new review")
       return
     }
     #expect(refreshed.checkout.head == "new-local-head")
-    #expect(fixture.git.pushes == [plan.checkout.head])
+    #expect(refreshed.needsPush)
     #expect(try await fixture.store.pullRequestPublication(for: plan.key) == nil)
   }
 
@@ -128,8 +127,8 @@ struct PullRequestPublicationTests {
     await #expect(throws: PullRequestPublicationError.wrongRepository) {
       try await fixture.service.prepare(fixture.context)
     }
-    #expect(fixture.git.pushes.isEmpty)
     #expect(await fixture.remote.lookedUpRepositories == [PublicationFixture.repository])
+    #expect(await fixture.remote.refReads.isEmpty)
   }
 
   @Test("A manual session requires an independently entered repository before contacting GitHub")
@@ -143,8 +142,8 @@ struct PullRequestPublicationTests {
       try await fixture.service.confirmRepository(context, name: "other/project")
     }
     #expect(await fixture.remote.lookedUpRepositories.isEmpty)
-    #expect(fixture.git.pushes.isEmpty)
-    guard case .review(let plan) = try await fixture.service.confirmRepository(context, name: "owner/project") else {
+    let confirmation = try await fixture.service.confirmRepository(context, name: "owner/project")
+    guard case .review(let plan) = confirmation.preparation else {
       Issue.record("Expected a reviewed manual repository")
       return
     }
@@ -183,7 +182,6 @@ struct PullRequestPublicationTests {
     await #expect(throws: error) {
       try await fixture.service.publish(plan)
     }
-    #expect(fixture.git.pushes.isEmpty)
   }
 
   @Test("Another session for this branch sees the durable handoff")
@@ -195,7 +193,6 @@ struct PullRequestPublicationTests {
       sessionID: "other", provider: .codex, projectPath: fixture.context.projectPath,
       branch: "feature", repository: PublicationFixture.repository)
     #expect(try await fixture.service.prepare(other).destination == PublicationFixture.handoff)
-    #expect(fixture.git.pushes.count == 1)
   }
 
   @Test("Authentication errors keep the action unavailable and preserve the branch")
@@ -205,7 +202,6 @@ struct PullRequestPublicationTests {
     await #expect(throws: PullRequestPublicationError.gitHubUnavailable) {
       try await fixture.service.prepare(fixture.context)
     }
-    #expect(fixture.git.pushes.isEmpty)
   }
 
   @Test("Publication accepts only a single credential-free GitHub.com repository URL")
@@ -313,7 +309,188 @@ struct PullRequestPublicationTests {
 
 }
 
+@Suite("Reviewed publication recovery")
+struct PullRequestPublicationRecoveryTests {
+  @Test("An unpushed head requires a fresh read and approval after the manual push")
+  func manualPushBeforeHandoff() async throws {
+    let fixture = try PublicationFixture()
+    await fixture.remote.setHead(nil)
+    let unpushed = try await fixture.prepare()
+    #expect(unpushed.needsPush)
+    await #expect(throws: PullRequestPublicationError.pushRequired) {
+      try await fixture.service.publish(unpushed)
+    }
+    #expect(try await fixture.store.pullRequestPublication(for: unpushed.key) == nil)
+    await fixture.remote.setHead(unpushed.checkout.head)
+    await #expect(throws: PullRequestPublicationError.staleReview) {
+      try await fixture.service.publish(unpushed)
+    }
+    let reviewed = try await fixture.prepare()
+    #expect(reviewed.refs.head == reviewed.checkout.head)
+    #expect(try await fixture.service.publish(reviewed).destination == PublicationFixture.handoff)
+    let reads = await fixture.remote.refReads
+    #expect(Set(reads) == ["owner/project:main...feature"])
+  }
+
+  @Test("An old approval cannot open a handoff recorded for a new source commit")
+  func staleApprovalCannotUseNewHandoff() async throws {
+    let fixture = try PublicationFixture()
+    let stale = try await fixture.prepare()
+    fixture.git.setHead("new-review")
+    await fixture.remote.setHead("new-review")
+    let reviewed = try await fixture.prepare()
+    #expect(try await fixture.service.publish(reviewed).destination == PublicationFixture.handoff)
+    await #expect(throws: PullRequestPublicationError.staleReview) {
+      try await fixture.service.publish(stale)
+    }
+  }
+
+  @Test("Prior closed PRs for the same branch leave new commits available for review")
+  func oldClosedRequestsDoNotBlockReview() async throws {
+    let fixture = try PublicationFixture()
+    await fixture.remote.setRequests([PublicationFixture.closed(number: 2, head: "old-commit")])
+    let plan = try await fixture.prepare()
+    #expect(plan.checkout.head == "reviewed")
+    #expect(try await fixture.service.publish(plan).destination == PublicationFixture.handoff)
+  }
+
+  @Test("Recovery prefers an exact ref match over an unrelated open PR", arguments: [true, false])
+  func verifiesExactHistory(isOpen: Bool) async throws {
+    let fixture = try PublicationFixture()
+    let plan = try await fixture.prepare()
+    _ = try await fixture.service.publish(plan)
+    let exact = isOpen ? PublicationFixture.request : PublicationFixture.closed(number: 4, head: plan.checkout.head)
+    let unrelated = GitHubPublishedPullRequest(
+      number: 7, url: URL(string: "https://github.com/owner/project/pull/7")!,
+      head: plan.checkout.head, branch: "feature", base: "different-base", baseOID: "different-base-commit")
+    let history = PublicationFixture.closed(number: 6, head: "newer-history")
+    await fixture.remote.setRequests([unrelated, history, exact])
+    #expect(try await fixture.service.prepare(fixture.context) == .existing(exact))
+    #expect(try await fixture.store.pullRequestPublication(for: plan.key)?.phase == .verified)
+  }
+
+  @Test("An open PR blocks a reused branch until closed, even when its head moved after verification")
+  func retiresPriorVerifiedHandoff() async throws {
+    let fixture = try PublicationFixture()
+    let prior = try await fixture.prepare()
+    _ = try await fixture.service.publish(prior)
+    await fixture.remote.setRequest(PublicationFixture.request)
+    #expect(try await fixture.service.prepare(fixture.context) == .existing(PublicationFixture.request))
+    let journal = try #require(try await fixture.store.pullRequestPublication(for: prior.key))
+    #expect(journal.phase == .verified)
+    fixture.git.setHead("new-review")
+    await fixture.remote.setHead("new-review")
+    #expect(try await fixture.service.prepare(fixture.context) == .existing(PublicationFixture.request))
+    await fixture.remote.setRequest(PublicationFixture.closed(number: 4, head: "changed-before-close"))
+    let current = try await fixture.prepare()
+    #expect(current.checkout.head == "new-review")
+    #expect(try await fixture.store.pullRequestPublication(for: prior.key) == nil)
+    _ = try await fixture.service.publish(current)
+    #expect(try await fixture.store.pullRequestPublication(for: prior.key)?.phase == .handedOff)
+    #expect(try await fixture.store.retireVerifiedPullRequestPublication(id: journal.id) == false)
+  }
+
+  @Test("The old local head can be reviewed after the verified PR closes on a later commit")
+  func retiresVerifiedWithSameLocalHead() async throws {
+    let fixture = try PublicationFixture()
+    let plan = try await fixture.prepare()
+    _ = try await fixture.service.publish(plan)
+    await fixture.remote.setRequest(PublicationFixture.request)
+    _ = try await fixture.service.prepare(fixture.context)
+    await fixture.remote.setRequest(PublicationFixture.closed(number: 4, head: "changed-before-close"))
+    await fixture.remote.setHead("changed-before-close")
+    let refreshed = try await fixture.prepare()
+    #expect(refreshed.checkout.head == plan.checkout.head)
+    #expect(refreshed.needsPush)
+    #expect(try await fixture.store.pullRequestPublication(for: plan.key) == nil)
+  }
+
+  @MainActor
+  @Test("A legacy session can confirm and reopen a handoff from another session on the same branch",
+        arguments: [true, false])
+  func legacySessionReopensSharedHandoff(refsAlreadyMatch: Bool) async throws {
+    let fixture = try PublicationFixture()
+    let prepared = try await fixture.prepare()
+    let original = try #require(try await fixture.service.publish(prepared).handoff)
+    let session = CLISession(id: "legacy", projectPath: fixture.context.projectPath, branchName: fixture.context.branch)
+    let model = CreatePullRequestAction(
+      session: session, provider: .codex, title: "Legacy fixture", origin: nil, service: fixture.service,
+      observation: nil, target: .currentBranch(projectPath: session.projectPath, branchName: session.branchName))
+    if !refsAlreadyMatch { await fixture.remote.setHead("remote-moved") }
+    await model.prepare()
+    #expect(model.phase == .confirmingRepository(PublicationFixture.repository))
+    model.repositoryName = "owner/project"
+    await model.confirmRepository()
+    #expect(model.context.repository == PublicationFixture.repository)
+    if !refsAlreadyMatch {
+      #expect(model.phase == .pending(original.record.id))
+      await fixture.remote.setHead(prepared.checkout.head)
+      await model.check()
+    }
+    #expect(await model.reopenHandoff() == original.destination)
+  }
+
+  @Test("A handoff must revalidate the GitHub commits before reopening")
+  func reopenedHandoffChecksRefs() async throws {
+    let fixture = try PublicationFixture()
+    let plan = try await fixture.prepare()
+    let handoff = try #require(try await fixture.service.publish(plan).handoff)
+    let id = handoff.record.id
+    #expect(try await fixture.service.reopenHandoff(fixture.context, expectedID: id).destination == handoff.destination)
+    await fixture.remote.setHead("remote-moved")
+    #expect(try await fixture.service.reopenHandoff(fixture.context, expectedID: id) == .pending(id))
+    #expect(try await fixture.store.pullRequestPublication(for: plan.key)?.id == id)
+  }
+
+  @Test("A stale sheet cannot reopen or discard a replacement handoff")
+  func staleSheetPreservesNewHandoff() async throws {
+    let fixture = try PublicationFixture()
+    let firstPlan = try await fixture.prepare()
+    let first = try #require(try await fixture.service.publish(firstPlan).handoff)
+    fixture.git.setHead("new-head")
+    await fixture.remote.setHead("new-head")
+    let result = try await fixture.service.reviewCurrentCommits(fixture.context, expectedID: first.record.id)
+    guard case .review(let secondPlan) = result else {
+      Issue.record("Expected to review the new commit")
+      return
+    }
+    let second = try #require(try await fixture.service.publish(secondPlan).handoff)
+    await #expect(throws: PullRequestPublicationError.staleReview) {
+      try await fixture.service.reviewCurrentCommits(fixture.context, expectedID: first.record.id)
+    }
+    await #expect(throws: PullRequestPublicationError.staleReview) {
+      try await fixture.service.reopenHandoff(fixture.context, expectedID: first.record.id)
+    }
+    #expect(try await fixture.store.pullRequestPublication(for: firstPlan.key) == second.record)
+  }
+
+  @Test("Reopening verifies the journal again after a suspended GitHub ref read")
+  func reopensOnlyTheSameRecordAfterAwait() async throws {
+    let fixture = try PublicationFixture()
+    let plan = try await fixture.prepare()
+    let first = try #require(try await fixture.service.publish(plan).handoff)
+    let old = first.record
+    let replacement = PullRequestPublicationRecord(
+      id: UUID(), key: old.key, base: old.base, baseOID: old.baseOID, head: old.head,
+      sessionID: old.sessionID, provider: old.provider, phase: .handedOff)
+    let store = fixture.store
+    await fixture.remote.onNextRefsRead {
+      #expect(try await store.advancePullRequestPublication(id: old.id, from: .handedOff, to: .preparing))
+      try await store.abandonPullRequestPreparation(id: old.id)
+      #expect(try await store.beginPullRequestPublication(replacement))
+    }
+    #expect(try await fixture.service.reopenHandoff(fixture.context, expectedID: old.id) == .pending(nil))
+    #expect(try await fixture.store.pullRequestPublication(for: plan.key) == replacement)
+  }
+
+}
+
 private extension PullRequestPreparation {
+  var handoff: PullRequestHandoff? {
+    if case .handoff(let handoff) = self { return handoff }
+    return nil
+  }
+
   var destination: URL? {
     if case .handoff(let handoff) = self { return handoff.destination }
     return nil
@@ -331,6 +508,11 @@ private struct PublicationFixture {
   static let request = GitHubPublishedPullRequest(
     number: 4, url: URL(string: "https://github.com/owner/project/pull/4")!,
     head: "reviewed", branch: "feature", base: "main", baseOID: "base-commit")
+  static func closed(number: Int, head: String) -> GitHubPublishedPullRequest {
+    .init(number: number, url: URL(string: "https://github.com/owner/project/pull/\(number)")!,
+          head: head, branch: "feature", base: "main", baseOID: "base-commit", isOpen: false)
+  }
+
   let git = PublicationGitFixture()
   let remote = PublicationRemoteFixture()
   let context: PullRequestContext
@@ -365,11 +547,8 @@ private final class PublicationTemporaryDirectory {
 private final class PublicationGitFixture: PullRequestPublicationGit, @unchecked Sendable {
   private let lock = NSLock()
   private var localHead = "reviewed"
-  private var remoteHead: String?
   private var remote = PublicationFixture.repository
   private var error: PullRequestPublicationError?
-  private var pushed: [String] = []
-  var pushes: [String] { lock.withLock { pushed } }
 
   func setRemote(_ value: GitHubRepositoryIdentity) { lock.withLock { remote = value } }
   func setHead(_ value: String) { lock.withLock { localHead = value } }
@@ -382,48 +561,133 @@ private final class PublicationGitFixture: PullRequestPublicationGit, @unchecked
   func checkout(_ context: PullRequestContext) throws -> PullRequestCheckout {
     try lock.withLock {
       if let error { throw error }
-      return .init(root: context.projectPath, remote: remote,
-                   pushURL: "git@github.com:owner/project.git", branch: "feature", head: localHead)
+      return .init(root: context.projectPath, remote: remote, branch: "feature", head: localHead)
     }
-  }
-  func remoteRefs(_ checkout: PullRequestCheckout, base: String) -> PullRequestRefs {
-    lock.withLock { .init(base: "base-commit", head: remoteHead) }
   }
   func files(_ checkout: PullRequestCheckout, base: String) -> [String] {
     ["Read Me.md", "Sources/main.swift"]
   }
-  func push(_ checkout: PullRequestCheckout) {
-    lock.withLock {
-      remoteHead = checkout.head
-      pushed.append(checkout.head)
-    }
-  }
+
 }
 
 private actor PublicationRemoteFixture: GitHubReviewedPublishing {
-  private var request: GitHubPublishedPullRequest?
+  private var requests: [GitHubPublishedPullRequest] = []
+  private var head: String? = "reviewed"
+  private var baseHead = "base-commit"
   private var authenticated = true
   private var allowedLookups: Int?
+  private var refReadHook: (@Sendable () async throws -> Void)?
   private(set) var lookedUpRepositories: [GitHubRepositoryIdentity] = []
+  private(set) var refReads: [String] = []
   func failLookup(after count: Int?) { allowedLookups = count }
   func setAuthenticated(_ value: Bool) { authenticated = value }
-  func setRequest(_ value: GitHubPublishedPullRequest) { request = value }
+  func setRequest(_ value: GitHubPublishedPullRequest) { requests = [value] }
+  func setRequests(_ values: [GitHubPublishedPullRequest]) { requests = values }
+  func setHead(_ value: String?) { head = value }
+  func setBase(_ value: String) { baseHead = value }
+  func onNextRefsRead(_ hook: @escaping @Sendable () async throws -> Void) { refReadHook = hook }
 
   func publicationBase(in repository: GitHubRepositoryIdentity) throws -> String {
     if !authenticated { throw GitHubCLIError.notAuthenticated }
     return "main"
   }
 
-  func publicationPullRequest(
+  func publicationRefs(
+    in repository: GitHubRepositoryIdentity, base: String, branch: String
+  ) async throws -> GitHubPublicationRefs {
+    if !authenticated { throw GitHubCLIError.notAuthenticated }
+    refReads.append("\(repository.owner)/\(repository.repository):\(base)...\(branch)")
+    let hook = refReadHook
+    refReadHook = nil
+    try await hook?()
+    return .init(base: baseHead, head: head)
+  }
+
+  func publicationPullRequests(
     in repository: GitHubRepositoryIdentity, branch: String
-  ) throws -> GitHubPublishedPullRequest? {
+  ) throws -> [GitHubPublishedPullRequest] {
     if !authenticated { throw GitHubCLIError.notAuthenticated }
     if let allowedLookups {
       guard allowedLookups > 0 else { throw GitHubCLIError.timeout }
       self.allowedLookups = allowedLookups - 1
     }
     lookedUpRepositories.append(repository)
-    return request
+    return requests
+  }
+}
+
+@Suite("Reviewed publication Git transport")
+struct PullRequestGitRewriteTests {
+  @Test("Chained fetch and push URL rewrites cannot redirect the pinned GitHub reads",
+        arguments: ["insteadOf", "pushInsteadOf"])
+  func transportUsesRepositoryAPI(spelling: String) async throws {
+    let directory = try PublicationTemporaryDirectory()
+    let path = directory.url.path
+    let fixtureGit = RecordingPublicationGitRunner()
+    func git(_ arguments: [String]) throws -> String {
+      let result = try fixtureGit.run(at: path, arguments: arguments, environment: [:], input: nil)
+      try #require(result.status == 0)
+      return String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+    _ = try git(["init", "--quiet", "--initial-branch=feature"])
+    let author = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
+    _ = try git(author + ["commit", "--quiet", "--allow-empty", "-m", "Base"])
+    let base = try git(["rev-parse", "HEAD"])
+    try Data("reviewed change".utf8).write(to: directory.url.appendingPathComponent("Change.txt"))
+    _ = try git(["add", "--", "Change.txt"])
+    _ = try git(author + ["commit", "--quiet", "-m", "Source"])
+    let source = try git(["rev-parse", "HEAD"])
+    _ = try git(["remote", "add", "origin", "synthetic:owner/project"])
+    _ = try git(["config", "--add", "url.https://github.com/.insteadOf", "synthetic:"])
+    _ = try git(["config", "--add", "url.https://example.invalid/.\(spelling)", "https://github.com/"])
+    let first = try git(["remote", "get-url", "--push", "origin"])
+    #expect(first == "https://github.com/owner/project")
+    _ = try git(["remote", "add", "probe", first])
+    #expect(try git(["remote", "get-url", "--push", "probe"]) == "https://example.invalid/owner/project")
+    if spelling == "insteadOf" {
+      #expect(try git(["ls-remote", "--get-url", "--", first]) == "https://example.invalid/owner/project")
+    }
+
+    let count = fixtureGit.commands.count
+    let remote = PublicationRemoteFixture()
+    await remote.setBase(base)
+    await remote.setHead(source)
+    let store = try SessionMetadataStore(databaseQueue: DatabaseQueue())
+    let service = PullRequestPublicationService(git: ReviewedPullRequestGit(runner: fixtureGit), remote: remote, store: store)
+    let context = PullRequestContext(
+      sessionID: "fixture", provider: .codex, projectPath: path, branch: "feature",
+      repository: PublicationFixture.repository)
+    guard case .review(let plan) = try await service.prepare(context) else {
+      Issue.record("Expected a review for the independently confirmed repository")
+      return
+    }
+    #expect(plan.files == ["Change.txt"])
+    #expect(try await service.publish(plan).destination == PublicationFixture.handoff)
+    let appCommands = fixtureGit.commands.dropFirst(count)
+    #expect(appCommands.allSatisfy { !$0.contains("push") && !$0.contains("ls-remote") })
+    #expect(appCommands.contains { $0.first == "diff" && $0.contains("--ignore-submodules=none") })
+    let appEnvironment = fixtureGit.environments.dropFirst(count)
+    #expect(appEnvironment.allSatisfy {
+      $0["GIT_ALLOW_PROTOCOL"] == "" && $0["GIT_NO_LAZY_FETCH"] == "1" && $0["GIT_NO_REPLACE_OBJECTS"] == "1"
+    })
+    #expect(Set(await remote.refReads) == ["owner/project:main...feature"])
+  }
+}
+
+private final class RecordingPublicationGitRunner: CommitGitRunning, @unchecked Sendable {
+  private let lock = NSLock()
+  private let underlying = CommitGitRunner()
+  private var recorded: [(arguments: [String], environment: [String: String])] = []
+
+  var commands: [[String]] { lock.withLock { recorded.map(\.arguments) } }
+  var environments: [[String: String]] { lock.withLock { recorded.map(\.environment) } }
+
+  func run(at path: String, arguments: [String], environment: [String: String], input: Data?) throws -> CommitGitOutput {
+    lock.withLock { recorded.append((arguments, environment)) }
+    var isolated = environment
+    isolated["GIT_CONFIG_GLOBAL"] = "/dev/null"
+    isolated["GIT_CONFIG_NOSYSTEM"] = "1"
+    return try underlying.run(at: path, arguments: arguments, environment: isolated, input: input)
   }
 }
 
@@ -445,7 +709,12 @@ private struct JournalTransitionFixture: PullRequestPublicationStoring {
     if to == .handedOff { git.setHead("changed-after-reservation") }
     return updated
   }
-  func abandonPullRequestPush(id: UUID) async throws {
-    try await store.abandonPullRequestPush(id: id)
+  func abandonPullRequestPreparation(id: UUID) async throws {
+    try await store.abandonPullRequestPreparation(id: id)
   }
+
+  func retireVerifiedPullRequestPublication(id: UUID) async throws -> Bool {
+    try await store.retireVerifiedPullRequestPublication(id: id)
+  }
+
 }

@@ -49,7 +49,7 @@ struct PullRequestPublicationNativeTests {
         host.cacheDisplay(in: rect, to: image)
         let output = try #require(image.representation(using: .png, properties: [:]))
         let appearance = scheme == .light ? "light" : "dark"
-        try output.write(to: URL(fileURLWithPath: "/private/tmp/tes321-v25-header-\(Int(width))-\(appearance).png"))
+        try output.write(to: URL(fileURLWithPath: "/private/tmp/tes321-pinned-header-\(Int(width))-\(appearance).png"))
         #expect(image.pixelsWide >= Int(width))
       }
     }
@@ -94,7 +94,7 @@ struct PullRequestPublicationNativeTests {
       host.cacheDisplay(in: host.bounds, to: image)
       let output = try #require(image.representation(using: .png, properties: [:]))
       let appearance = scheme == .light ? "light" : "dark"
-      try output.write(to: URL(fileURLWithPath: "/private/tmp/tes321-v25-review-\(appearance).png"))
+      try output.write(to: URL(fileURLWithPath: "/private/tmp/tes321-pinned-review-\(appearance).png"))
       #expect(image.pixelsWide >= Int(frame.width))
     }
   }
@@ -106,20 +106,26 @@ private struct ReviewFixtureService: PullRequestPublicationServiceProtocol {
   func prepare(_ context: PullRequestContext) async throws -> PullRequestPreparation {
     let repository = GitHubRepositoryIdentity(owner: "fixture", repository: "workbench")
     let checkout = PullRequestCheckout(
-      root: context.projectPath, remote: repository, pushURL: "git@github.com:fixture/workbench.git",
+      root: context.projectPath, remote: repository,
       branch: "codex/fixture-publication", head: String(repeating: "a", count: 40))
-    let refs = PullRequestRefs(base: String(repeating: "b", count: 40), head: nil)
+    let refs = GitHubPublicationRefs(base: String(repeating: "b", count: 40), head: checkout.head)
     return .review(.init(context: context, checkout: checkout, baseBranch: "main", refs: refs,
                          files: ["Sources/Reviewed change.swift", "Tests/Cases with long folder names/Approval.swift"]))
   }
 
-  func confirmRepository(_ context: PullRequestContext, name: String) async throws -> PullRequestPreparation {
-    try await prepare(context)
+  func confirmRepository(_ context: PullRequestContext, name: String) async throws
+    -> (context: PullRequestContext, preparation: PullRequestPreparation)
+  {
+    (context, try await prepare(context))
   }
 
-  func publish(_ plan: PullRequestPublicationPlan) async throws -> PullRequestPreparation { .pending }
+  func publish(_ plan: PullRequestPublicationPlan) async throws -> PullRequestPreparation { .pending(nil) }
 
-  func reviewCurrentCommits(_ context: PullRequestContext) async throws -> PullRequestPreparation {
+  func reopenHandoff(_ context: PullRequestContext, expectedID: UUID) async throws -> PullRequestPreparation {
+    .pending(expectedID)
+  }
+
+  func reviewCurrentCommits(_ context: PullRequestContext, expectedID: UUID) async throws -> PullRequestPreparation {
     try await prepare(context)
   }
 }

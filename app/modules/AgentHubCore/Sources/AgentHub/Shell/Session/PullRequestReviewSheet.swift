@@ -44,8 +44,12 @@ struct PullRequestReviewSheet: View {
   private func scope(_ plan: PullRequestPublicationPlan) -> some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
       repositoryScope(plan.key, source: plan.checkout.head, base: plan.baseBranch, baseOID: plan.refs.base)
-      Text(plan.needsPush ? "Workbench will push the reviewed commit before opening GitHub."
-                         : "The reviewed commit is already on GitHub.")
+      if plan.needsPush {
+        LabeledContent("GitHub source", value: plan.refs.head ?? "Branch not published")
+        Text("Push the reviewed source commit to the shown GitHub branch, then check again.")
+      } else {
+        Text("The reviewed source commit is on GitHub.")
+      }
       Text("Check both branches on GitHub before creating the draft. You can copy this suggested title and description.")
       Text("GitHub reports pull request checks in the session after you create the draft.")
         .foregroundStyle(Color.wbTextSecondary)
@@ -87,7 +91,7 @@ struct PullRequestReviewSheet: View {
     case .preparing, .checking:
       ProgressView("Checking the branch on GitHub…")
     case .publishing:
-      ProgressView("Publishing the reviewed commit…")
+      ProgressView("Checking the reviewed commits…")
     case .pending:
       Text("GitHub has not confirmed a pull request for the reviewed commits.")
         .accessibilityFocused($statusFocused)
@@ -95,7 +99,11 @@ struct PullRequestReviewSheet: View {
       let record = handoff.record
       repositoryScope(record.key, source: record.head, base: record.base, baseOID: record.baseOID)
       Text("Create the draft on GitHub when the branch and changes match your review.")
-      Link("Open GitHub compare page", destination: handoff.destination)
+      Button("Open GitHub compare page") {
+        Task {
+          if let verified = await model.reopenHandoff() { openURL(verified) }
+        }
+      }
     case .mismatched(let request, let record):
       Text("GitHub found a pull request with different commits.")
         .accessibilityFocused($statusFocused)
@@ -177,7 +185,10 @@ struct PullRequestReviewSheet: View {
       Spacer()
       Button(model.phase == .reviewing ? "Cancel" : "Close", role: .cancel) { dismiss() }
         .disabled(model.phase == .publishing)
-      if model.canPublish || model.phase == .reviewing || model.phase == .publishing {
+      if model.phase == .reviewing, model.plan?.needsPush == true {
+        Button("Check GitHub") { Task { await model.check() } }
+          .buttonStyle(WBPrimaryButtonStyle())
+      } else if model.canPublish || model.phase == .reviewing || model.phase == .publishing {
         Button(model.phase == .publishing ? "Checking the branch…" : "Continue on GitHub") {
           Task {
             await model.publish()
@@ -199,7 +210,7 @@ struct PullRequestReviewSheet: View {
       } else if model.phase == .failed {
         Button("Review again") { Task { await model.check() } }
       } else if showsCheckButton {
-        if model.phase == .pending {
+        if model.canReviewCurrentCommits {
           Button("Review current commits") { Task { await model.reviewCurrentCommits() } }
         }
         Button("Check GitHub") { Task { await model.check() } }

@@ -64,13 +64,23 @@ extension SessionMetadataStore: PullRequestPublicationStoring {
     }
   }
 
-  func abandonPullRequestPush(id: UUID) async throws {
+  func abandonPullRequestPreparation(id: UUID) async throws {
     try await dbQueue.write { db in
       try db.execute(
         sql: "DELETE FROM pull_request_publications WHERE id = ? AND phase = 'pushing'",
         arguments: [id.uuidString])
     }
   }
+
+  func retireVerifiedPullRequestPublication(id: UUID) async throws -> Bool {
+    try await dbQueue.write { db in
+      try db.execute(
+        sql: "DELETE FROM pull_request_publications WHERE id = ? AND phase = 'verified'",
+        arguments: [id.uuidString])
+      return db.changesCount == 1
+    }
+  }
+
 }
 
 @MainActor

@@ -54,14 +54,12 @@ enum SessionPublicationSuggestion: Equatable {
         == WorktreeModuleResolver.normalizedDirectoryPath(projectPath),
       observedBranch?.utf8.elementsEqual(branch.utf8) == true
     {
-      if let pr = snapshot.pullRequest, pr.headRefName.utf8.elementsEqual(branch.utf8) {
-        if pr.stateKind == .open {
-          if snapshot.ciSummary.overallStatus == .failure { return .checks }
-          if pr.reviewDecision?.uppercased() == "CHANGES_REQUESTED" { return .feedback }
-        }
+      if let pr = snapshot.pullRequest, pr.stateKind == .open, pr.headRefName.utf8.elementsEqual(branch.utf8) {
+        if snapshot.ciSummary.overallStatus == .failure { return .checks }
+        if pr.reviewDecision?.uppercased() == "CHANGES_REQUESTED" { return .feedback }
         return .open
       }
-      if snapshot.pullRequest == nil {
+      if snapshot.pullRequest?.stateKind != .open {
         if progress.action == .reviewChanges { return .reviewChanges }
         if diff?.hasUncommittedChanges == true { return .reviewCommit }
         if hasPublicationRepository, let diff, diff.hasUncommittedChanges == false, diff.fileCount > 0 {

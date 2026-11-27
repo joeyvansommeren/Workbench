@@ -7,7 +7,8 @@ import Observation
 @Observable
 final class CreatePullRequestAction: Identifiable {
   enum Phase: Equatable {
-    case preparing, reviewing, publishing, checking, pending, failed
+    case preparing, reviewing, publishing, checking, failed
+    case pending(UUID?)
     case existing(GitHubPublishedPullRequest), handoff(PullRequestHandoff), mismatched(GitHubPublishedPullRequest, PullRequestPublicationRecord)
     case confirmingRepository(GitHubRepositoryIdentity)
   }
@@ -43,7 +44,7 @@ final class CreatePullRequestAction: Identifiable {
 
   var isBusy: Bool { phase == .preparing || phase == .publishing || phase == .checking }
   var canPublish: Bool {
-    phase == .reviewing && plan != nil && !invalidated
+    phase == .reviewing && plan?.needsPush == false && !invalidated
   }
 
   func prepare() async {
@@ -67,10 +68,29 @@ final class CreatePullRequestAction: Identifiable {
     }
   }
 
+  var canReviewCurrentCommits: Bool {
+    if case .pending(.some) = phase { return true }
+    return false
+  }
+
+  func reopenHandoff() async -> URL? {
+    guard !invalidated, case .handoff(let expected) = phase else { return nil }
+    phase = .publishing
+    do {
+      apply(try await service.reopenHandoff(context, expectedID: expected.record.id))
+      if case .handoff(let refreshed) = phase, refreshed.record.id == expected.record.id {
+        return refreshed.destination
+      }
+    } catch {
+      fail(error)
+    }
+    return nil
+  }
+
   func reviewCurrentCommits() async {
-    guard !invalidated, phase == .pending else { return }
+    guard !invalidated, case .pending(let expectedID?) = phase else { return }
     phase = .checking
-    do { apply(try await service.reviewCurrentCommits(context)) }
+    do { apply(try await service.reviewCurrentCommits(context, expectedID: expectedID)) }
     catch { fail(error) }
   }
 
@@ -78,7 +98,10 @@ final class CreatePullRequestAction: Identifiable {
     guard !invalidated, case .confirmingRepository(let repository) = phase else { return }
     phase = .checking
     do {
-      apply(try await service.confirmRepository(context, name: repositoryName))
+      let confirmation = try await service.confirmRepository(context, name: repositoryName)
+      guard !invalidated else { return }
+      context = confirmation.context
+      apply(confirmation.preparation)
     } catch PullRequestPublicationError.unconfirmedRepository {
       error = PullRequestPublicationError.unconfirmedRepository.localizedDescription
       phase = .confirmingRepository(repository)
@@ -125,8 +148,8 @@ final class CreatePullRequestAction: Identifiable {
       phase = .handoff(destination)
     case .mismatched(let request, let record):
       phase = .mismatched(request, record)
-    case .pending:
-      phase = .pending
+    case .pending(let expectedID):
+      phase = .pending(expectedID)
     }
   }
 
