@@ -67,3 +67,13 @@ Attention includes item flags and durable run-wide blockers. Existing work can s
 Completed, failed, skipped, and cancelled items are terminal. A retry is an explicit exception and takes a new attempt ID. The prior workflow records remain linked. Review holds the issue claim until the item reaches a terminal state. Terminal transitions do not update the remote tracker.
 
 An allocation for a dependent item requires verified prerequisites on its initial base. Each attempt records its own base commit. If the base advances, verify the prerequisites again and dispatch on that base while keeping the original workflow links.
+
+## Queue execution
+
+`AgentWorkflowRuntime` can run a queue when the host injects an `OrchestratorQueueExecuting` implementation. `OrchestratorQueueExecutor` starts one eligible worker per tick. Run setup supplies a trusted tracker, checkout planner, worktree authorizer, and provider drivers through the runtime initializer. The default runtime leaves orchestrated launching unavailable. Activation requires a host-owned tick and wake caller plus Claude and Codex drivers that register the exact pending launch ID, reconcile it through the managed process registry, and prevent a second provider launch for that ID.
+
+The executor checks the current tracker revision, approved queue, repository, base and prerequisites. It reserves the source-qualified claim and saves the dispatch attempt before calling a driver. A provider timeout keeps that attempt in reconciliation. A restart can bind the original worker but cannot launch a replacement without definite evidence that the old attempt is stopped and an explicit retry.
+
+Wake recovery closes dispatch admission until Resume verifies source and worker ownership. Pause lets in-flight work settle. Stop cancels only matching app-owned processes and preserves the worktrees and workflow evidence. If ownership is uncertain, the run stays in Stopping and records the blocker. The approved provider does not change on retry.
+
+The Workbench launch adapter uses the existing sibling worktree service. A fresh approval covers the exact operation. Reuse requires an idle app-owned checkout and a live ancestry check against the approved base. The adapter preserves the repository root and separate launch path so a subdirectory launch uses sparse checkout inference. Existing commit, push, PR approval and review-cycle rules remain in the branch workflow. Review and tracker completion integration follow separately.

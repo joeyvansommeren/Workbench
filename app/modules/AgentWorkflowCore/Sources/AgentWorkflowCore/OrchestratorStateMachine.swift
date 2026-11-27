@@ -176,6 +176,9 @@ public enum OrchestratorStateMachine {
       return .duplicate
     }
     try validateRevision(event.expectedRevision, current: item.revision)
+    if case .handOff = event.command, run.state == .stopping || run.state == .stopped {
+      throw OrchestratorTransitionError.invalidItemTransition
+    }
     var next = item
     try applyItemCommand(event.command, to: &next, run: run)
     next.revision += 1
