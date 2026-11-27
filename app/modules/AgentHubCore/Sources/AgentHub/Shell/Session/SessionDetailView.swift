@@ -331,6 +331,7 @@ private struct SessionDetailContent: View {
   @Environment(\.agentHub) private var agentHub
   @Environment(\.colorScheme) private var colorScheme
   @Environment(WorkbenchShellModel.self) private var shellModel
+  @Environment(\.openURL) private var openURL
   @Environment(SessionDetailStateModel.self) private var stateModel
 
   @State private var quickAccessViewModel = SessionGitHubQuickAccessViewModel()
@@ -343,6 +344,8 @@ private struct SessionDetailContent: View {
   @State private var gitHubPopOut: SessionGitHubPopOut?
   @State private var transcript: SessionTranscript?
   @State private var commitReview: CommitChangesReviewModel?
+  @State private var pullRequestReview: CreatePullRequestAction?
+  @State private var reviewCommitOnDismiss = false
   @State private var claudeTheme: String?
   @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
   @AppStorage(AgentHubDefaults.diffDisplayMode)
@@ -424,6 +427,38 @@ private struct SessionDetailContent: View {
     )
   }
 
+  private var publicationSuggestion: SessionPublicationSuggestion? {
+    guard !item.isPending, hubProvider?.pullRequestPublication != nil,
+      effectiveContentMode == .terminal else { return nil }
+    let repository = viewModel.sessionOrigins[session.id]?.publicationRepository
+    return SessionPublicationSuggestion.make(
+      progress: progress, diff: viewModel.localDiffSummary(for: session.projectPath),
+      snapshot: hubProvider?.sessionAttentionModel.snapshots[item.id],
+      projectPath: session.projectPath, branch: session.branchName,
+      hasPublicationRepository: repository != nil,
+      awaitsGitHub: hubProvider?.pullRequestPublicationStatus.awaitsGitHub(
+        repository: repository, branch: session.branchName, sessionID: session.id,
+        provider: providerKind) == true)
+  }
+
+  private func performPublicationAction() {
+    switch publicationSuggestion {
+    case .reviewChanges: stateModel.setShowsResult(true, for: item.id)
+    case .reviewCommit: commitChanges()
+    case .create, .checkPublication: createPullRequest()
+    case .open, .checks, .feedback:
+      let request = hubProvider?.sessionAttentionModel.snapshots[item.id]?.pullRequest
+      if let url = publicationSuggestion?.browserURL(for: request) { openURL(url) }
+      else { openGitHubPanel() }
+    case nil: break
+    }
+  }
+
+  private func openGitHubPanel() {
+    stateModel.setSidePanelSegment(.gitHub, for: item.id)
+    if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
+  }
+
   private func performProgressAction() {
     switch progress.action {
     case .answer, .permission, .notRunning:
@@ -432,9 +467,7 @@ private struct SessionDetailContent: View {
       openTranscript()
     case .reviewChanges:
       stateModel.setShowsResult(true, for: item.id)
-    case .checkFailure:
-      stateModel.setSidePanelSegment(.gitHub, for: item.id)
-      if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
+    case .checkFailure: openGitHubPanel()
     case .unavailable:
       viewModel.refreshProgressMonitoring(session)
     case .working, .starting:
@@ -448,6 +481,8 @@ private struct SessionDetailContent: View {
         presentation: presentation,
         progress: progress,
         onProgressAction: performProgressAction,
+        publicationSuggestion: publicationSuggestion,
+        onPublicationAction: performPublicationAction,
         contextFraction: state?.contextWindowUsagePercentage,
         availableContentModes: availableContentModes,
         contentMode: contentModeBinding,
@@ -469,7 +504,7 @@ private struct SessionDetailContent: View {
             onRename: { showingNameSheet = true },
             onAddFiles: { showingFilePicker = true },
             onFork: { onFork(session, providerKind) },
-            onCreatePullRequest: createPullRequest
+            onCreatePullRequest: hubProvider?.pullRequestPublication == nil ? nil : createPullRequest
           )
         })
       if showsClaudeThemeHint {
@@ -575,8 +610,24 @@ private struct SessionDetailContent: View {
         }
       }
     }
-    .onDisappear { commitReview?.invalidate() }
-    .onChange(of: session.projectPath) { _, _ in commitReview?.invalidate() }
+    .sheet(item: $pullRequestReview, onDismiss: {
+      guard reviewCommitOnDismiss else { return }
+      reviewCommitOnDismiss = false
+      commitChanges()
+    }) { review in
+      PullRequestReviewSheet(model: review, observationSnapshot: hubProvider?.sessionAttentionModel.snapshots[item.id]) {
+        reviewCommitOnDismiss = true
+      }
+    }
+    .onDisappear {
+      commitReview?.invalidate()
+      pullRequestReview?.invalidate()
+    }
+    .onChange(of: session.projectPath) { _, _ in
+      commitReview?.invalidate()
+      pullRequestReview?.invalidate()
+    }
+    .onChange(of: session.branchName) { _, _ in pullRequestReview?.invalidate() }
     .modalPanel(
       item: $gitHubPopOut,
       title: "GitHub",
@@ -855,12 +906,13 @@ private struct SessionDetailContent: View {
   }
 
   private func createPullRequest() {
-    CreatePullRequestAction.perform(
-      session: session,
-      terminalKey: terminalKey,
-      viewModel: viewModel,
-      showTerminal: { contentModeBinding.wrappedValue = .terminal }
-    )
+    guard pullRequestReview == nil, let service = hubProvider?.pullRequestPublication else { return }
+    pullRequestReview = CreatePullRequestAction(
+      session: session, provider: providerKind, title: viewModel.displayName(for: session),
+      origin: viewModel.sessionOrigins[session.id], service: service,
+      observation: hubProvider?.gitHubPRObservationService,
+      target: .session(projectPath: session.projectPath, branchName: session.branchName,
+                       linkedPullRequests: linkedPullRequests))
   }
 }
 

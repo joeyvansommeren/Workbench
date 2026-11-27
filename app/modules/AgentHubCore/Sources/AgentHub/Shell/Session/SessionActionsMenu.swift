@@ -22,7 +22,7 @@ struct SessionActionsMenu: View {
   let onRename: () -> Void
   let onAddFiles: () -> Void
   let onFork: () -> Void
-  let onCreatePullRequest: () -> Void
+  let onCreatePullRequest: (() -> Void)?
 
   /// The row ↑/↓ moved to; Return runs it. Nil until an arrow key is used.
   @State private var highlightedIndex: Int?
@@ -50,6 +50,9 @@ struct SessionActionsMenu: View {
         viewModel.refreshTerminal(forKey: session.id, sessionId: session.id, projectPath: session.projectPath)
       })
       items.append(Item(title: "Name Session…", systemImage: "pencil", action: onRename))
+      if let onCreatePullRequest {
+        items.append(Item(title: "Create pull request…", systemImage: "arrow.triangle.pull", action: onCreatePullRequest))
+      }
       items.append(Item(title: "Fork…", systemImage: "arrow.triangle.branch", action: onFork))
     }
     items.append(Item(title: "Add Files…", systemImage: "plus.rectangle.on.folder", action: onAddFiles))
@@ -69,13 +72,7 @@ struct SessionActionsMenu: View {
           ResourceLinksPanel(
             links: state?.detectedResourceLinks ?? [],
             providerKind: providerKind,
-            currentPullRequest: quickAccessViewModel.currentBranchPR,
-            localDiffSummary: viewModel.localDiffSummary(for: session.projectPath),
-            isCreatingPullRequest: viewModel.creatingPullRequestSessionIDs.contains(session.id),
-            onCreatePullRequest: {
-              onDismiss()
-              onCreatePullRequest()
-            }
+            currentPullRequest: quickAccessViewModel.currentBranchPR
           ) {
             EmptyView()
           }

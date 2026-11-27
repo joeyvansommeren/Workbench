@@ -300,6 +300,16 @@ struct SessionTreeSnapshot {
           branch: node.session.branchName,
           snapshot: agentHub.sessionAttentionModel.snapshots[node.id]
         )
+        if let progress = model.progress, !node.isPending {
+          let repository = vm.sessionOrigins[node.session.id]?.publicationRepository
+          model.publicationSuggestion = SessionPublicationSuggestion.make(
+            progress: progress, diff: model.diff, snapshot: agentHub.sessionAttentionModel.snapshots[node.id],
+            projectPath: node.session.projectPath, branch: node.session.branchName,
+            hasPublicationRepository: repository != nil,
+            awaitsGitHub: agentHub.pullRequestPublicationStatus.awaitsGitHub(
+              repository: repository, branch: node.session.branchName, sessionID: node.session.id,
+              provider: node.providerKind))
+        }
         return model
       }
     )

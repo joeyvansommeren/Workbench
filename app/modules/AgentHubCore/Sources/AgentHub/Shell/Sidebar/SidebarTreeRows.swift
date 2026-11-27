@@ -65,6 +65,7 @@ struct SessionRowModel: Equatable {
   var diff: LocalDiffSummary? = nil
   var action: String? = nil
   var progress: SessionProgressPresentation? = nil
+  var publicationSuggestion: SessionPublicationSuggestion? = nil
   var isUnread = false
 
   var id: String { node.id }

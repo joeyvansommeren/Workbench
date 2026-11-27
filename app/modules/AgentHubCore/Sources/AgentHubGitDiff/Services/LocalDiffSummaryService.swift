@@ -11,13 +11,15 @@ public struct LocalDiffSummary: Equatable, Sendable {
   public let fileCount: Int
   public let additions: Int
   public let deletions: Int
+  public let hasUncommittedChanges: Bool?
 
   public static let empty = LocalDiffSummary(fileCount: 0, additions: 0, deletions: 0)
 
-  public init(fileCount: Int, additions: Int, deletions: Int) {
+  public init(fileCount: Int, additions: Int, deletions: Int, hasUncommittedChanges: Bool? = nil) {
     self.fileCount = fileCount
     self.additions = additions
     self.deletions = deletions
+    self.hasUncommittedChanges = hasUncommittedChanges
   }
 }
 
@@ -178,10 +180,16 @@ public actor LocalDiffSummaryService: LocalDiffSummaryServiceProtocol {
     await Task.detached(priority: .utility) {
       let service = GitDiffService()
       var filesByPath: [String: GitDiffFileEntry] = [:]
+      var uncommittedFilesFound = false
+      var uncommittedModesRead = 0
 
       for mode in DiffMode.allCases {
         do {
           let state = try await service.changedFiles(at: projectPath, mode: mode, baseBranch: nil)
+          if mode == .staged || mode == .unstaged {
+            uncommittedModesRead += 1
+            uncommittedFilesFound = uncommittedFilesFound || !state.files.isEmpty
+          }
           for file in state.files where filesByPath[file.relativePath] == nil {
             filesByPath[file.relativePath] = file
           }
@@ -195,7 +203,8 @@ public actor LocalDiffSummaryService: LocalDiffSummaryServiceProtocol {
       return LocalDiffSummary(
         fileCount: filesByPath.count,
         additions: additions,
-        deletions: deletions
+        deletions: deletions,
+        hasUncommittedChanges: uncommittedFilesFound ? true : (uncommittedModesRead == 2 ? false : nil)
       )
     }.value
   }

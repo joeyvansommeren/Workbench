@@ -62,6 +62,7 @@ public struct MonitoringCardView: View {
   @State private var showingActionsPopover = false
   @State private var showingFilePicker = false
   @State private var showingNameSheet = false
+  @State private var pullRequestReview: CreatePullRequestAction?
   /// What the agent tab's screen says right now (compacting), when readable.
   @State private var liveTerminalStatus: String?
   @AppStorage(AgentHubDefaults.chatEnabled) private var chatEnabled = false
@@ -321,9 +322,7 @@ public struct MonitoringCardView: View {
         links: resourceLinks,
         providerKind: providerKind,
         currentPullRequest: sessionGitHubQuickAccessViewModel.currentBranchPR,
-        localDiffSummary: localDiffSummary,
-        isCreatingPullRequest: viewModel?.creatingPullRequestSessionIDs.contains(session.id) ?? false,
-        onCreatePullRequest: createPullRequestFromSession
+        onCreatePullRequest: hubProvider?.pullRequestPublication == nil ? nil : createPullRequestFromSession
       ) {
         Button {
           showingActionsPopover = true
@@ -386,6 +385,13 @@ public struct MonitoringCardView: View {
         }
       )
     }
+    .sheet(item: $pullRequestReview) { review in
+      PullRequestReviewSheet(model: review)
+    }
+    .onDisappear { pullRequestReview?.invalidate() }
+    .onChange(of: session.id) { _, _ in pullRequestReview?.invalidate() }
+    .onChange(of: session.projectPath) { _, _ in pullRequestReview?.invalidate() }
+    .onChange(of: session.branchName) { _, _ in pullRequestReview?.invalidate() }
     .sheet(isPresented: $showingNameSheet) {
       NameSessionSheet(
         session: session,
@@ -442,13 +448,14 @@ public struct MonitoringCardView: View {
   }
 
   private func createPullRequestFromSession() {
-    guard let viewModel else { return }
-    CreatePullRequestAction.perform(
-      session: session,
-      terminalKey: terminalKey ?? session.id,
-      viewModel: viewModel,
-      showTerminal: { contentMode = .terminal }
-    )
+    guard pullRequestReview == nil, let viewModel,
+      let service = hubProvider?.pullRequestPublication else { return }
+    pullRequestReview = CreatePullRequestAction(
+      session: session, provider: providerKind, title: viewModel.displayName(for: session),
+      origin: viewModel.sessionOrigins[session.id], service: service,
+      observation: hubProvider?.gitHubPRObservationService,
+      target: .session(projectPath: session.projectPath, branchName: session.branchName,
+                       linkedPullRequests: linkedPullRequests))
   }
 
   // MARK: - Header

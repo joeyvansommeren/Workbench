@@ -14,6 +14,8 @@ struct SessionHeaderView<ActionsMenu: View>: View {
   let presentation: SessionPresentation
   let progress: SessionProgressPresentation
   let onProgressAction: () -> Void
+  var publicationSuggestion: SessionPublicationSuggestion? = nil
+  var onPublicationAction: () -> Void = {}
   let contextFraction: Double?
   let availableContentModes: [MonitoringCardContentMode]
   @Binding var contentMode: MonitoringCardContentMode
@@ -27,17 +29,46 @@ struct SessionHeaderView<ActionsMenu: View>: View {
   @State private var isShowingActions = false
 
   var body: some View {
-    HStack(spacing: DesignTokens.Spacing.md) {
-      heading
-        .layoutPriority(1)
-      Spacer(minLength: DesignTokens.Spacing.md)
-      trailing
+    Group {
+      if let publicationSuggestion {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+          ViewThatFits(in: .horizontal) {
+            inlineHeader.frame(minWidth: 600)
+            stackedHeader
+          }
+          SessionPublicationButton(suggestion: publicationSuggestion, action: onPublicationAction)
+        }
+        .padding(.vertical, DesignTokens.Spacing.sm)
+      } else {
+        inlineHeader.frame(height: 64)
+      }
     }
     .padding(.leading, DesignTokens.Spacing.xl)
     .padding(.trailing, DesignTokens.Spacing.md)
-    .frame(height: 64)
     .overlay(alignment: .bottom) {
       Rectangle().fill(Color.wbBorderHairline).frame(height: 1)
+    }
+  }
+
+  private var inlineHeader: some View {
+    HStack(spacing: DesignTokens.Spacing.md) {
+      heading.layoutPriority(1)
+      Spacer(minLength: DesignTokens.Spacing.md)
+      trailing(compact: false)
+    }
+  }
+
+  private var stackedHeader: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+      heading
+      ViewThatFits(in: .horizontal) {
+        trailing(compact: false).fixedSize()
+        trailing(compact: true).fixedSize()
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+          modesAndContext(compact: true)
+          trailingActions
+        }
+      }
     }
   }
 
@@ -83,11 +114,17 @@ struct SessionHeaderView<ActionsMenu: View>: View {
     Text("·").foregroundStyle(Color.wbTextTertiary).accessibilityHidden(true)
   }
 
-  private var trailing: some View {
+  private func trailing(compact: Bool) -> some View {
     HStack(spacing: DesignTokens.Spacing.xs) {
-      modesAndContext
+      modesAndContext(compact: compact)
+      ToolbarDivider()
+      trailingActions
+    }
+  }
+
+  private var trailingActions: some View {
+    HStack(spacing: DesignTokens.Spacing.xs) {
       if let showsResult {
-        ToolbarDivider()
         IconButton(
           systemImage: showsResult ? "xmark.circle" : "doc.text.magnifyingglass",
           isToggled: showsResult,
@@ -96,8 +133,8 @@ struct SessionHeaderView<ActionsMenu: View>: View {
           action: onToggleResult
         )
         .help(showsResult ? "Hide result" : "Show result")
+        ToolbarDivider()
       }
-      ToolbarDivider()
       IconButton(
         systemImage: "ellipsis",
         accessibilityLabel: "Session actions",
@@ -120,7 +157,7 @@ struct SessionHeaderView<ActionsMenu: View>: View {
     }
   }
 
-  private var modesAndContext: some View {
+  private func modesAndContext(compact: Bool) -> some View {
     HStack(spacing: DesignTokens.Spacing.xs) {
       if availableContentModes.count > 1 {
         // Icon-only segments: each mode's label is its tooltip and VoiceOver name.
@@ -136,7 +173,7 @@ struct SessionHeaderView<ActionsMenu: View>: View {
         .padding(.trailing, DesignTokens.Spacing.xs)
       }
       if let contextFraction, contextFraction.isFinite, contextFraction > 0 {
-        ContextUsageButton(fraction: contextFraction)
+        ContextUsageButton(fraction: contextFraction, compact: compact)
       }
     }
     .fixedSize()
@@ -146,21 +183,29 @@ struct SessionHeaderView<ActionsMenu: View>: View {
 /// Compact usage with the calculation detail available on demand.
 private struct ContextUsageButton: View {
   let fraction: Double
+  let compact: Bool
   @State private var isShowingDetail = false
 
   var body: some View {
     Button {
       isShowingDetail = true
     } label: {
-      Text("Context \(percent)%")
-        .wbText(.callout)
-        .fontWeight(.medium)
-        .monospacedDigit()
-        .foregroundStyle(Color.wbTextSecondary)
+      Group {
+        if compact {
+          Image(systemName: "chart.pie")
+        } else {
+          Text("Context \(percent)%")
+            .wbText(.callout)
+            .fontWeight(.medium)
+            .monospacedDigit()
+        }
+      }
+      .foregroundStyle(Color.wbTextSecondary)
     }
     .buttonStyle(.plain)
-    .padding(.horizontal, DesignTokens.Spacing.smPlus)
+    .padding(.horizontal, compact ? DesignTokens.Spacing.xs : DesignTokens.Spacing.smPlus)
     .frame(height: DesignTokens.Size.control)
+    .help("Context \(percent)%")
     .accessibilityLabel("Context used")
     .accessibilityValue("\(percent) percent")
     .accessibilityHint("Show context usage details")

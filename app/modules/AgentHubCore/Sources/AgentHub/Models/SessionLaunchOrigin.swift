@@ -1,3 +1,4 @@
+import AgentHubGitHub
 import Foundation
 import GRDB
 
@@ -9,13 +10,18 @@ public struct SessionLaunchOrigin: Codable, Equatable, Sendable {
   public let sourceID: String
   public let key: String
   public let title: String
+  public let publicationRepository: GitHubRepositoryIdentity?
 
-  public init(source: Source, accountID: String, sourceID: String, key: String, title: String) {
+  public init(
+    source: Source, accountID: String, sourceID: String, key: String, title: String,
+    publicationRepository: GitHubRepositoryIdentity? = nil
+  ) {
     self.source = source
     self.accountID = accountID
     self.sourceID = sourceID
     self.key = key
     self.title = title
+    self.publicationRepository = publicationRepository
   }
 
   public var displayName: String {

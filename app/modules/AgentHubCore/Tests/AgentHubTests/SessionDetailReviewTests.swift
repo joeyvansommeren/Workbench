@@ -58,14 +58,6 @@ struct SessionDetailReviewTests {
     #expect(cooldown.begin("s1"))
   }
 
-  @Test("Create PR prompt is unchanged")
-  func createPullRequestPrompt() {
-    #expect(
-      CreatePullRequestAction.prompt
-        == "Make a PR for the current branch. Include the local changes in this worktree and use the session context for the title, body, and validation notes."
-    )
-  }
-
   // MARK: - Side-panel auto-open
 
   private static let baseline = Date(timeIntervalSince1970: 1_000)

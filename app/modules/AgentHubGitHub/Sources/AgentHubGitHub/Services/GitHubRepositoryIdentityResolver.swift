@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct GitHubRepositoryIdentity: Equatable, Hashable, Sendable {
+public struct GitHubRepositoryIdentity: Codable, Equatable, Hashable, Sendable {
   public let host: String
   public let owner: String
   public let repository: String
