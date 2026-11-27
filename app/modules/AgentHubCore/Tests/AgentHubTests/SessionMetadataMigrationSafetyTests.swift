@@ -75,11 +75,14 @@ struct SessionMetadataMigrationSafetyTests {
     #expect(try store.readWorkspaceState(for: .claude) == state)
   }
 
-  @Test("Result review is appended after the open-tab migration")
+  @Test("Orchestrator migration follows the review sources migration")
   func migrationIsAppended() {
     #expect(
-      SessionMetadataStore.migrationIdentifiers.last
-        == SessionMetadataStore.MigrationID.createReviewSources)
+      Array(SessionMetadataStore.migrationIdentifiers.suffix(3)) == [
+        SessionMetadataStore.MigrationID.createReviewSources,
+        SessionMetadataStore.MigrationID.createOrchestratorRuns,
+        SessionMetadataStore.MigrationID.addOrchestratorAllocationDisposition,
+      ])
   }
 }
 
