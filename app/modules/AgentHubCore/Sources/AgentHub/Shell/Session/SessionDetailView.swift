@@ -412,10 +412,42 @@ private struct SessionDetailContent: View {
 
   private var isDark: Bool { colorScheme == .dark }
 
+  private var progress: SessionProgressPresentation {
+    SessionProgressPresentation(
+      state: state,
+      pendingSince: pending?.startedAt,
+      terminalExitedAt: viewModel.activeTerminals[terminalKey]?.confirmedProcessExitAt,
+      result: hubProvider?.sessionResultLibrary.records[item.id],
+      projectPath: session.projectPath,
+      branch: session.branchName,
+      snapshot: hubProvider?.sessionAttentionModel.snapshots[item.id]
+    )
+  }
+
+  private func performProgressAction() {
+    switch progress.action {
+    case .answer, .permission, .notRunning:
+      contentModeBinding.wrappedValue = .terminal
+    case .readResponse:
+      openTranscript()
+    case .reviewChanges:
+      stateModel.setShowsResult(true, for: item.id)
+    case .checkFailure:
+      stateModel.setSidePanelSegment(.gitHub, for: item.id)
+      if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
+    case .unavailable:
+      viewModel.refreshProgressMonitoring(session)
+    case .working, .starting:
+      break
+    }
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       SessionHeaderView(
         presentation: presentation,
+        progress: progress,
+        onProgressAction: performProgressAction,
         contextFraction: state?.contextWindowUsagePercentage,
         availableContentModes: availableContentModes,
         contentMode: contentModeBinding,

@@ -58,7 +58,7 @@ struct SessionRowNativeLayoutTests {
     let values:
       [(String, SessionProviderKind, SessionStatus?, String?, LocalDiffSummary?, String?, Bool)] = [
         (
-          title, .codex, .waitingForUser, "Implementer",
+          title, .codex, .responseReady, "Implementer",
           LocalDiffSummary(
             fileCount: worst ? 1_284 : 3, additions: worst ? 123_456 : 128,
             deletions: worst ? 98_765 : 12),
@@ -95,10 +95,18 @@ struct SessionRowNativeLayoutTests {
         id: "\(provider.rawValue):\(id)", session: session,
         providerKind: provider, isPending: false, status: status,
         pendingToolName: index == 2 ? "Bash" : nil)
+      var turn = SessionTurnProgress()
+      if status == .responseReady {
+        turn.complete(at: session.lastActivityAt, hasResponse: true)
+      }
+      let progress = status.map {
+        SessionProgressPresentation(
+          state: .init(status: $0, turnProgress: turn), projectPath: session.projectPath)
+      }
       return SessionRowModel(
         node: node, title: title, roleLabel: role,
         isFirstInBranch: index == 0, isLastInBranch: index == values.count - 1,
-        showProvider: true, diff: diff, action: action, isUnread: unread)
+        showProvider: true, diff: diff, action: action, progress: progress, isUnread: unread)
     }
   }
 }
@@ -115,7 +123,7 @@ private final class SessionRowNativeFixture {
             SessionTreeRowLabel(model: row)
             if row.node.showsApprovePill {
               AttentionPill(
-                title: "Review request", help: "Open the session to review this request",
+                title: "Review", help: "Open the session to review this request",
                 accessibilityLabel: "Review request", action: {}
               )
               .padding(.leading, DesignTokens.Spacing.xs)

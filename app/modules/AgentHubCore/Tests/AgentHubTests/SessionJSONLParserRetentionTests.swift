@@ -10,13 +10,14 @@ struct SessionJSONLParserRetentionTests {
   func capturesFinalAssistantMessage() {
     let timestamp = ISO8601DateFormatter().string(from: Date())
     let line = """
-      {"type":"assistant","timestamp":"\(timestamp)","message":{"role":"assistant","content":[{"type":"text","text":"Implementation complete."},{"type":"text","text":"All tests pass."}]}}
+      {"type":"assistant","timestamp":"\(timestamp)","message":{"role":"assistant","stop_reason":"end_turn","content":[\
+      {"type":"text","text":"Implementation complete."},{"type":"text","text":"All tests pass."}]}}
       """
 
     var result = SessionJSONLParser.ParseResult()
     SessionJSONLParser.parseNewLines([line], into: &result)
 
-    #expect(result.currentStatus == .waitingForUser)
+    #expect(result.currentStatus == .responseReady)
     #expect(result.lastAssistantMessage == "Implementation complete.\nAll tests pass.")
   }
 

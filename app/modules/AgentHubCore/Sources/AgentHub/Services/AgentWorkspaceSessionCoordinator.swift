@@ -61,7 +61,7 @@ public final class AgentWorkspaceSessionCoordinator: AgentWorkspaceSessionCoordi
     switch status {
     case .awaitingApproval: .needsAttention
     case .thinking, .executingTool: .working
-    case .waitingForUser: .ready
+    case .waitingForUser, .responseReady: .ready
     case .idle: .idle
     }
   }

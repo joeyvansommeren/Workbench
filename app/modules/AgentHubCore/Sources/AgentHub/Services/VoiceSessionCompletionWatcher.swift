@@ -173,11 +173,11 @@ public final class VoiceSessionCompletionWatcher: VoiceSessionCompletionWatching
     guard !Task.isCancelled else { return false }
     if let text = response?.text, !text.isEmpty {
       onUpdate("""
-        \(name) finished. Summarize its response for the user in one or two \
+        \(name) has a response. Summarize it for the user in one or two \
         spoken sentences. Response: \(Self.snippet(text))
         """)
     } else {
-      onUpdate("\(name) finished and is ready for you.")
+      onUpdate("\(name) has a response ready.")
     }
     return true
   }
@@ -199,16 +199,16 @@ private extension SessionStatus {
     switch self {
     case .thinking, .executingTool:
       true
-    case .waitingForUser, .awaitingApproval, .idle:
+    case .waitingForUser, .responseReady, .awaitingApproval, .idle:
       false
     }
   }
 
   var isVoiceCompletionState: Bool {
     switch self {
-    case .waitingForUser, .idle:
+    case .waitingForUser, .responseReady:
       true
-    case .thinking, .executingTool, .awaitingApproval:
+    case .thinking, .executingTool, .awaitingApproval, .idle:
       false
     }
   }

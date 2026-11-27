@@ -100,7 +100,7 @@ public struct SessionStatusPresentation: Equatable, Sendable {
     switch status {
     case .thinking, .executingTool: activity = .running
     case .waitingForUser, .awaitingApproval: activity = .waiting
-    case .idle: activity = .inactive
+    case .idle, .responseReady: activity = .inactive
     case nil: activity = .unknown
     }
 
@@ -162,7 +162,7 @@ public struct SessionStatusPresentation: Equatable, Sendable {
       case .inactive:
         shape = .ring
         category = .idle
-        outcomeWord = "Inactive"
+        outcomeWord = status == .responseReady ? "Response ready" : "Inactive"
       case .unknown:
         shape = .ring
         category = .idle
@@ -182,6 +182,39 @@ public struct SessionStatusPresentation: Equatable, Sendable {
       word = "\(activityWord) · \(self.outcome.displayName)"
       accessibilityLabel = "\(activityWord), \(self.outcome.displayName.lowercased())"
     }
+  }
+
+  init(progressAction: SessionProgressPresentation.Action) {
+    switch progressAction {
+    case .starting:
+      (activity, outcome, shape, category, word) =
+        (.starting, .unknown, .breathingDot, .working, "Starting")
+    case .working:
+      (activity, outcome, shape, category, word) =
+        (.running, .unknown, .breathingDot, .working, "Working")
+    case .answer:
+      (activity, outcome, shape, category, word) =
+        (.waiting, .needsInput, .filledBang, .attention, "Needs your answer")
+    case .permission:
+      (activity, outcome, shape, category, word) =
+        (.waiting, .needsApproval, .filledBang, .attention, "Needs permission")
+    case .readResponse:
+      (activity, outcome, shape, category, word) =
+        (.inactive, .unknown, .ring, .idle, "Response ready")
+    case .reviewChanges:
+      (activity, outcome, shape, category, word) =
+        (.inactive, .readyToInspect, .ring, .idle, "Review changes")
+    case .checkFailure:
+      (activity, outcome, shape, category, word) =
+        (.inactive, .unknown, .filledBang, .attention, "Checks failed")
+    case .notRunning:
+      (activity, outcome, shape, category, word) =
+        (.inactive, .unknown, .ring, .idle, "Not running")
+    case .unavailable:
+      (activity, outcome, shape, category, word) =
+        (.unknown, .unknown, .questionMark, .idle, "Status unavailable")
+    }
+    accessibilityLabel = word
   }
 
   /// The fill colour for the glyph.

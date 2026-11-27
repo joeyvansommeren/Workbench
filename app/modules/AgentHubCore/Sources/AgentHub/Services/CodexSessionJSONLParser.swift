@@ -58,6 +58,10 @@ public struct CodexSessionJSONLParser {
     public var lastActivityAt: Date?
     public var sessionStartedAt: Date?
     public var currentStatus: SessionStatus = .idle
+    public var turnProgress = SessionTurnProgress()
+    var isSourceAvailable = true
+    var activeTurnID: String?
+    var currentTurnHasFinalText = false
     public var hasMermaidContent: Bool = false
     public var detectedResourceLinks: [ResourceLink] = []
     public var detectedMCPAppResources: [MCPAppResourceDescriptor] = []
@@ -201,7 +205,7 @@ public struct CodexSessionJSONLParser {
       if result.sessionStartedAt == nil {
         result.sessionStartedAt = ts
       }
-      result.lastActivityAt = ts
+      result.lastActivityAt = max(result.lastActivityAt ?? ts, ts)
     }
 
     switch type {
@@ -279,9 +283,16 @@ public struct CodexSessionJSONLParser {
     timestamp: Date?,
     result: inout ParseResult
   ) {
+    if handleTurnBoundary(type: type, payload: payload, timestamp: timestamp, result: &result) { return }
     switch type {
     case "user_message":
       result.messageCount += 1
+      // Older transcripts can omit task_started.
+      if result.activeTurnID == nil {
+        result.currentTurnHasFinalText = false
+        result.pendingToolUses.removeAll()
+        result.turnProgress.begin(at: timestamp)
+      }
       if let message = payload["message"] as? String, !message.isEmpty {
         addActivity(
           type: .userMessage, description: String(message.prefix(80)), timestamp: timestamp,
@@ -292,6 +303,9 @@ public struct CodexSessionJSONLParser {
       result.messageCount += 1
       if let message = payload["message"] as? String, !message.isEmpty {
         result.lastAssistantMessage = String(message.suffix(32_000))
+        if payload["phase"] as? String == "final_answer" {
+          result.currentTurnHasFinalText = true
+        }
         if message.contains("```mermaid") { result.hasMermaidContent = true }
         appendResourceLinks(extractResourceLinks(from: message, timestamp: timestamp), to: &result)
         appendMCPAppResources(MCPAppResourceExtractor.extract(from: message), to: &result)
@@ -336,6 +350,46 @@ public struct CodexSessionJSONLParser {
     default:
       break
     }
+  }
+
+  private static func handleTurnBoundary(
+    type: String,
+    payload: [String: Any],
+    timestamp: Date?,
+    result: inout ParseResult
+  ) -> Bool {
+    switch type {
+    case "task_started":
+      result.activeTurnID = payload["turn_id"] as? String
+      result.currentTurnHasFinalText = false
+      result.pendingToolUses.removeAll()
+      result.turnProgress.begin(at: timestamp)
+
+    case "task_complete", "turn_aborted":
+      if result.turnProgress.phase == .interrupted { return true }
+      if let timestamp, let startedAt = result.turnProgress.startedAt, timestamp < startedAt {
+        return true
+      }
+      if let activeTurnID = result.activeTurnID,
+        let completedTurnID = payload["turn_id"] as? String,
+        activeTurnID != completedTurnID {
+        return true
+      }
+      result.activeTurnID = nil
+      result.pendingToolUses.removeAll()
+      if type == "turn_aborted" || payload["error"] is [String: Any] {
+        result.turnProgress.interrupt()
+      } else {
+        let response = (payload["last_agent_message"] as? String)?
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        result.turnProgress.complete(
+          at: timestamp, hasResponse: result.currentTurnHasFinalText || response?.isEmpty == false)
+      }
+      result.currentTurnHasFinalText = false
+    default:
+      return false
+    }
+    return true
   }
 
   /// Codex reports an MCP tool call as a single `mcp_tool_call_end` event carrying
@@ -398,6 +452,14 @@ public struct CodexSessionJSONLParser {
     result: inout ParseResult
   ) {
     switch type {
+    case "message":
+      if payload["role"] as? String == "assistant", payload["phase"] as? String == "final_answer",
+        let content = payload["content"] as? [[String: Any]] {
+        result.currentTurnHasFinalText = content.contains {
+          ($0["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+      }
+
     case "function_call":
       guard let name = payload["name"] as? String,
         let callId = payload["call_id"] as? String
@@ -442,14 +504,24 @@ public struct CodexSessionJSONLParser {
   // MARK: - Status
 
   public static func updateCurrentStatus(
-    _ result: inout ParseResult, approvalTimeoutSeconds: Int = 0
+    _ result: inout ParseResult, approvalTimeoutSeconds: Int = 0, now: Date = .now
   ) {
-    guard let lastActivity = result.recentActivities.last else {
-      result.currentStatus = .idle
+    if result.turnProgress.ended {
+      result.currentStatus = result.turnProgress.phase == .responded ? .responseReady : .idle
       return
     }
 
-    let timeSince = Date().timeIntervalSince(lastActivity.timestamp)
+    guard let lastActivity = result.recentActivities.last else {
+      let elapsed = result.turnProgress.startedAt.map { now.timeIntervalSince($0) }
+      result.currentStatus = elapsed.map { (0..<60).contains($0) } == true ? .thinking : .idle
+      return
+    }
+
+    let timeSince = now.timeIntervalSince(lastActivity.timestamp)
+    if let startedAt = result.turnProgress.startedAt, startedAt > lastActivity.timestamp {
+      result.currentStatus = (0..<60).contains(now.timeIntervalSince(startedAt)) ? .thinking : .idle
+      return
+    }
 
     // Codex records an interactive question as a pending
     // `request_user_input` function call. It must remain visible until a
@@ -463,7 +535,7 @@ public struct CodexSessionJSONLParser {
       return
     }
 
-    if timeSince > 300 {
+    if !(0...300).contains(timeSince) {
       result.currentStatus = .idle
       return
     }
@@ -474,7 +546,7 @@ public struct CodexSessionJSONLParser {
     case .toolResult:
       result.currentStatus = timeSince < 60 ? .thinking : .idle
     case .assistantMessage:
-      result.currentStatus = .waitingForUser
+      result.currentStatus = timeSince < 60 ? .thinking : .idle
     case .userMessage:
       result.currentStatus = timeSince < 60 ? .thinking : .idle
     case .thinking:

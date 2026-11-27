@@ -30,7 +30,6 @@ struct SessionWatcherTimerPolicy {
     let statusTransitionInterval = nextStatusTransitionInterval(
       lastActivity: lastActivity,
       currentStatus: currentStatus,
-      approvalTimeoutSeconds: approvalTimeoutSeconds,
       now: now
     )
 
@@ -48,7 +47,7 @@ struct SessionWatcherTimerPolicy {
 
   static func needsHealthCheck(for status: SessionStatus) -> Bool {
     switch status {
-    case .idle, .waitingForUser:
+    case .idle, .waitingForUser, .responseReady:
       return false
     case .thinking, .executingTool, .awaitingApproval:
       return true
@@ -58,7 +57,6 @@ struct SessionWatcherTimerPolicy {
   private static func nextStatusTransitionInterval(
     lastActivity: ActivityEntry?,
     currentStatus: SessionStatus,
-    approvalTimeoutSeconds: Int,
     now: Date
   ) -> TimeInterval? {
     guard let lastActivity else { return nil }
@@ -66,18 +64,11 @@ struct SessionWatcherTimerPolicy {
     let elapsed = now.timeIntervalSince(lastActivity.timestamp)
 
     switch lastActivity.type {
-    case .toolUse(let name):
-      switch currentStatus {
-      case .executingTool:
-        let deadline = name == "Task" ? 300.0 : Double(max(1, approvalTimeoutSeconds))
-        return max(0, deadline - elapsed)
-      case .awaitingApproval:
-        return max(0, 300 - elapsed)
-      default:
-        return nil
-      }
+    case .toolUse:
+      guard case .executingTool = currentStatus else { return nil }
+      return max(0, 300 - elapsed)
 
-    case .toolResult, .userMessage:
+    case .toolResult, .userMessage, .assistantMessage:
       guard currentStatus == .thinking else { return nil }
       return max(0, 60 - elapsed)
 
@@ -85,8 +76,6 @@ struct SessionWatcherTimerPolicy {
       guard currentStatus == .thinking else { return nil }
       return max(0, 30 - elapsed)
 
-    case .assistantMessage:
-      return nil
     }
   }
 }

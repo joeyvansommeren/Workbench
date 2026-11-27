@@ -46,8 +46,8 @@ struct SessionWatcherTimerPolicyTests {
     #expect(interval == nil)
   }
 
-  @Test("Uses approval timeout when it happens before stale recovery")
-  func usesApprovalTimeoutWhenSooner() {
+  @Test("An executing tool has no permission timeout")
+  func executingToolHasNoPermissionTimeout() {
     let now = Date(timeIntervalSince1970: 10_000)
     let lastActivity = ActivityEntry(
       timestamp: now.addingTimeInterval(-1),
@@ -63,7 +63,7 @@ struct SessionWatcherTimerPolicyTests {
       now: now
     )
 
-    #expect(interval == 1)
+    #expect(interval == SessionWatcherTimerPolicy.staleWatcherRecoveryInterval)
   }
 
   @Test("Uses stale recovery when the status transition is farther away")
@@ -86,11 +86,11 @@ struct SessionWatcherTimerPolicyTests {
     #expect(interval == 3)
   }
 
-  @Test("Floors an executing tool past its approval deadline instead of returning 0")
+  @Test("Floors an executing tool past its activity deadline instead of returning 0")
   func floorsOverdueToolDeadline() {
     let now = Date(timeIntervalSince1970: 10_000)
     let lastActivity = ActivityEntry(
-      timestamp: now.addingTimeInterval(-120),
+      timestamp: now.addingTimeInterval(-301),
       type: .toolUse(name: "Bash"),
       description: "ls"
     )
@@ -126,8 +126,8 @@ struct SessionWatcherTimerPolicyTests {
     #expect(interval == SessionWatcherTimerPolicy.minimumInterval)
   }
 
-  @Test("Floors an approval past its 300s deadline instead of returning 0")
-  func floorsOverdueApprovalDeadline() {
+  @Test("An unanswered request keeps its normal health check after 300 seconds")
+  func retainsHealthCheckForOldApproval() {
     let now = Date(timeIntervalSince1970: 10_000)
     let lastActivity = ActivityEntry(
       timestamp: now.addingTimeInterval(-301),
@@ -143,7 +143,7 @@ struct SessionWatcherTimerPolicyTests {
       now: now
     )
 
-    #expect(interval == SessionWatcherTimerPolicy.minimumInterval)
+    #expect(interval == SessionWatcherTimerPolicy.staleWatcherRecoveryInterval)
   }
 
   @Test("Overdue health check waits a full recovery period instead of returning 0")
@@ -182,7 +182,7 @@ struct SessionWatcherTimerPolicyTests {
     // 3s to the tool deadline, 5s to the next health check: the transition
     // term wins and is not distorted by the minimum-interval floor.
     let lastActivity = ActivityEntry(
-      timestamp: now.addingTimeInterval(-57),
+      timestamp: now.addingTimeInterval(-297),
       type: .toolUse(name: "Bash"),
       description: "ls"
     )

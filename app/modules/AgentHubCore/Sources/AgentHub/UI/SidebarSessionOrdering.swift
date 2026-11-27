@@ -23,7 +23,7 @@ enum StatusGroupCategory: String, CaseIterable, Identifiable {
     switch status {
     case .thinking, .executingTool:
       return .working
-    case .waitingForUser:
+    case .waitingForUser, .responseReady:
       return .ready
     case .awaitingApproval:
       return .needsAttention
@@ -48,7 +48,7 @@ enum SidebarSessionAttention: Int, Equatable {
     switch status {
     case .awaitingApproval(let tool):
       self = SessionInteractiveInputTool.matches(tool) ? .inputRequired : .approvalRequired
-    case .thinking, .executingTool, .waitingForUser, .idle, .none:
+    case .thinking, .executingTool, .waitingForUser, .responseReady, .idle, .none:
       return nil
     }
   }

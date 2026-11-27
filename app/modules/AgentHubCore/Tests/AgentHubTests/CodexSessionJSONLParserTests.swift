@@ -68,13 +68,19 @@ struct CodexSessionJSONLParserTests {
       "payload": [
         "type": "agent_message",
         "message": "Implementation complete.",
+        "phase": "final_answer",
       ],
     ])
 
     var result = CodexSessionJSONLParser.ParseResult()
-    CodexSessionJSONLParser.parseNewLines([line], into: &result)
+    let completion = jsonLine([
+      "type": "event_msg",
+      "timestamp": timestamp,
+      "payload": ["type": "task_complete"],
+    ])
+    CodexSessionJSONLParser.parseNewLines([line, completion], into: &result)
 
-    #expect(result.currentStatus == .waitingForUser)
+    #expect(result.currentStatus == .responseReady)
     #expect(result.lastAssistantMessage == "Implementation complete.")
   }
 

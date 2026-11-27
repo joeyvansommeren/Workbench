@@ -141,12 +141,12 @@ struct VoiceSessionCompletionWatcherTests {
     watcher.watch(sessionId: "session-1", name: "Build")
     try await waitForInitialTimers(clock)
     executor.yield(.thinking)
-    executor.yield(.idle)
+    executor.yield(.responseReady)
     _ = try await clock.nextSleep(for: .milliseconds(5))
     clock.advance(by: .milliseconds(5))
     try await delivered.wait()
 
-    #expect(updates == ["Build finished and is ready for you."])
+    #expect(updates == ["Build has a response ready."])
   }
 
   @Test
@@ -168,14 +168,14 @@ struct VoiceSessionCompletionWatcherTests {
     watcher.watch(sessionId: "session-1", name: "Build")
     try await waitForInitialTimers(clock)
     executor.yield(.thinking)
-    executor.yield(.idle)
+    executor.yield(.responseReady)
     _ = try await clock.nextSleep(for: .milliseconds(5))
     clock.advance(by: .milliseconds(5))
     try await delivered.wait()
 
     #expect(updates.count == 1)
     let update = try #require(updates.first)
-    #expect(update.contains("Build finished."))
+    #expect(update.contains("Build has a response."))
     #expect(update.contains("All 23 tests passed."))
   }
 
@@ -209,13 +209,13 @@ struct VoiceSessionCompletionWatcherTests {
 
     try await waitForInitialTimers(clock)
     executor.yield(.thinking)
-    executor.yield(.idle)
+    executor.yield(.responseReady)
     _ = try await clock.nextSleep(for: .milliseconds(5))
     clock.advance(by: .milliseconds(5))
     try await delivered.wait()
     try await finished.wait()
 
-    #expect(updates == ["Build finished and is ready for you."])
+    #expect(updates == ["Build has a response ready."])
     #expect(counts.last == 0)
   }
 
@@ -333,23 +333,23 @@ struct VoiceSessionCompletionWatcherTests {
     watcher.watch(sessionId: "session-1", name: "Build")
     try await waitForInitialTimers(clock)
     executor.yield(.thinking)
-    executor.yield(.idle)
+    executor.yield(.responseReady)
     try #require(await iterator.next() == .debounceRequested)
     let firstDebounce = try await clock.nextSleep(for: .milliseconds(20))
     executor.currentStatus = .thinking
     clock.advance(by: .milliseconds(20))
     try #require(await iterator.next() == .statusRead(SessionStatus.thinking.displayName))
     #expect(updates.isEmpty)
-    executor.yield(.waitingForUser)
+    executor.yield(.responseReady)
     // An incorrect first completion emits .update instead. Fail before waiting
     // for a timer that that completed watcher would never register.
     try #require(await iterator.next() == .debounceRequested)
     _ = try await clock.nextSleep(for: .milliseconds(20), after: firstDebounce.id)
     clock.advance(by: .milliseconds(20))
-    try #require(await iterator.next() == .statusRead(SessionStatus.waitingForUser.displayName))
+    try #require(await iterator.next() == .statusRead(SessionStatus.responseReady.displayName))
     try #require(await iterator.next() == .update)
 
-    #expect(updates == ["Build finished and is ready for you."])
+    #expect(updates == ["Build has a response ready."])
   }
 
   private func makeClockWatcher(
