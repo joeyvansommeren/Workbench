@@ -168,12 +168,16 @@ public actor LinearAPIClient: LinearService {
   private let session: URLSession
   private let apiKey: @Sendable () -> String?
   private let decoder: JSONDecoder
+  let queueNow: @Sendable () -> Date
+  var queueTransitionsInFlight = Set<UUID>()
 
   public init(
     session: URLSession = .shared,
+    queueNow: @escaping @Sendable () -> Date = { Date() },
     apiKey: @escaping @Sendable () -> String? = { LinearKeychainStore.apiKey() }
   ) {
     self.session = session
+    self.queueNow = queueNow
     self.apiKey = apiKey
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
@@ -284,12 +288,16 @@ public actor LinearAPIClient: LinearService {
     return all
   }
 
-  private func execute<T: Decodable & Sendable>(
-    query: String, variables: [String: String?] = [:]
+  func currentAuthorization() throws -> String {
+    guard let key = apiKey(), !key.isEmpty else { throw LinearAPIError.missingKey }
+    return key
+  }
+
+  func execute<T: Decodable & Sendable>(
+    query: String, variables: [String: String?] = [:], authorization: String? = nil,
+    isQueueMutation: Bool = false
   ) async throws -> LinearGraphQLResponse<T> {
-    guard let key = apiKey(), !key.isEmpty else {
-      throw LinearAPIError.missingKey
-    }
+    let key = try authorization ?? currentAuthorization()
     var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -317,21 +325,32 @@ public actor LinearAPIClient: LinearService {
       throw LinearAPIError.network(error.localizedDescription)
     }
 
-    switch httpResponse.statusCode {
-    case 200:
-      break
-    case 401:
-      throw LinearAPIError.unauthorized
-    case 429:
-      throw LinearAPIError.rateLimited
-    default:
-      throw LinearAPIError.network("HTTP \(httpResponse.statusCode)")
-    }
+    try validateHTTPStatus(
+      httpResponse.statusCode, isPinnedQueueRequest: authorization != nil, isQueueMutation: isQueueMutation)
 
     do {
       return try decoder.decode(LinearGraphQLResponse<T>.self, from: data)
     } catch {
       throw LinearAPIError.decoding(error.localizedDescription)
+    }
+  }
+
+  private func validateHTTPStatus(_ status: Int, isPinnedQueueRequest: Bool, isQueueMutation: Bool) throws {
+    if isQueueMutation, let rejection = LinearQueueTransitionRejection(httpStatus: status) {
+      throw rejection
+    }
+
+    switch status {
+    case 200:
+      break
+    case 401:
+      throw LinearAPIError.unauthorized
+    case 403 where isPinnedQueueRequest:
+      throw LinearAPIError.graphQL(["Linear denied access to the requested scope"])
+    case 429:
+      throw LinearAPIError.rateLimited
+    default:
+      throw LinearAPIError.network("HTTP \(status)")
     }
   }
 
