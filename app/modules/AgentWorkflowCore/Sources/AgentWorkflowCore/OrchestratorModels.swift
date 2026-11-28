@@ -194,6 +194,8 @@ public enum OrchestratorRunAttention: String, Codable, Sendable {
   case sourceUnavailable
   case sourceAuthenticationRequired
   case reconciliationRequired
+  case worktreeApprovalRequired
+  case providerUnavailable
 }
 
 /// The approved queue is distinct from the tracker account used to claim an issue.
