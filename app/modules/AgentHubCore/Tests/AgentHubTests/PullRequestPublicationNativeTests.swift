@@ -57,18 +57,8 @@ struct PullRequestPublicationNativeTests {
 
   @Test("The native review sheet presents full commit IDs in both themes")
   func captureReviewSheet() async throws {
-    let repository = GitHubRepositoryIdentity(owner: "fixture", repository: "workbench")
-    let origin = SessionLaunchOrigin(
-      source: .linear, accountID: "fixture-account", sourceID: "fixture-ticket",
-      key: "FIX-42", title: "Review the branch and commits before opening GitHub", publicationRepository: repository)
-    let session = CLISession(
-      id: "fixture", projectPath: "/fixture", branchName: "codex/fixture-publication")
-    let target = GitHubPRObservationTarget.currentBranch(
-      projectPath: session.projectPath, branchName: session.branchName)
     for scheme in [ColorScheme.light, .dark] {
-      let review = CreatePullRequestAction(
-        session: session, provider: .codex, title: "Fixture", origin: origin,
-        service: ReviewFixtureService(), observation: nil, target: target)
+      let review = makeReview(service: ReviewFixtureService())
       await review.prepare()
       #expect(review.phase == .reviewing)
       let content = PullRequestReviewSheet(model: review)
@@ -99,11 +89,84 @@ struct PullRequestPublicationNativeTests {
     }
   }
 
+  @Test("Rechecking and publishing show progress while the reviewed scope is retained")
+  func progressWithReviewedScope() async {
+    let service = ReviewFixtureService()
+    let review = makeReview(service: service)
+    let sheet = PullRequestReviewSheet(model: review)
+    await review.prepare()
+    #expect(sheet.progressMessage == nil)
+
+    await confirmation("Checks show progress") { checking in
+      service.onPrepare = {
+        #expect(review.phase == .checking)
+        #expect(review.plan != nil)
+        #expect(sheet.progressMessage == "Checking the branch on GitHub…")
+        checking()
+      }
+      await review.check()
+      service.onPrepare = nil
+    }
+
+    await confirmation("Publishing shows progress") { publishing in
+      service.onPublish = {
+        #expect(review.phase == .publishing)
+        #expect(review.plan != nil)
+        #expect(sheet.progressMessage == "Checking the reviewed commits…")
+        publishing()
+      }
+      await review.publish()
+      service.onPublish = nil
+    }
+    #expect(sheet.progressMessage == nil)
+  }
+
+  @Test("The review sheet only uses ready checks for the verified PR head")
+  func checksMatchVerifiedHead() throws {
+    let url = try #require(URL(string: "https://github.com/fixture/workbench/pull/4"))
+    let request = GitHubPublishedPullRequest(
+      number: 4, url: url, head: "verified", branch: "feature", base: "main", baseOID: "base")
+
+    func snapshot(head: String?, state: GitHubPRObservationState = .ready) -> GitHubPRObservationSnapshot {
+      let observed = GitHubPullRequest(
+        number: request.number, title: "Fixture", body: nil, state: "OPEN", url: url.absoluteString,
+        headRefName: request.branch, headRefOid: head, baseRefName: request.base, author: nil,
+        createdAt: nil, updatedAt: nil, isDraft: true, mergeable: nil, additions: 0,
+        deletions: 0, changedFiles: 0, reviewDecision: nil, statusCheckRollup: nil,
+        labels: nil, reviewRequests: nil, comments: nil)
+      return GitHubPRObservationSnapshot(
+        target: .currentBranch(projectPath: "/fixture", branchName: request.branch), pullRequest: observed,
+        checks: [], state: state, lastRefreshedAt: Date(timeIntervalSince1970: 1))
+    }
+
+    let matching = snapshot(head: request.head)
+    #expect(PullRequestReviewSheet.currentChecks(matching, for: request) == matching.ciSummary)
+    #expect(PullRequestReviewSheet.currentChecks(snapshot(head: "previous"), for: request) == nil)
+    #expect(PullRequestReviewSheet.currentChecks(snapshot(head: nil), for: request) == nil)
+    #expect(PullRequestReviewSheet.currentChecks(snapshot(head: request.head, state: .error("Offline")), for: request) == nil)
+  }
+
+  private func makeReview(service: ReviewFixtureService) -> CreatePullRequestAction {
+    let repository = GitHubRepositoryIdentity(owner: "fixture", repository: "workbench")
+    let origin = SessionLaunchOrigin(
+      source: .linear, accountID: "fixture-account", sourceID: "fixture-ticket",
+      key: "FIX-42", title: "Review the branch and commits before opening GitHub", publicationRepository: repository)
+    let session = CLISession(
+      id: "fixture", projectPath: "/fixture", branchName: "codex/fixture-publication")
+    return CreatePullRequestAction(
+      session: session, provider: .codex, title: "Fixture", origin: origin,
+      service: service, observation: nil,
+      target: .currentBranch(projectPath: session.projectPath, branchName: session.branchName))
+  }
 }
 
+@MainActor
+private final class ReviewFixtureService: PullRequestPublicationServiceProtocol {
+  var onPrepare: (() -> Void)?
+  var onPublish: (() -> Void)?
 
-private struct ReviewFixtureService: PullRequestPublicationServiceProtocol {
   func prepare(_ context: PullRequestContext) async throws -> PullRequestPreparation {
+    onPrepare?()
     let repository = GitHubRepositoryIdentity(owner: "fixture", repository: "workbench")
     let checkout = PullRequestCheckout(
       root: context.projectPath, remote: repository,
@@ -119,7 +182,10 @@ private struct ReviewFixtureService: PullRequestPublicationServiceProtocol {
     (context, try await prepare(context))
   }
 
-  func publish(_ plan: PullRequestPublicationPlan) async throws -> PullRequestPreparation { .pending(nil) }
+  func publish(_ plan: PullRequestPublicationPlan) async throws -> PullRequestPreparation {
+    onPublish?()
+    return .pending(nil)
+  }
 
   func reopenHandoff(_ context: PullRequestContext, expectedID: UUID) async throws -> PullRequestPreparation {
     .pending(expectedID)

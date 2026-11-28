@@ -82,6 +82,8 @@ public struct GitHubReviewSourceContext: Sendable {
 }
 
 public struct GitHubReviewQuery: Codable, Equatable, Sendable {
+  public static let maximumSourceCount = 20
+
   public let account: GitHubReviewAccount
   public var sources: [GitHubReviewSource]
   public var project: GitHubReviewProject?

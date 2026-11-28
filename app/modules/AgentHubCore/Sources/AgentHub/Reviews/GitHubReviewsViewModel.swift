@@ -380,13 +380,29 @@ public final class GitHubReviewsViewModel {
     !enabledOwnerIDs.isSubset(of: Set(sourceOwners.map(\.id)))
   }
 
+  var canEnableAnotherOwner: Bool {
+    enabledOwnerIDs.count < GitHubReviewQuery.maximumSourceCount
+  }
+
+  var isAllSourcesOverLimit: Bool {
+    selectedOwnerID == nil && enabledOwnerIDs.count > GitHubReviewQuery.maximumSourceCount
+  }
+
+  var sourceLimitMessage: String {
+    let maximum = GitHubReviewQuery.maximumSourceCount
+    if isAllSourcesOverLimit {
+      return "Remove sources until \(maximum) or fewer are selected."
+    }
+    return "You can include up to \(maximum) sources. Remove one to add another."
+  }
+
   func removeUnavailableSources() {
     enabledOwnerIDs.formIntersection(Set(sourceOwners.map(\.id)))
     sourceDidChange()
   }
 
   private var currentQuery: GitHubReviewQuery? {
-    guard let sourceAccount, !selectedSources.isEmpty,
+    guard let sourceAccount, !selectedSources.isEmpty, !isAllSourcesOverLimit,
       selectedOwnerID != nil || !hasUnavailableSources,
       selectedProjectID == nil || (selectedProject != nil && selectedView != nil)
     else { return nil }
@@ -405,7 +421,10 @@ public final class GitHubReviewsViewModel {
   }
 
   public func setOwnerEnabled(_ id: String, enabled: Bool) {
-    guard sourceOwners.contains(where: { $0.id == id }) else { return }
+    guard sourceOwners.contains(where: { $0.id == id }),
+      enabled != enabledOwnerIDs.contains(id),
+      !enabled || canEnableAnotherOwner
+    else { return }
     if enabled { enabledOwnerIDs.insert(id) } else { enabledOwnerIDs.remove(id) }
     sourceDidChange()
   }

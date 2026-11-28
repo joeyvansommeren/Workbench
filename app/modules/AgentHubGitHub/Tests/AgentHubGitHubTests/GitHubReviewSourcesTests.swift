@@ -13,6 +13,22 @@ struct GitHubReviewSourcesTests {
     GitHubReviewOwner(account: account, nodeID: "O1", login: "acme", isPersonal: false)
   }
 
+  @Test("A review query above the source limit makes no GitHub requests")
+  func rejectsOversizedQuery() async {
+    let runner = SourceRunner([])
+    let service = GitHubProjectReviewService(runSourceCommand: { try await runner.run($0) })
+    let sources = (0...GitHubReviewQuery.maximumSourceCount).map { index in
+      GitHubReviewSource.owner(
+        GitHubReviewOwner(
+          account: account, nodeID: "org-\(index)", login: "org-\(index)", isPersonal: false))
+    }
+    await #expect(throws: GitHubReviewSourceError.invalidSource) {
+      try await service.listPullRequests(
+        query: GitHubReviewQuery(account: account, sources: sources), limit: 300)
+    }
+    #expect(await runner.commands.isEmpty)
+  }
+
   @Test("Personal drafts outside Projects survive; duplicate pages deduplicate")
   func draftsAndPages() async throws {
     let runner = SourceRunner([

@@ -45,6 +45,9 @@ private final class HealthURLProtocol: URLProtocol, @unchecked Sendable {
     client?.urlProtocolDidFinishLoading(self)
   }
   private func responseURL(for url: URL) -> URL {
+    if url.path == "/origin" {
+      return URL(string: "\(url.scheme!.lowercased())://localhost/origin/")!
+    }
     let changedDestination =
       url.path == "/redirected"
       || (url.path == "/fallback-redirect" && request.httpMethod == "GET")
@@ -139,6 +142,18 @@ struct ResultHealthServiceTests {
     #expect(await service.isReachable(URL(string: "http://localhost:3000/docs")!))
     #expect(await service.isReachable(URL(string: "http://localhost:3000/guide/")!))
     #expect(await service.isReachable(URL(string: "http://localhost:3000/slash-fallback")!))
+  }
+
+  @Test func canonicalHTTPOriginsKeepTheRequestedRoute() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [HealthURLProtocol.self]
+    let service = ResultHealthService(configuration: configuration)
+    for url in ["http://LOCALHOST:80/origin", "https://LOCALHOST:443/origin"] {
+      #expect(await service.status(of: URL(string: url)!) == .reachable)
+    }
+    let changedPort = URL(string: "http://localhost:8080/origin")!
+    let redirected = URL(string: "http://localhost/origin/")!
+    #expect(await service.status(of: changedPort) == .redirected(redirected))
   }
 
   @Test func trailingSlashRedirectWithAChangedQueryIsAnotherRoute() async {

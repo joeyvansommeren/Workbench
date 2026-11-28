@@ -210,7 +210,16 @@ struct PullRequestPublicationTests {
     #expect(ReviewedPullRequestGit.safeRemote("https://github.com/owner/project")?.owner == "owner")
     #expect(ReviewedPullRequestGit.safeRemote("https://token@github.com/owner/project") == nil)
     #expect(ReviewedPullRequestGit.safeRemote("https://github.com/owner/project/other") == nil)
-    #expect(ReviewedPullRequestGit.safeRemote("ssh://other.example/owner/project") == nil)
+    #expect(ReviewedPullRequestGit.safeRemote("ssh://git@github.com/owner/project.git")
+      == GitHubRepositoryIdentity(owner: "owner", repository: "project"))
+    for url in [
+      "ssh://git@other.example/owner/project", "ssh://user@github.com/owner/project",
+      "ssh://git:password@github.com/owner/project", "ssh://git@github.com:2222/owner/project",
+      "ssh://git@github.com/owner/project/extra", "ssh://git@github.com/owner/project?option",
+      "ssh://git@github.com/owner/project#fragment",
+    ] {
+      #expect(ReviewedPullRequestGit.safeRemote(url) == nil)
+    }
   }
 
   @Test("Migration v26 preserves v25 session metadata and the Linear queue transition journal")

@@ -66,7 +66,7 @@ extension GitHubProjectReviewService {
   public func listPullRequests(query: GitHubReviewQuery, limit: Int) async throws
     -> GitHubReviewQueue
   {
-    guard !query.sources.isEmpty, query.sources.count <= 20,
+    guard !query.sources.isEmpty, query.sources.count <= GitHubReviewQuery.maximumSourceCount,
       query.sources.allSatisfy({
         $0.owner.account == query.account
           && Self.validIdentifier($0.owner.login)

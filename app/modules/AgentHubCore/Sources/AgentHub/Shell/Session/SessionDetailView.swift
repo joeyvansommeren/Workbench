@@ -443,7 +443,7 @@ private struct SessionDetailContent: View {
 
   private func performPublicationAction() {
     switch publicationSuggestion {
-    case .reviewChanges: stateModel.setShowsResult(true, for: item.id)
+    case .reviewChanges: setResultVisibility(true)
     case .reviewCommit: commitChanges()
     case .create, .checkPublication: createPullRequest()
     case .open, .checks, .feedback:
@@ -459,14 +459,20 @@ private struct SessionDetailContent: View {
     if !shellModel.sidePanelVisible { shellModel.toggleSidePanel() }
   }
 
+  private func setResultVisibility(_ showsResult: Bool) {
+    if showsResult { isSidePanelExpanded = false }
+    stateModel.setShowsResult(showsResult, for: item.id)
+  }
+
   private func performProgressAction() {
     switch progress.action {
     case .answer, .permission, .notRunning:
+      isSidePanelExpanded = false
       contentModeBinding.wrappedValue = .terminal
     case .readResponse:
       openTranscript()
     case .reviewChanges:
-      stateModel.setShowsResult(true, for: item.id)
+      setResultVisibility(true)
     case .checkFailure: openGitHubPanel()
     case .unavailable:
       viewModel.refreshProgressMonitoring(session)
@@ -488,7 +494,7 @@ private struct SessionDetailContent: View {
         contentMode: contentModeBinding,
         showsResult: item.isPending ? nil : stateModel.showsResult(for: item.id),
         onToggleResult: {
-          stateModel.setShowsResult(!stateModel.showsResult(for: item.id), for: item.id)
+          setResultVisibility(!stateModel.showsResult(for: item.id))
         },
         isSidePanelVisible: shellModel.sidePanelVisible,
         onToggleSidePanel: shellModel.toggleSidePanel,

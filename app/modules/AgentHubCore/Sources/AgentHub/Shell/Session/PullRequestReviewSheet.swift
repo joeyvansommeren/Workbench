@@ -15,6 +15,10 @@ struct PullRequestReviewSheet: View {
       Text("Review pull request")
         .wbText(.title3)
         .accessibilityAddTraits(.isHeader)
+      if let progressMessage {
+        ProgressView(progressMessage)
+          .accessibilityIdentifier("session.pr.progress")
+      }
       ScrollView {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
           if let plan = model.plan {
@@ -39,6 +43,14 @@ struct PullRequestReviewSheet: View {
       }
     }
     .interactiveDismissDisabled(model.phase == .publishing)
+  }
+
+  var progressMessage: String? {
+    switch model.phase {
+    case .preparing, .checking: "Checking the branch on GitHub…"
+    case .publishing: "Checking the reviewed commits…"
+    default: nil
+    }
   }
 
   private func scope(_ plan: PullRequestPublicationPlan) -> some View {
@@ -88,10 +100,8 @@ struct PullRequestReviewSheet: View {
 
   @ViewBuilder private var status: some View {
     switch model.phase {
-    case .preparing, .checking:
-      ProgressView("Checking the branch on GitHub…")
-    case .publishing:
-      ProgressView("Checking the reviewed commits…")
+    case .preparing, .checking, .publishing, .reviewing:
+      EmptyView()
     case .pending:
       Text("GitHub has not confirmed a pull request for the reviewed commits.")
         .accessibilityFocused($statusFocused)
@@ -121,25 +131,29 @@ struct PullRequestReviewSheet: View {
       }
     case .confirmingRepository(let repository):
       repositoryConfirmation("\(repository.owner)/\(repository.repository)")
-    case .reviewing:
-      EmptyView()
     }
   }
 
   @ViewBuilder private func checks(for request: GitHubPublishedPullRequest) -> some View {
-    if let snapshot = observationSnapshot, snapshot.state == .ready,
-      let observed = snapshot.pullRequest, observed.number == request.number,
-      observed.url == request.url.absoluteString
-    {
-      let summary = snapshot.ciSummary
+    if let summary = Self.currentChecks(observationSnapshot, for: request) {
       if summary.total == 0 {
         Text("GitHub has reported no checks yet.")
           .foregroundStyle(Color.wbTextSecondary)
       } else {
         LabeledContent("GitHub checks", value: "\(summary.passed) passed, \(summary.failed) failed, \(summary.pending) pending")
-        Link("View checks on GitHub", destination: request.url.appendingPathComponent("checks"))
       }
     }
+    Link("View checks on GitHub", destination: request.url.appendingPathComponent("checks"))
+  }
+
+  static func currentChecks(_ snapshot: GitHubPRObservationSnapshot?, for request: GitHubPublishedPullRequest)
+    -> GitHubCISummary?
+  {
+    guard let snapshot, snapshot.state == .ready, let observed = snapshot.pullRequest,
+      observed.number == request.number, observed.url == request.url.absoluteString,
+      observed.headRefOid == request.head
+    else { return nil }
+    return snapshot.ciSummary
   }
 
   private func repositoryScope(
@@ -189,7 +203,7 @@ struct PullRequestReviewSheet: View {
         Button("Check GitHub") { Task { await model.check() } }
           .buttonStyle(WBPrimaryButtonStyle())
       } else if model.canPublish || model.phase == .reviewing || model.phase == .publishing {
-        Button(model.phase == .publishing ? "Checking the branch…" : "Continue on GitHub") {
+        Button("Continue on GitHub") {
           Task {
             await model.publish()
             if case .handoff(let handoff) = model.phase { openURL(handoff.destination) }

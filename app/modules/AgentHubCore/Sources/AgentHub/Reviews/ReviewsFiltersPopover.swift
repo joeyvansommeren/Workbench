@@ -106,6 +106,10 @@ struct ReviewsFiltersPopover: View {
         Button("Remove unavailable sources") { viewModel.removeUnavailableSources() }
       }
       field("Included in All selected sources") {
+        if !viewModel.canEnableAnotherOwner {
+          Text(viewModel.sourceLimitMessage)
+            .font(.caption).foregroundStyle(.secondary)
+        }
         ScrollView {
           VStack(alignment: .leading) {
             ForEach(viewModel.sourceOwners) { owner in
@@ -114,6 +118,7 @@ struct ReviewsFiltersPopover: View {
                 isOn: Binding(
                   get: { viewModel.enabledOwnerIDs.contains(owner.id) },
                   set: { viewModel.setOwnerEnabled(owner.id, enabled: $0) }))
+              .disabled(!viewModel.canEnableAnotherOwner && !viewModel.enabledOwnerIDs.contains(owner.id))
             }
           }
         }

@@ -380,7 +380,11 @@ struct GitHubReviewsView: View {
 
   @ViewBuilder
   private func content(rows: [GitHubReviewTableRow]) -> some View {
-    if let recoveryIssue = viewModel.recoveryIssue, viewModel.pullRequests.isEmpty {
+    if viewModel.isAllSourcesOverLimit {
+      ContentUnavailableView(
+        "Too many review sources", systemImage: "folder",
+        description: Text(viewModel.sourceLimitMessage))
+    } else if let recoveryIssue = viewModel.recoveryIssue, viewModel.pullRequests.isEmpty {
       recoveryContent(recoveryIssue)
     } else if viewModel.isLoadingProjects, viewModel.projects.isEmpty {
       ContentUnavailableView {

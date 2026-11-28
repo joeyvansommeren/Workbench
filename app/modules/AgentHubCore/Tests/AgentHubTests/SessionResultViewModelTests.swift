@@ -7,8 +7,13 @@ private actor ResultTestStore: SessionResultRecipeStoreProtocol, ProjectLaunchRe
   var recipe: ProjectLaunchRecipe?
   var failAtomicSave = false
   var failRecipeLoad = false
+  var failResultLoad = false
   func setFailRecipeLoad() { failRecipeLoad = true }
-  func loadSessionResults() -> [SessionResult] { results }
+  func setFailResultLoad(_ value: Bool) { failResultLoad = value }
+  func loadSessionResults() throws -> [SessionResult] {
+    if failResultLoad { throw CocoaError(.fileReadUnknown) }
+    return results
+  }
   func saveSessionResult(_ result: SessionResult) { results = [result] }
   func loadProjectLaunchRecipe(repositoryPath: String) throws -> ProjectLaunchRecipe? {
     if failRecipeLoad { throw CocoaError(.fileReadUnknown) }
@@ -32,6 +37,26 @@ private struct ResultTestSource: ResultSourceInspecting {
 
 @MainActor
 struct SessionResultViewModelTests {
+  @Test func savedResultIsAvailableAfterRetryingAFailedRead() async {
+    let store = ResultTestStore()
+    let library = SessionResultLibrary(store: store)
+    var result = SessionResult(provider: .claude, sessionID: "saved", projectPath: "/tmp/work")
+    result.destination = "http://localhost:3000/saved"
+    await store.saveSessionResult(result)
+    await store.setFailResultLoad(true)
+
+    await library.load()
+    #expect(!library.isLoaded)
+    #expect(library.loadError != nil)
+    #expect(library.records[result.id] == nil)
+
+    await store.setFailResultLoad(false)
+    await library.load()
+    #expect(library.isLoaded)
+    #expect(library.loadError == nil)
+    #expect(library.records[result.id]?.destination == result.destination)
+  }
+
   @Test func recipeAndResultUpdateOnlyAfterAtomicSaveSucceeds() async throws {
     let store = ResultTestStore()
     let library = SessionResultLibrary(store: store)

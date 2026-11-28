@@ -44,10 +44,11 @@ enum PullRequestDetailPresentation {
   /// Open / Merged / Closed, Draft, then the review decision.
   static func stateTags(for pullRequest: GitHubPullRequest) -> [ReviewsTag] {
     var tags: [ReviewsTag] = []
-    switch pullRequest.state.uppercased() {
-    case "MERGED": tags.append(ReviewsTag(text: "Merged", tone: .working, kind: .state))
-    case "CLOSED": tags.append(ReviewsTag(text: "Closed", tone: .error, kind: .state))
-    default: tags.append(ReviewsTag(text: "Open", tone: .neutral, kind: .state))
+    switch pullRequest.stateKind {
+    case .merged: tags.append(ReviewsTag(text: "Merged", tone: .working, kind: .state))
+    case .closed: tags.append(ReviewsTag(text: "Closed", tone: .error, kind: .state))
+    case .open: tags.append(ReviewsTag(text: "Open", tone: .neutral, kind: .state))
+    case .unknown: tags.append(ReviewsTag(text: "State unavailable", tone: .neutral, kind: .state))
     }
     if pullRequest.isDraft {
       tags.append(ReviewsTag(text: "Draft", tone: .neutral, kind: .draft))

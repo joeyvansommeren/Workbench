@@ -685,7 +685,11 @@ private struct ReviewsQueueContent<Table: View>: View {
 
   @ViewBuilder
   private var content: some View {
-    if let issue = viewModel.recoveryIssue, viewModel.pullRequests.isEmpty {
+    if viewModel.isAllSourcesOverLimit {
+      state("folder", title: "Too many review sources", description: viewModel.sourceLimitMessage) {
+        Button("Open Filters", action: onOpenFilters).buttonStyle(.wbSecondary)
+      }
+    } else if let issue = viewModel.recoveryIssue, viewModel.pullRequests.isEmpty {
       recoveryState(issue)
     } else if viewModel.isLoadingProjects, viewModel.projects.isEmpty {
       WBLoadingState("Loading pull requests")

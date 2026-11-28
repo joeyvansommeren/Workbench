@@ -61,10 +61,13 @@ actor ResultHealthService: ResultHealthChecking {
   /// A trailing slash is the server's spelling of one route. Any other change is another page.
   private static func isSameRoute(_ finalURL: URL, as requestedURL: URL) -> Bool {
     guard let final = URLComponents(url: finalURL, resolvingAgainstBaseURL: false),
-      let requested = URLComponents(url: requestedURL, resolvingAgainstBaseURL: false)
+      let requested = URLComponents(url: requestedURL, resolvingAgainstBaseURL: false),
+      let scheme = requested.scheme?.lowercased()
     else { return false }
-    return final.scheme == requested.scheme && final.host == requested.host
-      && final.port == requested.port
+    let defaultPort = ["http": 80, "https": 443][scheme]
+    return final.scheme?.lowercased() == scheme
+      && final.host?.lowercased() == requested.host?.lowercased()
+      && (final.port ?? defaultPort) == (requested.port ?? defaultPort)
       && final.percentEncodedUser == requested.percentEncodedUser
       && final.percentEncodedPassword == requested.percentEncodedPassword
       && final.percentEncodedQuery == requested.percentEncodedQuery

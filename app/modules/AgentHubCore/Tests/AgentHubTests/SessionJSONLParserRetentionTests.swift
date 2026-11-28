@@ -21,6 +21,41 @@ struct SessionJSONLParserRetentionTests {
     #expect(result.lastAssistantMessage == "Implementation complete.\nAll tests pass.")
   }
 
+  @Test("A string prompt clears prior response readiness before the next tool runs")
+  func startsTurnFromStringPrompt() {
+    let firstTurn = [
+      #"{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":[{"type":"text","text":"Review the fixture."}]}}"#,
+      #"{"type":"assistant","timestamp":"2026-01-01T00:00:01Z","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Reviewed."}]}}"#,
+    ]
+    let metadata = [
+      #"{"type":"user","timestamp":"2026-01-01T00:00:02Z","isMeta":true,"message":{"role":"user","content":"Hook output"}}"#,
+      #"{"type":"user","timestamp":"2026-01-01T00:00:02Z","isCompactSummary":true,"message":{"role":"user","content":"Previously in this session"}}"#,
+      #"{"type":"user","timestamp":"2026-01-01T00:00:02Z","message":{"role":"user","content":"<task-notification>Completed.</task-notification>"}}"#,
+      #"{"type":"user","timestamp":"2026-01-01T00:00:02Z","message":{"role":"user","content":{"text":"Malformed input"}}}"#,
+    ]
+    let prompt = #"{"type":"user","timestamp":"2026-01-01T00:00:03Z","message":{"role":"user","content":"Read the next fixture."}}"#
+    let tool = #"{"type":"assistant","timestamp":"2026-01-01T00:00:04Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","name":"Read","id":"read-1","input":{"file_path":"fixture.txt"}}]}}"#
+    var result = SessionJSONLParser.ParseResult()
+    SessionJSONLParser.parseNewLines(firstTurn + metadata, into: &result)
+    #expect(result.currentStatus == .responseReady)
+    #expect(result.messageCount == 2)
+    let completedAt = result.turnProgress.lastCompletedAt
+
+    SessionJSONLParser.parseNewLines([prompt], into: &result)
+    let promptedAt = Date(timeIntervalSince1970: 1_767_225_603)
+    SessionJSONLParser.updateCurrentStatus(&result, now: promptedAt)
+    #expect(result.currentStatus == .thinking)
+    #expect(result.turnProgress.startedAt == promptedAt)
+    #expect(result.recentActivities.last?.type == .userMessage)
+    #expect(result.recentActivities.last?.description == "Read the next fixture.")
+
+    SessionJSONLParser.parseNewLines([tool], into: &result)
+    SessionJSONLParser.updateCurrentStatus(&result, now: promptedAt.addingTimeInterval(1))
+    #expect(result.currentStatus == .executingTool(name: "Read"))
+    #expect(result.turnProgress.phase == .working)
+    #expect(result.turnProgress.lastCompletedAt == completedAt)
+  }
+
   @Test("Treats Claude AskUserQuestion as input instead of approval")
   func detectsClaudeUserQuestion() {
     let timestamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-600))
