@@ -333,6 +333,55 @@ struct GitHubReviewSourceViewModelTests {
     #expect(model.pullRequests.map(\.id) == ["personal-draft"])
   }
 
+  @Test("An oversized saved selection can be reduced, and adding stops at the source limit")
+  func repairsOversizedMembership() async throws {
+    let service = ReviewSourceStub()
+    let store = SourceWorkspaceStore()
+    let maximum = GitHubReviewQuery.maximumSourceCount
+    let owners = (0..<(maximum + 3)).map { index in
+      GitHubReviewOwner(
+        account: service.account, nodeID: "org-\(index)", login: "org-\(index)", isPersonal: false)
+    }
+    service.additionalOwners = owners
+    try await store.saveReviewWorkspace(
+      GitHubReviewWorkspace(
+        account: service.account, selectedOwnerID: nil,
+        enabledOwnerIDs: Set(owners.prefix(maximum + 2).map(\.id)), repositoryName: "",
+        ownerLabels: [:], projectID: nil, viewID: nil, queues: [:]))
+
+    let model = GitHubReviewsViewModel(
+      service: service, sessionStore: store, userDefaults: defaults())
+    await model.load()
+    #expect(model.isAllSourcesOverLimit)
+    #expect(!model.canEnableAnotherOwner)
+    #expect(service.queueCalls == 0)
+
+    model.setOwnerEnabled(owners[maximum + 1].id, enabled: false)
+    await model.sourceRefreshTask?.value
+    #expect(model.isAllSourcesOverLimit)
+    #expect(service.queueCalls == 0)
+    let saved = await store.waitForSave(after: 1)
+    #expect(saved.enabledOwnerIDs.count == maximum + 1)
+
+    model.setOwnerEnabled(owners[maximum].id, enabled: false)
+    await model.sourceRefreshTask?.value
+    #expect(!model.isAllSourcesOverLimit)
+    #expect(model.selectedSources.count == maximum)
+    #expect(service.queueCalls == 1)
+
+    let revisionAtLimit = model.sourceRevision
+    model.setOwnerEnabled(owners[maximum + 2].id, enabled: true)
+    #expect(!model.enabledOwnerIDs.contains(owners[maximum + 2].id))
+    #expect(model.sourceRevision == revisionAtLimit)
+
+    model.setOwnerEnabled(owners[0].id, enabled: false)
+    #expect(model.canEnableAnotherOwner)
+    model.setOwnerEnabled(owners[maximum + 2].id, enabled: true)
+    await model.sourceRefreshTask?.value
+    #expect(model.enabledOwnerIDs.contains(owners[maximum + 2].id))
+    #expect(model.selectedSources.count == maximum)
+  }
+
   @Test("Optional Project permissions cannot block owner repositories")
   func optionalProjectPermission() async {
     let service = ReviewSourceStub()
@@ -494,6 +543,7 @@ private final class ReviewSourceStub: GitHubProjectReviewServiceProtocol, @unche
   var error: Error?
   var projectError: Error?
   var availableProjects: [GitHubReviewProject] = []
+  var additionalOwners: [GitHubReviewOwner] = []
   var pauseAccountValidation = false
   var accountContinuation: CheckedContinuation<GitHubReviewAccount, Never>?
   var delayPersonal = false
@@ -507,7 +557,7 @@ private final class ReviewSourceStub: GitHubProjectReviewServiceProtocol, @unche
     GitHubReviewOwner(account: account, nodeID: "O1", login: "acme", isPersonal: false)
   }
   func reviewSourceContext() async throws -> GitHubReviewSourceContext {
-    GitHubReviewSourceContext(account: account, owners: [personal, company])
+    GitHubReviewSourceContext(account: account, owners: [personal, company] + additionalOwners)
   }
   func reviewAccount() async throws -> GitHubReviewAccount {
     if pauseAccountValidation {

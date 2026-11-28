@@ -28,6 +28,13 @@ struct PullRequestDetailPresentationTests {
     #expect(PullRequestDetailPresentation.reviewDecisionTag("REVIEW_REQUIRED")?.tone == .attention)
   }
 
+  @Test func unknownStateIsShownAsUnavailable() throws {
+    let unknown = try pullRequest(state: "UNRECOGNIZED", isDraft: false, decision: nil)
+    #expect(PullRequestDetailPresentation.stateTags(for: unknown) == [
+      ReviewsTag(text: "State unavailable", tone: .neutral, kind: .state)
+    ])
+  }
+
   @Test("Emoji decoration does not duplicate a review decision")
   func decoratedProjectStatusMatchesDecision() throws {
     let detail = try pullRequest(state: "OPEN", isDraft: false, decision: "CHANGES_REQUESTED")

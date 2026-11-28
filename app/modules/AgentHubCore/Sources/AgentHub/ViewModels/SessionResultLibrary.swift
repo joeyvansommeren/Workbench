@@ -5,18 +5,21 @@ import Foundation
 final class SessionResultLibrary {
   private(set) var records: [String: SessionResult] = [:]
   private(set) var loadError: String?
-  private var loaded = false
+  private(set) var isLoaded = false
+  private(set) var isLoading = false
   private let store: (any SessionResultStoreProtocol)?
 
   init(store: (any SessionResultStoreProtocol)?) { self.store = store }
 
   func load() async {
-    guard !loaded else { return }
+    guard !isLoaded, !isLoading else { return }
     guard let store else { loadError = ResultLaunchError.unavailableStore.localizedDescription; return }
+    isLoading = true
+    defer { isLoading = false }
     do {
       let results = try await store.loadSessionResults()
       records.merge(Dictionary(uniqueKeysWithValues: results.map { ($0.id, $0) })) { current, _ in current }
-      loaded = true
+      isLoaded = true
       loadError = nil
     } catch { loadError = error.localizedDescription }
   }

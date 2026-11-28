@@ -6,7 +6,7 @@
 //  `SessionSidePanel` + `DiffHunk`): a flat file list, then the selected
 //  file's hunks at full panel width. Code clips sideways inside a horizontal
 //  scroll per hunk instead of wrapping. The full `GitDiffView` stays one
-//  click away ("Show full diff").
+//  click away ("Expand diff").
 //
 
 import AgentHubGitDiff
@@ -31,20 +31,16 @@ struct SidePanelDiffView: View {
   @State private var isFileListExpanded = false
 
   var body: some View {
-    Group {
+    VStack(alignment: .leading, spacing: 0) {
+      listHeader
       switch model.listState {
       case .loading:
-        ProgressView()
+        ProgressView("Loading changes…")
           .controlSize(.small)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       case .failed(let message):
-        // The header stays, so a mode that fails (Branch without a base) can
-        // be switched back, or the full diff opened.
-        VStack(spacing: 0) {
-          listHeader
-          WBEmptyState(systemImage: "exclamationmark.triangle", isError: true, title: "Can't load the diff", description: message)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        WBEmptyState(systemImage: "exclamationmark.triangle", isError: true, title: "Can't load the diff", description: message)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       case .loaded:
         loadedContent
       }
@@ -53,20 +49,18 @@ struct SidePanelDiffView: View {
     .task(id: model.fileLoadKey) { await model.loadSelectedFileDiff() }
   }
 
+  @ViewBuilder
   private var loadedContent: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      listHeader
-      if model.files.isEmpty {
-        WBEmptyState(systemImage: "plusminus", title: "No changes")
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        fileList
-        ScrollView(.vertical) {
-          SidePanelFileDiffBody(state: model.fileDiff, onShowFullDiff: onShowFullDiff)
-            .padding(.bottom, DesignTokens.Spacing.lg)
-        }
-        .frame(minHeight: DesignTokens.Size.row * 2, maxHeight: .infinity)
+    if model.files.isEmpty {
+      WBEmptyState(systemImage: "plusminus", title: "No changes")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else {
+      fileList
+      ScrollView(.vertical) {
+        SidePanelFileDiffBody(state: model.fileDiff, onShowFullDiff: onShowFullDiff)
+          .padding(.bottom, DesignTokens.Spacing.lg)
       }
+      .frame(minHeight: DesignTokens.Size.row * 2, maxHeight: .infinity)
     }
   }
 

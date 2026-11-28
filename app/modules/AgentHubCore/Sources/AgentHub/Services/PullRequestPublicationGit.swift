@@ -96,9 +96,8 @@ struct ReviewedPullRequestGit: PullRequestPublicationGit {
   }
 
   static func safeRemote(_ url: String) -> GitHubRepositoryIdentity? {
-    let prefix = "git@github.com:"
     let path: String
-    if url.hasPrefix(prefix) {
+    if let prefix = ["git@github.com:", "ssh://git@github.com/"].first(where: url.hasPrefix) {
       path = String(url.dropFirst(prefix.count))
     } else if let parsed = URLComponents(string: url), parsed.scheme == "https",
       parsed.host == "github.com", parsed.user == nil, parsed.password == nil,

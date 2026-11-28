@@ -62,9 +62,14 @@ struct SessionResultView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
         header
-        if let result { definition(result) }
-        else { unrecordedResult }
-        if let error = model.error ?? library.loadError {
+        if !library.isLoaded {
+          libraryStatus
+        } else if let result {
+          definition(result)
+        } else {
+          unrecordedResult
+        }
+        if library.isLoaded, let error = model.error {
           Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
           VStack(alignment: .leading, spacing: 10) {
             Button("Retry opening result") {
@@ -75,7 +80,7 @@ struct SessionResultView: View {
             Button("Edit launch recipe") { editing = true }
           }
         }
-        if let destination = model.restartDestination {
+        if library.isLoaded, let destination = model.restartDestination {
           Button("Restart Workbench server") {
             Task { await model.open(result: result ?? draft, destination: destination, restart: true) }
           }
@@ -138,7 +143,30 @@ struct SessionResultView: View {
         Text("Agent or saved destination. Check its route, state and version.").font(.caption).foregroundStyle(.secondary)
       }
       Button("Record or edit result") { editing = true }
+      pullRequestChecks
+    }
+  }
+
+  @ViewBuilder
+  private var libraryStatus: some View {
+    if let error = library.loadError {
+      Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+      Button(library.isLoading ? "Loading saved result…" : "Reload saved result") {
+        Task { await library.load() }
+      }
+      .disabled(library.isLoading)
+    } else {
+      ProgressView("Loading saved result…").controlSize(.small)
+    }
+  }
+
+  private var pullRequestChecks: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+      Text("Pull request CI").font(.headline)
       Text(attentionModel.checksLabel(for: key)).font(.callout)
+      Text("These checks cover the pull request. The local result may include different changes.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
   }
 
@@ -147,7 +175,8 @@ struct SessionResultView: View {
     Button("Terminal", action: onTerminal)
     Button(filesActionLabel, action: onFiles)
     Button("Checks", action: onChecks)
-    Button("Finish summary") { showingFinish = true }.disabled(agentHub == nil)
+    Button("Finish summary") { showingFinish = true }
+      .disabled(agentHub == nil || !library.isLoaded)
   }
 
   private var header: some View {
@@ -160,8 +189,10 @@ struct SessionResultView: View {
   @ViewBuilder
   private var headerContents: some View {
     Text("Result").font(.title2.weight(.semibold))
-    Button("Refresh evidence") { Task { await model.load(projectPath: session.projectPath) } }
-    if result != nil { Button("Edit result") { editing = true } }
+    if library.isLoaded {
+      Button("Refresh evidence") { Task { await model.load(projectPath: session.projectPath) } }
+      if result != nil { Button("Edit result") { editing = true } }
+    }
   }
 
   private func definition(_ result: SessionResult) -> some View {
@@ -199,7 +230,7 @@ struct SessionResultView: View {
         Text(result.kind == .native ? "Selects the exact build in Finder." : "Opens the exact destination in its app or browser.")
           .font(.caption).foregroundStyle(.secondary)
       }
-      Text(attentionModel.checksLabel(for: key)).font(.callout)
+      pullRequestChecks
       decision(result)
     }
   }

@@ -29,6 +29,7 @@ public struct SessionJSONLParser {
     let timestamp: String?
     let uuid: String?
     let message: MessageContent?
+    let stringPrompt: String?
     let costUSD: Double?
     let durationMs: Int?
     // `frame-link` entries: the artifact publish record Claude Code appends
@@ -39,6 +40,7 @@ public struct SessionJSONLParser {
 
     private enum CodingKeys: String, CodingKey {
       case type, timestamp, uuid, message, costUSD, durationMs, frameUrl, title, path
+      case isMeta, isCompactSummary
     }
 
     /// `title` and `path` are generic enough that some other entry type could
@@ -51,6 +53,15 @@ public struct SessionJSONLParser {
       timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
       uuid = try container.decodeIfPresent(String.self, forKey: .uuid)
       message = try container.decodeIfPresent(MessageContent.self, forKey: .message)
+      if type == "user", let text = message?.stringContent,
+        (try? container.decode(Bool.self, forKey: .isMeta)) != true,
+        (try? container.decode(Bool.self, forKey: .isCompactSummary)) != true
+      {
+        // The transcript hides interruption markers, but they still end an active turn.
+        stringPrompt = text == "[Request interrupted by user]" ? text : ChatTranscriptReader.cleanedUserText(text)
+      } else {
+        stringPrompt = nil
+      }
       costUSD = try container.decodeIfPresent(Double.self, forKey: .costUSD)
       durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
       frameUrl = try? container.decodeIfPresent(String.self, forKey: .frameUrl)
@@ -64,12 +75,28 @@ public struct SessionJSONLParser {
     let role: String?
     let model: String?
     let content: [ContentBlock]?
+    let stringContent: String?
     let usage: UsageInfo?
     let stopReason: String?
 
     private enum CodingKeys: String, CodingKey {
       case role, model, content, usage
       case stopReason = "stop_reason"
+    }
+
+    public init(from decoder: any Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      role = try container.decodeIfPresent(String.self, forKey: .role)
+      model = try container.decodeIfPresent(String.self, forKey: .model)
+      if role == "user", let text = try? container.decode(String.self, forKey: .content) {
+        content = nil
+        stringContent = text
+      } else {
+        content = try container.decodeIfPresent([ContentBlock].self, forKey: .content)
+        stringContent = nil
+      }
+      usage = try container.decodeIfPresent(UsageInfo.self, forKey: .usage)
+      stopReason = try container.decodeIfPresent(String.self, forKey: .stopReason)
     }
   }
 
@@ -238,6 +265,9 @@ public struct SessionJSONLParser {
   // MARK: - Private Processing
 
   private static func processEntry(_ entry: SessionEntry, into result: inout ParseResult) {
+    // Claude also writes string-form tool notifications and metadata as user entries.
+    if entry.message?.stringContent != nil, entry.stringPrompt == nil { return }
+
     // Parse timestamp
     let timestamp = parseTimestamp(entry.timestamp)
 
@@ -262,7 +292,8 @@ public struct SessionJSONLParser {
       }
 
       // Only add user message activity if there's actual text (not just tool results)
-      let textPreview = extractTextPreview(from: entry.message?.content)
+      let textPreview = entry.stringPrompt.map { String($0.prefix(80)) }
+        ?? extractTextPreview(from: entry.message?.content)
       if !textPreview.isEmpty {
         result.recordClaudeInput(textPreview, at: timestamp)
         addActivity(
